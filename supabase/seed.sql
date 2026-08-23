@@ -1,0 +1,1 @@
+-- User-owned seed data is created by the auth user trigger in the initial migration.

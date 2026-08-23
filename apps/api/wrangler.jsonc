@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "relay-api",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets",
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "relay-api",
+    },
+    {
+      "binding": "PIPELINE",
+      "service": "relay-pipeline",
+    },
+  ],
+  "vars": {
+    "NEXTJS_ENV": "production",
+  },
+  "observability": {
+    "enabled": true,
+  },
+}

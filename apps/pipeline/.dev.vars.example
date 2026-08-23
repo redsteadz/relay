@@ -1,0 +1,5 @@
+RELAY_CREDENTIAL_KEK=base64-encoded-32-byte-key
+RELAY_INGEST_SHARED_SECRET=local-development-only
+RELAY_ALLOW_LOCAL_DURABILITY=true
+SUPABASE_URL=http://127.0.0.1:55321
+SUPABASE_SERVICE_ROLE_KEY=replace-with-local-secret-key

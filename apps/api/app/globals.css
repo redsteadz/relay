@@ -1,0 +1,37 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  background: #111713;
+  color: #edf5ef;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 2rem;
+}
+
+section {
+  border: 1px solid #304037;
+  border-radius: 1rem;
+  max-width: 44rem;
+  padding: 2rem;
+}
+
+p {
+  color: #93a198;
+  line-height: 1.6;
+}
+
+code {
+  color: #b9f6cf;
+}

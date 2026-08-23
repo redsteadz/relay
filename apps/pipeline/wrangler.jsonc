@@ -1,0 +1,54 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "relay-pipeline",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+  },
+  "triggers": {
+    "crons": ["17 * * * *"],
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "INGRESS_QUEUE",
+        "queue": "relay-ingress",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "relay-ingress",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "relay-ingress-dead-letter",
+      },
+    ],
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TENANT_COORDINATOR",
+        "class_name": "TenantCoordinator",
+      },
+    ],
+  },
+  "exports": {
+    "TenantCoordinator": {
+      "type": "durable-object",
+      "storage": "sqlite",
+    },
+  },
+  "workflows": [
+    {
+      "name": "relay-action-workflow",
+      "binding": "ACTION_WORKFLOW",
+      "class_name": "ActionWorkflow",
+    },
+  ],
+  "vars": {
+    "RELAY_ENVIRONMENT": "development",
+  },
+}

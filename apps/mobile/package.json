@@ -1,0 +1,44 @@
+{
+  "name": "@relay/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "main": "expo-router/entry",
+  "scripts": {
+    "android": "expo run:android",
+    "build": "expo export --platform web",
+    "clean": "rm -rf .expo dist",
+    "dev": "expo start --dev-client",
+    "lint": "eslint app components lib modules",
+    "start": "expo start --dev-client",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "57.0.12",
+    "@relay/contracts": "workspace:*",
+    "@supabase/supabase-js": "2.112.3",
+    "expo": "57.0.15",
+    "expo-constants": "57.0.13",
+    "expo-linking": "57.0.7",
+    "expo-router": "57.0.15",
+    "expo-secure-store": "57.0.1",
+    "expo-status-bar": "57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-gesture-handler": "2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "5.7.0",
+    "react-native-screens": "4.26.0",
+    "react-native-worklets": "0.10.1",
+    "react-native-web": "0.21.2"
+  },
+  "devDependencies": {
+    "@relay/config": "workspace:*",
+    "@react-native/metro-config": "0.86.2",
+    "@types/react": "19.2.14",
+    "eslint-config-expo": "57.0.1"
+  }
+}

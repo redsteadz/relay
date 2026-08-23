@@ -1,0 +1,39 @@
+name: Bug report
+description: Reproducible Relay behavior defect using synthetic data only.
+title: "[Bug] "
+labels: ["type: bug", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Replace source content, addresses, phone numbers, IDs, and credentials with synthetic values.
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Commands, platform, and minimal sanitized fixture.
+    validations:
+      required: true
+  - type: dropdown
+    id: privacy
+    attributes:
+      label: Sensitive-data risk
+      options:
+        - None known
+        - Possible plaintext exposure
+        - Possible cross-tenant exposure
+        - Possible duplicate external effect
+        - Possible irreversible notification dismissal
+    validations:
+      required: true

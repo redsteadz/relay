@@ -1,0 +1,7 @@
+.expo
+.next
+coverage
+dist
+graphify-out
+node_modules
+pnpm-lock.yaml

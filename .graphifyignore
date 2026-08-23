@@ -1,0 +1,9 @@
+node_modules/
+.git/
+.expo/
+.next/
+.open-next/
+dist/
+coverage/
+graphify-out/
+pnpm-lock.yaml

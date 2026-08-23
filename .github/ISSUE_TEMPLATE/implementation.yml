@@ -1,0 +1,44 @@
+name: Implementation task
+description: Scoped implementation with dependencies and testable acceptance criteria.
+title: "[Area] "
+labels: ["type: feature", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste real email, notification, SMS, credentials, or tokens.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: User or system behavior this issue must produce.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Use `Depends on #123`, one per line. Write `None` when unblocked.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable, testable checklist.
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy and security impact
+      description: Data touched, trust boundaries crossed, retention, logging, and permissions.
+    validations:
+      required: true
+  - type: textarea
+    id: memory
+    attributes:
+      label: Canonical memory
+      description: Documents or ADRs this work reads or updates.
+    validations:
+      required: true

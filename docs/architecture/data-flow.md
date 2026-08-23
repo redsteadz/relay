@@ -1,0 +1,40 @@
+---
+status: accepted
+owner: architecture
+last_verified: 2026-08-24
+---
+
+# Data Flow
+
+```text
+source -> authenticated ingress -> canonical envelope -> envelope encryption -> Queue
+      -> tenant coordinator -> decrypt in memory -> durable encrypted source record
+      -> source identity dedupe -> content fingerprint dedupe
+      -> normalization -> categorization -> event extraction
+      -> deterministic filter -> optional redacted semantic decision
+      -> action proposal -> approval/automatic policy -> Workflow -> provider
+```
+
+## Delivery Semantics
+
+Cloudflare Queues are at-least-once. Every stage can repeat after timeout or deployment. Source
+identity uses provider kind, source account, and external ID. Content fingerprints catch equivalent
+payloads with different delivery IDs. Supabase unique constraints are final durable arbitration;
+Durable Objects reduce concurrent contention.
+
+Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
+and envelope ID, never raw source bodies. Coordinator acknowledges only after Supabase persistence.
+Explicit local development mode may use Durable Object storage instead, with seven-day alarms.
+
+Provider delivery uses Relay action UUID as idempotency identity. Nextcloud Budget accepts it
+directly. Webhooks transmit it for receiver dedupe. Google Tasks needs a reconciliation marker
+because Tasks insert does not provide equivalent idempotency semantics; implementation must search
+or reconcile before an ambiguous retry.
+
+## Failure Behavior
+
+Invalid input is rejected before Queue publication. Transient internal failures retry. Exhausted
+messages enter dead-letter processing with metadata and encrypted references only. Uncertain
+classification remains visible in inbox; it must not silently become an external effect.
+
+Related: [action model](action-model.md), [privacy lifecycle](../security/privacy.md).

@@ -1,0 +1,38 @@
+# Dependencies and build output
+node_modules/
+.turbo/
+.wrangler/
+*.tsbuildinfo
+.expo/
+.next/
+.open-next/
+dist/
+coverage/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+.dev.vars
+
+# Native generated projects
+apps/mobile/android/
+apps/mobile/ios/
+
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
+
+# Graphify output is generated locally and in CI
+graphify-out/
+
+# OpenCode installs project-local SDK support when inspecting config
+.opencode/package.json
+.opencode/package-lock.json
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp

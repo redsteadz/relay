@@ -1,0 +1,45 @@
+name: Graphify Memory
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "docs/**"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+
+permissions:
+  contents: read
+
+jobs:
+  graph:
+    name: Directed knowledge graph
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --disable-pip-version-check graphifyy
+      - name: Build graph
+        if: env.GEMINI_API_KEY != ''
+        run: graphify . --mode deep --directed --no-viz
+      - name: Explain missing key
+        if: env.GEMINI_API_KEY == ''
+        run: >-
+          python -c "print('Graph skipped: configure repository GEMINI_API_KEY for semantic documentation extraction.')"
+      - uses: actions/upload-artifact@v4
+        if: env.GEMINI_API_KEY != ''
+        with:
+          name: relay-knowledge-graph
+          path: |
+            graphify-out/graph.json
+            graphify-out/GRAPH_REPORT.md
+          if-no-files-found: error
+          retention-days: 14
