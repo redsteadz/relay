@@ -5,3 +5,4 @@ dist
 graphify-out
 node_modules
 pnpm-lock.yaml
+apps/api/cloudflare-env.generated.d.ts

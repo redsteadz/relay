@@ -14,7 +14,8 @@ coverage/
 .env.*
 !.env.example
 *.local
-.dev.vars
+.dev.vars*
+!.dev.vars.example
 
 # Native generated projects
 apps/mobile/android/
