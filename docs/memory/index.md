@@ -46,6 +46,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 
 - [GitHub issue dependency map](issue-map.md)
 - [Contributor workflow](../../CONTRIBUTING.md)
+- [Cloudflare environments and operations](../operations/cloudflare.md)
 
 Graphify output is generated from these documents and code. It is an index and discovery aid, not
 an authority over contracts, migrations, or accepted ADRs.

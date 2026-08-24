@@ -4,6 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-24",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
   "observability": {
     "enabled": true,
   },
@@ -50,5 +52,107 @@
   ],
   "vars": {
     "RELAY_ENVIRONMENT": "development",
+  },
+  "env": {
+    "development": {
+      "workers_dev": false,
+      "preview_urls": false,
+      "triggers": {
+        "crons": ["17 * * * *"],
+      },
+      "queues": {
+        "producers": [
+          {
+            "binding": "INGRESS_QUEUE",
+            "queue": "relay-ingress-development",
+          },
+        ],
+        "consumers": [
+          {
+            "queue": "relay-ingress-development",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "dead_letter_queue": "relay-ingress-dead-letter-development",
+          },
+        ],
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "TENANT_COORDINATOR",
+            "class_name": "TenantCoordinator",
+          },
+        ],
+      },
+      "workflows": [
+        {
+          "name": "relay-action-workflow-development",
+          "binding": "ACTION_WORKFLOW",
+          "class_name": "ActionWorkflow",
+        },
+      ],
+      "vars": {
+        "RELAY_ENVIRONMENT": "development",
+      },
+      "secrets": {
+        "required": [
+          "RELAY_CREDENTIAL_KEK_KEYRING",
+          "RELAY_INGEST_SHARED_SECRET",
+          "SUPABASE_URL",
+          "SUPABASE_SERVICE_ROLE_KEY",
+        ],
+      },
+    },
+    "production": {
+      "workers_dev": false,
+      "preview_urls": false,
+      "triggers": {
+        "crons": ["17 * * * *"],
+      },
+      "queues": {
+        "producers": [
+          {
+            "binding": "INGRESS_QUEUE",
+            "queue": "relay-ingress-production",
+          },
+        ],
+        "consumers": [
+          {
+            "queue": "relay-ingress-production",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "dead_letter_queue": "relay-ingress-dead-letter-production",
+          },
+        ],
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "TENANT_COORDINATOR",
+            "class_name": "TenantCoordinator",
+          },
+        ],
+      },
+      "workflows": [
+        {
+          "name": "relay-action-workflow-production",
+          "binding": "ACTION_WORKFLOW",
+          "class_name": "ActionWorkflow",
+        },
+      ],
+      "vars": {
+        "RELAY_ENVIRONMENT": "production",
+      },
+      "secrets": {
+        "required": [
+          "RELAY_CREDENTIAL_KEK_KEYRING",
+          "RELAY_INGEST_SHARED_SECRET",
+          "SUPABASE_URL",
+          "SUPABASE_SERVICE_ROLE_KEY",
+        ],
+      },
+    },
   },
 }

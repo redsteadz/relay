@@ -24,4 +24,44 @@
   "observability": {
     "enabled": true,
   },
+  "env": {
+    "development": {
+      "workers_dev": true,
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "relay-api-development",
+        },
+        {
+          "binding": "PIPELINE",
+          "service": "relay-pipeline-development",
+        },
+      ],
+      "vars": {
+        "NEXTJS_ENV": "production",
+      },
+      "secrets": {
+        "required": ["RELAY_INGEST_SHARED_SECRET"],
+      },
+    },
+    "production": {
+      "workers_dev": true,
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "relay-api-production",
+        },
+        {
+          "binding": "PIPELINE",
+          "service": "relay-pipeline-production",
+        },
+      ],
+      "vars": {
+        "NEXTJS_ENV": "production",
+      },
+      "secrets": {
+        "required": ["RELAY_INGEST_SHARED_SECRET"],
+      },
+    },
+  },
 }
