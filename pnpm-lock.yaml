@@ -178,6 +178,10 @@ importers:
         version: link:../config
 
   packages/crypto:
+    dependencies:
+      '@relay/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
       '@relay/config':
         specifier: workspace:*

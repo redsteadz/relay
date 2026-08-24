@@ -17,6 +17,7 @@ filter intent, financial records, calendars/tasks, and action authority.
 | ----------------------------------- | ------------------------------------------------------------------------ |
 | Cross-tenant data access            | Supabase RLS, verified user ID, repository tests with two users          |
 | Database disclosure                 | Envelope encryption, Cloudflare-held wrapping key, seven-day raw expiry  |
+| Wrapping-key loss or compromise     | Required: versioned keyring, data-key rewrap, recovery/incident runbooks |
 | Prompt injection from source        | Strict data boundary, schema output, fixed provider/rule allowlist       |
 | Queue replay                        | Source IDs, fingerprints, unique DB constraints, stable action IDs       |
 | Ambiguous provider timeout          | Provider idempotency or reconciliation before retry                      |
@@ -29,7 +30,8 @@ filter intent, financial records, calendars/tasks, and action authority.
 ## Open Risks
 
 Gmail restricted-scope verification, Google API Limited Use review, SMS distribution approval,
-provider reconciliation details, wrapping-key rotation operations, abuse/rate limits, and account
-deletion completion need tracked implementation and release issues.
+provider reconciliation details, environment secret provisioning, production wrapping-key rotation,
+abuse/rate limits, and account deletion completion need tracked implementation and release issues.
 
-Related: [system boundaries](../architecture/system.md), [MVP scope](../product/scope.md).
+Related: [key rotation](key-rotation.md), [system boundaries](../architecture/system.md), and
+[MVP scope](../product/scope.md).

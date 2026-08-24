@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
-import { ingressEnvelopeSchema } from "@relay/contracts";
-import { decryptValue } from "@relay/crypto";
+import { ingressEnvelopeSchema, ingressQueueMessageSchema } from "@relay/contracts";
+import { decryptValue, parseKekKeyring } from "@relay/crypto";
 import { contentFingerprint, sourceIdentity } from "@relay/domain";
 
 import type { Env, IngressQueueMessage } from "./env";
@@ -26,9 +26,14 @@ export class TenantCoordinator extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
-    const message = await request.json<IngressQueueMessage>();
+    const candidate = ingressQueueMessageSchema.safeParse(await request.json<unknown>());
+    if (!candidate.success) {
+      return Response.json({ accepted: false, reason: "invalid" }, { status: 400 });
+    }
+    const message: IngressQueueMessage = candidate.data;
     const context = `ingress:${message.userId}:${message.envelopeId}`;
-    const plaintext = await decryptValue(message.encrypted, this.env.RELAY_CREDENTIAL_KEK, context);
+    const keyring = parseKekKeyring(this.env.RELAY_CREDENTIAL_KEK_KEYRING);
+    const plaintext = await decryptValue(message.encrypted, keyring, context);
     const parsed = ingressEnvelopeSchema.safeParse(JSON.parse(plaintext) as unknown);
     if (!parsed.success || parsed.data.id !== message.envelopeId) {
       return Response.json({ accepted: false, reason: "invalid" }, { status: 400 });

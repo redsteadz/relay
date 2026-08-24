@@ -26,7 +26,7 @@ export async function sendDemoIngress(): Promise<{ accepted: boolean; id: string
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-relay-development-user": "00000000-0000-0000-0000-000000000001",
+      "x-relay-development-user": "00000000-0000-4000-8000-000000000001",
     },
     body: JSON.stringify(demoIngress),
   });

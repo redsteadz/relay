@@ -16,10 +16,13 @@ last_verified: 2026-08-24
 | Audit metadata                  | No raw bodies or secrets                       | Product retention policy, currently unresolved |
 | Device offline queue            | Keystore-backed encryption                     | Until acknowledged or local expiry             |
 
-Wrapping key material lives in Cloudflare secrets, never Supabase or clients. Ciphertext records
-include algorithm, nonce, wrapped data key, wrapping nonce, and key version to permit rotation.
-AES-GCM associated data binds tenant, record, purpose, and key version so ciphertext bundles cannot
-be moved between records without authentication failure.
+Production wrapping key material must live in a versioned Cloudflare secret keyring, never Supabase
+or clients. Queue bundles include algorithm; current Supabase rows imply `AES-GCM-256` and store
+nonce, wrapped data key, wrapping nonce, and KEK version. AES-GCM associated data binds tenant,
+record, and purpose to both payload and wrapped key. Payload data uses a stable format version;
+wrapped-key data binds the KEK version so rotation can rewrap only the data key without exposing
+plaintext. Runtime primitives are implemented; platform provisioning and production rotation remain
+open in issue #6.
 
 Supabase RLS isolates users. Service-role operations still bind explicit tenant identity from
 verified authentication or connector ownership. Users can inspect disclosure and action history.
@@ -28,4 +31,5 @@ OpenAI receives only semantic-clause allowlisted fields after redaction. Relay s
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and
 cannot choose tools or action configuration.
 
-Related: [threat model](threat-model.md), [filter model](../architecture/filter-model.md).
+Related: [key rotation](key-rotation.md), [threat model](threat-model.md), and
+[filter model](../architecture/filter-model.md).

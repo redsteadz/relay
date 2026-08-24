@@ -20,6 +20,9 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@relay/contracts": "workspace:*"
+  },
   "devDependencies": {
     "@relay/config": "workspace:*"
   }
