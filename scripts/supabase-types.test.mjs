@@ -26,3 +26,25 @@ test("removes hosted PostgREST metadata without changing schema types", () => {
 `,
   );
 });
+
+test("removes local PostgREST metadata without generated comments", () => {
+  const generated = `export type Database = {
+  __InternalSupabase: {
+    PostgrestVersion: "13.0.5";
+  };
+  public: {
+    Tables: {};
+  };
+};
+`;
+
+  assert.equal(
+    normalizeGeneratedTypes(generated),
+    `export type Database = {
+  public: {
+    Tables: {};
+  };
+};
+`,
+  );
+});

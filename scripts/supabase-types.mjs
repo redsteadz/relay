@@ -24,32 +24,42 @@ function run(command, args, input) {
 }
 
 export function normalizeGeneratedTypes(generated) {
-  const comment = "  // Allows to automatically instantiate createClient with right options";
+  const marker = "  __InternalSupabase: {";
   const publicSchema = "  public: {";
-  const start = generated.indexOf(comment);
-  if (start === -1) {
-    if (generated.includes("__InternalSupabase")) {
-      throw new Error("Supabase generated unsupported internal metadata");
-    }
-    return generated;
-  }
+  const markerStart = generated.indexOf(marker);
+  if (markerStart === -1) return generated;
 
-  const end = generated.indexOf(publicSchema, start);
-  const metadata = end === -1 ? [] : generated.slice(start, end).trimEnd().split("\n");
-  const expectedComment =
-    "  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)";
+  const end = generated.indexOf(publicSchema, markerStart);
+  const metadata = end === -1 ? [] : generated.slice(markerStart, end).trimEnd().split("\n");
   if (
-    metadata.length !== 5 ||
-    metadata[0] !== comment ||
-    metadata[1] !== expectedComment ||
-    metadata[2] !== "  __InternalSupabase: {" ||
-    !/^\s{4}PostgrestVersion: "[^"]+";$/u.test(metadata[3] ?? "") ||
-    metadata[4] !== "  };"
+    metadata.length !== 3 ||
+    metadata[0] !== marker ||
+    !/^\s{4}PostgrestVersion: "[^"]+";$/u.test(metadata[1] ?? "") ||
+    metadata[2] !== "  };"
   ) {
     throw new Error("Supabase generated unsupported internal metadata");
   }
 
-  return generated.slice(0, start) + generated.slice(end);
+  let removalStart = markerStart;
+  const comments = [];
+  let lineEnd = markerStart - 1;
+  while (lineEnd >= 0) {
+    const lineStart = generated.lastIndexOf("\n", lineEnd - 1) + 1;
+    const line = generated.slice(lineStart, lineEnd);
+    if (!line.startsWith("  // ")) break;
+    comments.unshift(line);
+    removalStart = lineStart;
+    lineEnd = lineStart - 1;
+  }
+  if (
+    comments.length > 0 &&
+    (!comments.some((line) => line.includes("createClient")) ||
+      !comments.some((line) => line.includes("PostgrestVersion")))
+  ) {
+    throw new Error("Supabase generated unsupported internal metadata comments");
+  }
+
+  return generated.slice(0, removalStart) + generated.slice(end);
 }
 
 async function generateTypes(remote) {
