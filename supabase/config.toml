@@ -21,8 +21,8 @@ port = 55323
 
 [auth]
 enabled = true
-site_url = "http://localhost:3000"
-additional_redirect_urls = ["relay://auth/callback", "http://localhost:8081/auth/callback"]
+site_url = "env(RELAY_AUTH_SITE_URL)"
+additional_redirect_urls = ["com.redsteadz.relay://auth/callback", "env(RELAY_AUTH_WEB_REDIRECT_URL)"]
 jwt_expiry = 3600
 enable_signup = true
 

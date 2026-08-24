@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Relay",
   slug: "relay",
-  scheme: "relay",
+  scheme: "com.redsteadz.relay",
   version: "0.1.0",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
