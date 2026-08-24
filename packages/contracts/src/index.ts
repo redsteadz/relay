@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const sourceKindSchema = z.enum(["gmail", "notification", "sms", "email"]);
 export type SourceKind = z.infer<typeof sourceKindSchema>;
+export const relayUserIdSchema = z.uuid();
+export const MAX_INGRESS_QUEUE_MESSAGE_BYTES = 120_000;
 
 export const sourceReferenceSchema = z.object({
   kind: sourceKindSchema,
@@ -22,6 +24,39 @@ export const ingressEnvelopeSchema = z.object({
   attributes: z.record(z.string(), z.unknown()).default({}),
 });
 export type IngressEnvelope = z.infer<typeof ingressEnvelopeSchema>;
+
+const postgresIntegerSchema = z.int().min(1).max(2_147_483_647);
+
+function decodedBase64ByteLength(value: string): number {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.floor((value.length * 3) / 4) - padding;
+}
+
+const aesGcmNonceSchema = z.base64().refine((value) => decodedBase64ByteLength(value) === 12);
+
+export const encryptedValueSchema = z
+  .object({
+    algorithm: z.literal("AES-GCM-256"),
+    ciphertext: z
+      .base64()
+      .max(119_900)
+      .refine((value) => decodedBase64ByteLength(value) >= 16),
+    keyVersion: postgresIntegerSchema,
+    nonce: aesGcmNonceSchema,
+    wrappedKey: z.base64().refine((value) => decodedBase64ByteLength(value) === 48),
+    wrapNonce: aesGcmNonceSchema,
+  })
+  .strict();
+export type EncryptedValueContract = z.infer<typeof encryptedValueSchema>;
+
+export const ingressQueueMessageSchema = z
+  .object({
+    userId: relayUserIdSchema,
+    envelopeId: z.uuid(),
+    encrypted: encryptedValueSchema,
+  })
+  .strict();
+export type IngressQueueMessage = z.infer<typeof ingressQueueMessageSchema>;
 
 export const categorySlugSchema = z.enum([
   "transaction",

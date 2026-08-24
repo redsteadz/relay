@@ -1,11 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { relayUserIdSchema } from "@relay/contracts";
+
 type AuthResult = { userId: string } | { error: Response };
 
 export async function authenticateRequest(request: Request): Promise<AuthResult> {
   const developmentUser = request.headers.get("x-relay-development-user");
   if (process.env.NODE_ENV !== "production" && developmentUser !== null) {
-    return { userId: developmentUser };
+    const parsed = relayUserIdSchema.safeParse(developmentUser);
+    if (parsed.success) return { userId: parsed.data };
+    return {
+      error: Response.json(
+        { error: { code: "invalid_development_user", message: "Development user must be a UUID" } },
+        { status: 401 },
+      ),
+    };
   }
 
   const authorization = request.headers.get("authorization");

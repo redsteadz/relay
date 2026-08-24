@@ -1,8 +1,9 @@
-import { healthResponseSchema, ingressEnvelopeSchema } from "@relay/contracts";
-import { encryptValue } from "@relay/crypto";
+import { healthResponseSchema, ingressEnvelopeSchema, relayUserIdSchema } from "@relay/contracts";
+import { encryptValue, parseKekKeyring } from "@relay/crypto";
 
 import { TenantCoordinator } from "./coordinator";
 import type { Env, IngressQueueMessage } from "./env";
+import { processIngressQueue, publishIngressQueueMessage } from "./queue";
 import { ActionWorkflow } from "./workflow";
 
 export { ActionWorkflow, TenantCoordinator };
@@ -27,30 +28,35 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/internal/ingest") {
       const value = await request.json<{ userId?: unknown; envelope?: unknown }>();
+      const userId = relayUserIdSchema.safeParse(value.userId);
       const envelope = ingressEnvelopeSchema.safeParse(value.envelope);
-      if (typeof value.userId !== "string" || !envelope.success) {
+      if (!userId.success || !envelope.success) {
         return Response.json({ accepted: false, reason: "invalid" }, { status: 400 });
       }
 
-      if (env.RELAY_CREDENTIAL_KEK.length === 0) {
+      let keyring;
+      try {
+        keyring = parseKekKeyring(env.RELAY_CREDENTIAL_KEK_KEYRING);
+      } catch {
         return Response.json(
-          { accepted: false, reason: "encryption-key-missing" },
+          { accepted: false, reason: "encryption-keyring-invalid" },
           { status: 503 },
         );
       }
 
-      const context = `ingress:${value.userId}:${envelope.data.id}`;
-      const encrypted = await encryptValue(
-        JSON.stringify(envelope.data),
-        env.RELAY_CREDENTIAL_KEK,
-        1,
-        context,
-      );
-      await env.INGRESS_QUEUE.send({
-        userId: value.userId,
+      const context = `ingress:${userId.data}:${envelope.data.id}`;
+      const encrypted = await encryptValue(JSON.stringify(envelope.data), keyring, context);
+      const published = await publishIngressQueueMessage(env.INGRESS_QUEUE, {
+        userId: userId.data,
         envelopeId: envelope.data.id,
         encrypted,
       });
+      if (!published) {
+        return Response.json(
+          { accepted: false, reason: "queue-message-too-large" },
+          { status: 413 },
+        );
+      }
       return Response.json({ accepted: true }, { status: 202 });
     }
 
@@ -65,21 +71,7 @@ export default {
   },
 
   async queue(batch, env): Promise<void> {
-    for (const message of batch.messages) {
-      const body = message.body;
-      const coordinator = env.TENANT_COORDINATOR.getByName(body.userId);
-      const response = await coordinator.fetch("https://coordinator.internal/process", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        message.retry();
-        continue;
-      }
-
-      message.ack();
-    }
+    await processIngressQueue(batch, env);
   },
 
   async scheduled(_controller, env): Promise<void> {

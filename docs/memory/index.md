@@ -24,6 +24,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 
 - [Privacy and data lifecycle](../security/privacy.md)
 - [Threat model](../security/threat-model.md)
+- [Secret provisioning and KEK rotation](../security/key-rotation.md)
 
 ## Integrations
 
@@ -39,6 +40,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0002: Cloudflare processing boundary](../decisions/0002-cloudflare-processing-boundary.md)
 - [ADR-0003: Deterministic filters before BYOK AI](../decisions/0003-deterministic-before-ai.md)
 - [ADR-0004: Development and release branches](../decisions/0004-development-release-branches.md)
+- [ADR-0005: Versioned wrapping keys](../decisions/0005-versioned-wrapping-keys.md)
 
 ## Delivery
 

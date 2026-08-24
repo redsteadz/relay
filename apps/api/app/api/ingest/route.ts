@@ -18,6 +18,12 @@ export async function POST(request: Request) {
   }
 
   const pipelineResponse = await publishIngress({ userId: auth.userId, envelope: parsed.data });
+  if (pipelineResponse.status === 413) {
+    return Response.json(
+      { error: { code: "ingress_too_large", message: "Payload exceeds ingestion size limit" } },
+      { status: 413 },
+    );
+  }
   if (!pipelineResponse.ok) {
     return Response.json(
       { error: { code: "pipeline_unavailable", message: "Could not queue source item" } },
