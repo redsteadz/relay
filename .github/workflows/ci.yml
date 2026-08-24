@@ -43,6 +43,9 @@ jobs:
     name: Database
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RELAY_AUTH_SITE_URL: http://localhost:3000
+      RELAY_AUTH_WEB_REDIRECT_URL: http://localhost:8081/auth/callback
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -56,5 +59,6 @@ jobs:
       - run: pnpm exec supabase start
       - run: pnpm exec supabase db reset
       - run: pnpm exec supabase test db
+      - run: pnpm supabase:types:check
       - if: always()
         run: pnpm exec supabase stop --no-backup

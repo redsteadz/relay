@@ -1,0 +1,773 @@
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+
+export type Database = {
+  public: {
+    Tables: {
+      action_rules: {
+        Row: {
+          approval_mode: string;
+          connection_id: string | null;
+          created_at: string;
+          enabled: boolean;
+          filter_rule_id: string;
+          id: string;
+          input_template: Json;
+          operation: string;
+          provider: Database["public"]["Enums"]["action_provider"];
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          approval_mode?: string;
+          connection_id?: string | null;
+          created_at?: string;
+          enabled?: boolean;
+          filter_rule_id: string;
+          id?: string;
+          input_template: Json;
+          operation: string;
+          provider: Database["public"]["Enums"]["action_provider"];
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          approval_mode?: string;
+          connection_id?: string | null;
+          created_at?: string;
+          enabled?: boolean;
+          filter_rule_id?: string;
+          id?: string;
+          input_template?: Json;
+          operation?: string;
+          provider?: Database["public"]["Enums"]["action_provider"];
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "action_rules_user_id_connection_id_fkey";
+            columns: ["user_id", "connection_id"];
+            isOneToOne: false;
+            referencedRelation: "connections";
+            referencedColumns: ["user_id", "id"];
+          },
+          {
+            foreignKeyName: "action_rules_user_id_filter_rule_id_fkey";
+            columns: ["user_id", "filter_rule_id"];
+            isOneToOne: false;
+            referencedRelation: "filter_rules";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      action_runs: {
+        Row: {
+          action_rule_id: string;
+          approved_at: string | null;
+          attempt_count: number;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          error_message: string | null;
+          event_id: string;
+          id: string;
+          input: Json;
+          provider: Database["public"]["Enums"]["action_provider"];
+          provider_reference: string | null;
+          status: Database["public"]["Enums"]["action_status"];
+          updated_at: string;
+          user_id: string;
+          workflow_instance_id: string | null;
+        };
+        Insert: {
+          action_rule_id: string;
+          approved_at?: string | null;
+          attempt_count?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+          event_id: string;
+          id?: string;
+          input: Json;
+          provider: Database["public"]["Enums"]["action_provider"];
+          provider_reference?: string | null;
+          status?: Database["public"]["Enums"]["action_status"];
+          updated_at?: string;
+          user_id: string;
+          workflow_instance_id?: string | null;
+        };
+        Update: {
+          action_rule_id?: string;
+          approved_at?: string | null;
+          attempt_count?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+          event_id?: string;
+          id?: string;
+          input?: Json;
+          provider?: Database["public"]["Enums"]["action_provider"];
+          provider_reference?: string | null;
+          status?: Database["public"]["Enums"]["action_status"];
+          updated_at?: string;
+          user_id?: string;
+          workflow_instance_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "action_runs_user_id_action_rule_id_fkey";
+            columns: ["user_id", "action_rule_id"];
+            isOneToOne: false;
+            referencedRelation: "action_rules";
+            referencedColumns: ["user_id", "id"];
+          },
+          {
+            foreignKeyName: "action_runs_user_id_event_id_fkey";
+            columns: ["user_id", "event_id"];
+            isOneToOne: false;
+            referencedRelation: "relay_events";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      ai_disclosures: {
+        Row: {
+          created_at: string;
+          disclosed_fields: string[];
+          filter_rule_id: string | null;
+          id: string;
+          model: string;
+          provider: string;
+          purpose: string;
+          redactions: Json;
+          source_item_id: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          disclosed_fields: string[];
+          filter_rule_id?: string | null;
+          id?: string;
+          model: string;
+          provider?: string;
+          purpose: string;
+          redactions?: Json;
+          source_item_id: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          disclosed_fields?: string[];
+          filter_rule_id?: string | null;
+          id?: string;
+          model?: string;
+          provider?: string;
+          purpose?: string;
+          redactions?: Json;
+          source_item_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_disclosures_user_id_filter_rule_id_fkey";
+            columns: ["user_id", "filter_rule_id"];
+            isOneToOne: false;
+            referencedRelation: "filter_rules";
+            referencedColumns: ["user_id", "id"];
+          },
+          {
+            foreignKeyName: "ai_disclosures_user_id_source_item_id_fkey";
+            columns: ["user_id", "source_item_id"];
+            isOneToOne: false;
+            referencedRelation: "source_items";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      audit_log: {
+        Row: {
+          action: string;
+          actor_id: string | null;
+          actor_type: string;
+          created_at: string;
+          id: number;
+          metadata: Json;
+          target_id: string | null;
+          target_type: string;
+          user_id: string;
+        };
+        Insert: {
+          action: string;
+          actor_id?: string | null;
+          actor_type: string;
+          created_at?: string;
+          id?: never;
+          metadata?: Json;
+          target_id?: string | null;
+          target_type: string;
+          user_id: string;
+        };
+        Update: {
+          action?: string;
+          actor_id?: string | null;
+          actor_type?: string;
+          created_at?: string;
+          id?: never;
+          metadata?: Json;
+          target_id?: string | null;
+          target_type?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      categories: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          is_system: boolean;
+          name: string;
+          quiet_by_default: boolean;
+          slug: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          is_system?: boolean;
+          name: string;
+          quiet_by_default?: boolean;
+          slug: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          is_system?: boolean;
+          name?: string;
+          quiet_by_default?: boolean;
+          slug?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      classifications: {
+        Row: {
+          category_id: string | null;
+          confidence: number;
+          created_at: string;
+          id: string;
+          method: string;
+          model: string | null;
+          rationale: string | null;
+          source_item_id: string;
+          user_id: string;
+        };
+        Insert: {
+          category_id?: string | null;
+          confidence: number;
+          created_at?: string;
+          id?: string;
+          method: string;
+          model?: string | null;
+          rationale?: string | null;
+          source_item_id: string;
+          user_id: string;
+        };
+        Update: {
+          category_id?: string | null;
+          confidence?: number;
+          created_at?: string;
+          id?: string;
+          method?: string;
+          model?: string | null;
+          rationale?: string | null;
+          source_item_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "classifications_user_id_category_id_fkey";
+            columns: ["user_id", "category_id"];
+            isOneToOne: false;
+            referencedRelation: "categories";
+            referencedColumns: ["user_id", "id"];
+          },
+          {
+            foreignKeyName: "classifications_user_id_source_item_id_fkey";
+            columns: ["user_id", "source_item_id"];
+            isOneToOne: false;
+            referencedRelation: "source_items";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      connections: {
+        Row: {
+          created_at: string;
+          credential_ciphertext: string;
+          credential_nonce: string;
+          external_account_id: string | null;
+          id: string;
+          key_version: number;
+          metadata: Json;
+          provider: string;
+          scopes: string[];
+          status: string;
+          updated_at: string;
+          user_id: string;
+          wrap_nonce: string;
+          wrapped_data_key: string;
+        };
+        Insert: {
+          created_at?: string;
+          credential_ciphertext: string;
+          credential_nonce: string;
+          external_account_id?: string | null;
+          id?: string;
+          key_version?: number;
+          metadata?: Json;
+          provider: string;
+          scopes?: string[];
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+          wrap_nonce: string;
+          wrapped_data_key: string;
+        };
+        Update: {
+          created_at?: string;
+          credential_ciphertext?: string;
+          credential_nonce?: string;
+          external_account_id?: string | null;
+          id?: string;
+          key_version?: number;
+          metadata?: Json;
+          provider?: string;
+          scopes?: string[];
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+          wrap_nonce?: string;
+          wrapped_data_key?: string;
+        };
+        Relationships: [];
+      };
+      devices: {
+        Row: {
+          created_at: string;
+          id: string;
+          last_seen_at: string | null;
+          name: string;
+          platform: string;
+          public_key: string | null;
+          revoked_at: string | null;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          last_seen_at?: string | null;
+          name: string;
+          platform: string;
+          public_key?: string | null;
+          revoked_at?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          last_seen_at?: string | null;
+          name?: string;
+          platform?: string;
+          public_key?: string | null;
+          revoked_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      filter_rules: {
+        Row: {
+          approval_mode: string;
+          created_at: string;
+          dismiss_source_notification: boolean;
+          dismissal_dry_run_completed_at: string | null;
+          enabled: boolean;
+          id: string;
+          intent: string;
+          name: string;
+          plan: Json;
+          updated_at: string;
+          user_id: string;
+          version: number;
+        };
+        Insert: {
+          approval_mode?: string;
+          created_at?: string;
+          dismiss_source_notification?: boolean;
+          dismissal_dry_run_completed_at?: string | null;
+          enabled?: boolean;
+          id?: string;
+          intent: string;
+          name: string;
+          plan: Json;
+          updated_at?: string;
+          user_id: string;
+          version?: number;
+        };
+        Update: {
+          approval_mode?: string;
+          created_at?: string;
+          dismiss_source_notification?: boolean;
+          dismissal_dry_run_completed_at?: string | null;
+          enabled?: boolean;
+          id?: string;
+          intent?: string;
+          name?: string;
+          plan?: Json;
+          updated_at?: string;
+          user_id?: string;
+          version?: number;
+        };
+        Relationships: [];
+      };
+      profiles: {
+        Row: {
+          created_at: string;
+          display_name: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          display_name?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          display_name?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      relay_events: {
+        Row: {
+          confidence: number;
+          created_at: string;
+          due_at: string | null;
+          id: string;
+          kind: Database["public"]["Enums"]["event_kind"];
+          provenance: Json;
+          source_item_id: string;
+          starts_at: string | null;
+          summary: string;
+          title: string;
+          user_id: string;
+        };
+        Insert: {
+          confidence: number;
+          created_at?: string;
+          due_at?: string | null;
+          id?: string;
+          kind: Database["public"]["Enums"]["event_kind"];
+          provenance: Json;
+          source_item_id: string;
+          starts_at?: string | null;
+          summary: string;
+          title: string;
+          user_id: string;
+        };
+        Update: {
+          confidence?: number;
+          created_at?: string;
+          due_at?: string | null;
+          id?: string;
+          kind?: Database["public"]["Enums"]["event_kind"];
+          provenance?: Json;
+          source_item_id?: string;
+          starts_at?: string | null;
+          summary?: string;
+          title?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "relay_events_user_id_source_item_id_fkey";
+            columns: ["user_id", "source_item_id"];
+            isOneToOne: false;
+            referencedRelation: "source_items";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      source_items: {
+        Row: {
+          application_id: string | null;
+          attributes: Json;
+          captured_at: string;
+          connection_id: string | null;
+          content_fingerprint: string;
+          created_at: string;
+          external_id: string;
+          id: string;
+          key_version: number | null;
+          occurred_at: string;
+          processed_at: string | null;
+          raw_ciphertext: string | null;
+          raw_expires_at: string;
+          raw_nonce: string | null;
+          sender: string | null;
+          source: Database["public"]["Enums"]["source_kind"];
+          source_account_id: string | null;
+          subject: string | null;
+          user_id: string;
+          wrap_nonce: string | null;
+          wrapped_data_key: string | null;
+        };
+        Insert: {
+          application_id?: string | null;
+          attributes?: Json;
+          captured_at: string;
+          connection_id?: string | null;
+          content_fingerprint: string;
+          created_at?: string;
+          external_id: string;
+          id: string;
+          key_version?: number | null;
+          occurred_at: string;
+          processed_at?: string | null;
+          raw_ciphertext?: string | null;
+          raw_expires_at?: string;
+          raw_nonce?: string | null;
+          sender?: string | null;
+          source: Database["public"]["Enums"]["source_kind"];
+          source_account_id?: string | null;
+          subject?: string | null;
+          user_id: string;
+          wrap_nonce?: string | null;
+          wrapped_data_key?: string | null;
+        };
+        Update: {
+          application_id?: string | null;
+          attributes?: Json;
+          captured_at?: string;
+          connection_id?: string | null;
+          content_fingerprint?: string;
+          created_at?: string;
+          external_id?: string;
+          id?: string;
+          key_version?: number | null;
+          occurred_at?: string;
+          processed_at?: string | null;
+          raw_ciphertext?: string | null;
+          raw_expires_at?: string;
+          raw_nonce?: string | null;
+          sender?: string | null;
+          source?: Database["public"]["Enums"]["source_kind"];
+          source_account_id?: string | null;
+          subject?: string | null;
+          user_id?: string;
+          wrap_nonce?: string | null;
+          wrapped_data_key?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "source_items_user_id_connection_id_fkey";
+            columns: ["user_id", "connection_id"];
+            isOneToOne: false;
+            referencedRelation: "connections";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      decide_action_run: {
+        Args: { p_action_run_id: string; p_decision: string };
+        Returns: {
+          action_rule_id: string;
+          approved_at: string | null;
+          attempt_count: number;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          error_message: string | null;
+          event_id: string;
+          id: string;
+          input: Json;
+          provider: Database["public"]["Enums"]["action_provider"];
+          provider_reference: string | null;
+          status: Database["public"]["Enums"]["action_status"];
+          updated_at: string;
+          user_id: string;
+          workflow_instance_id: string | null;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "action_runs";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      purge_expired_raw_payloads: { Args: never; Returns: number };
+    };
+    Enums: {
+      action_provider: "google-tasks" | "nextcloud-budget" | "webhook";
+      action_status:
+        | "proposed"
+        | "awaiting-approval"
+        | "approved"
+        | "running"
+        | "succeeded"
+        | "failed"
+        | "cancelled";
+      event_kind: "task" | "reminder" | "calendar-event" | "fact";
+      source_kind: "gmail" | "notification" | "sms" | "email";
+    };
+    CompositeTypes: {
+      [_ in never]: never;
+    };
+  };
+};
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">;
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">];
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R;
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] & DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R;
+      }
+      ? R
+      : never
+    : never;
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I;
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I;
+      }
+      ? I
+      : never
+    : never;
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U;
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U;
+      }
+      ? U
+      : never
+    : never;
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never;
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    keyof DefaultSchema["CompositeTypes"] | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never;
+
+export const Constants = {
+  public: {
+    Enums: {
+      action_provider: ["google-tasks", "nextcloud-budget", "webhook"],
+      action_status: [
+        "proposed",
+        "awaiting-approval",
+        "approved",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+      ],
+      event_kind: ["task", "reminder", "calendar-event", "fact"],
+      source_kind: ["gmail", "notification", "sms", "email"],
+    },
+  },
+} as const;

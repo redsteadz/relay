@@ -35,6 +35,9 @@ The host currently lacks Corepack. Run pnpm through `npx pnpm@11.23.0` until pnp
 
 ## Start Locally
 
+Configure an untracked `.env` from `.env.example` before starting Supabase. Replace application key
+placeholders with local stack output. Never commit a credential or real source payload.
+
 ```bash
 npx pnpm@11.23.0 install
 npx pnpm@11.23.0 supabase:start
@@ -42,9 +45,6 @@ npx pnpm@11.23.0 --filter @relay/pipeline dev
 npx pnpm@11.23.0 --filter @relay/api dev
 npx pnpm@11.23.0 --filter @relay/mobile start
 ```
-
-Copy `.env.example` values into untracked runtime-specific environment files. Never commit a
-credential or real source payload.
 
 ## Verify
 
@@ -57,7 +57,8 @@ npx pnpm@11.23.0 build
 ```
 
 Read [project memory](docs/memory/index.md), [contribution workflow](CONTRIBUTING.md), and
-[security model](docs/security/privacy.md) before implementation work.
+[security model](docs/security/privacy.md) before implementation work. Hosted database provisioning
+and recovery procedures live in [Supabase operations](docs/operations/supabase.md).
 
 ## License
 
