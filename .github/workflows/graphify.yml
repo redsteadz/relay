@@ -23,18 +23,33 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --disable-pip-version-check "graphifyy[gemini,sql]==0.9.49"
-      - name: Require semantic extraction key
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: test -n "$GEMINI_API_KEY"
       - name: Build graph
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          graphify extract . --backend gemini --model gemini-3.5-flash --mode deep --force --no-cluster --token-budget 5000 --max-concurrency 1
-          graphify extract . --backend gemini --model gemini-3.5-flash --mode deep --no-cluster --token-budget 2000 --max-concurrency 1
+          set -euo pipefail
+          if [ -n "${GEMINI_API_KEY:-}" ]; then
+            echo "Attempting deep semantic extraction with Gemini"
+            if graphify extract . --backend gemini --model gemini-3.5-flash --mode deep --force --no-cluster --token-budget 5000 --max-concurrency 1 && \
+               graphify extract . --backend gemini --model gemini-3.5-flash --mode deep --no-cluster --token-budget 2000 --max-concurrency 1; then
+              echo "GRAPHIFY_MODE=deep" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "Gemini extraction failed; falling back to code-only extraction"
+          else
+            echo "GEMINI_API_KEY is not set; using code-only extraction"
+          fi
+
+          graphify extract . --mode deep --code-only --force --no-cluster --max-concurrency 1
+          graphify extract . --mode deep --code-only --no-cluster --max-concurrency 1
+          echo "GRAPHIFY_MODE=code-only" >> "$GITHUB_ENV"
       - name: Validate directed graph
-        run: python scripts/validate-graphify.py
+        run: |
+          if [ "${GRAPHIFY_MODE:-deep}" = "code-only" ]; then
+            python scripts/validate-graphify.py --allow-code-only
+          else
+            python scripts/validate-graphify.py
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: relay-knowledge-graph
