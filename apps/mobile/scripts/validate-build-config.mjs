@@ -50,7 +50,6 @@ assert.deepEqual(eas, {
     base: {
       node: "22.23.2",
       pnpm: "11.23.0",
-      corepack: true,
       environment: "development",
     },
     development: {

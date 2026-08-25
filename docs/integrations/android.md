@@ -30,6 +30,7 @@ Relay's own inbox.
 Relay uses two internal Android APK profiles. Both use Node.js 22.23.2, pnpm 11.23.0, EAS CLI 22.3.0,
 and the EAS `development` environment. Generated `android/` and `ios/` directories remain ignored;
 Expo Continuous Native Generation recreates them from app config and the local Expo module.
+EAS `corepack` remains disabled because its shim conflicts with the builder's pinned pnpm installer.
 The approved EAS project is [`@harcoleis-team/relay`](https://expo.dev/accounts/harcoleis-team/projects/relay),
 with project ID `abda47b3-6e3d-43db-94de-bea147723388`.
 
