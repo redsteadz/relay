@@ -1,6 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 
-import { ingressEnvelopeSchema, ingressQueueMessageSchema } from "@relay/contracts";
+import {
+  ingressEnvelopeSchema,
+  ingressQueueMessageSchema,
+  relayUserIdSchema,
+} from "@relay/contracts";
 import { decryptValue, parseKekKeyring } from "@relay/crypto";
 import { contentFingerprint, sourceIdentity } from "@relay/domain";
 
@@ -10,6 +14,7 @@ import {
   sourceItemEncryptionContext,
 } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
+import { classifySourcePersistenceResponse } from "./persistence";
 
 type LocalSourceRecord = {
   encrypted: IngressQueueMessage["encrypted"];
@@ -17,9 +22,44 @@ type LocalSourceRecord = {
 };
 
 const RAW_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const E2E_RESULT_PREFIX = "e2e-result:";
+
+type E2EResult = {
+  keyVersion: number;
+  status:
+    | "dead-letter"
+    | "duplicate-database"
+    | "duplicate-fingerprint"
+    | "duplicate-source"
+    | "persisted";
+};
 
 export class TenantCoordinator extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (this.env.RELAY_E2E_MODE === "true" && url.pathname === "/e2e/result") {
+      if (request.method === "GET") {
+        const envelopeId = relayUserIdSchema.safeParse(url.searchParams.get("envelopeId"));
+        if (!envelopeId.success) return new Response("Invalid", { status: 400 });
+        const result = await this.ctx.storage.get<E2EResult>(
+          `${E2E_RESULT_PREFIX}${envelopeId.data}`,
+        );
+        return result === undefined
+          ? new Response("Not found", { status: 404 })
+          : Response.json(result);
+      }
+      if (request.method === "POST") {
+        const message = ingressQueueMessageSchema.safeParse(await request.json<unknown>());
+        if (!message.success) return new Response("Invalid", { status: 400 });
+        await this.ctx.storage.put(`${E2E_RESULT_PREFIX}${message.data.envelopeId}`, {
+          keyVersion: message.data.encrypted.keyVersion,
+          status: "dead-letter",
+        } satisfies E2EResult);
+        return new Response(null, { status: 204 });
+      }
+      return new Response("Method not allowed", { status: 405 });
+    }
+
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
     const candidate = ingressQueueMessageSchema.safeParse(await request.json<unknown>());
@@ -44,6 +84,12 @@ export class TenantCoordinator extends DurableObject<Env> {
       this.ctx.storage.get(fingerprintKey),
     ]);
     if (seenIdentity !== undefined || seenFingerprint !== undefined) {
+      if (this.env.RELAY_E2E_MODE === "true") {
+        await this.ctx.storage.put(`${E2E_RESULT_PREFIX}${message.envelopeId}`, {
+          keyVersion: message.encrypted.keyVersion,
+          status: seenIdentity !== undefined ? "duplicate-source" : "duplicate-fingerprint",
+        } satisfies E2EResult);
+      }
       return Response.json({ accepted: false, reason: "duplicate" });
     }
 
@@ -55,6 +101,12 @@ export class TenantCoordinator extends DurableObject<Env> {
       records[`source-item:${message.envelopeId}`] = { encrypted: message.encrypted, expiresAt };
       const alarm = await this.ctx.storage.getAlarm();
       if (alarm === null || alarm > expiresAt) await this.ctx.storage.setAlarm(expiresAt);
+    }
+    if (this.env.RELAY_E2E_MODE === "true") {
+      records[`${E2E_RESULT_PREFIX}${message.envelopeId}`] = {
+        keyVersion: message.encrypted.keyVersion,
+        status: persistence === "duplicate" ? "duplicate-database" : "persisted",
+      } satisfies E2EResult;
     }
     await this.ctx.storage.put(records);
 
@@ -98,11 +150,7 @@ export class TenantCoordinator extends DurableObject<Env> {
       }),
     });
 
-    if (response.status === 409) return "duplicate";
-    if (!response.ok) {
-      throw new Error(`Source persistence failed with ${response.status.toString()}`);
-    }
-    return "stored";
+    return classifySourcePersistenceResponse(response);
   }
 
   override async alarm(): Promise<void> {

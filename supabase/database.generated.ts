@@ -667,7 +667,7 @@ export type Database = {
           store: string;
         }[];
       };
-      purge_expired_raw_payloads: { Args: never; Returns: number };
+      purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
     };
     Enums: {
       action_provider: "google-tasks" | "nextcloud-budget" | "webhook";

@@ -28,6 +28,22 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
+    if (
+      env.RELAY_E2E_MODE === "true" &&
+      request.method === "GET" &&
+      url.pathname === "/internal/e2e/result"
+    ) {
+      const userId = relayUserIdSchema.safeParse(url.searchParams.get("userId"));
+      const envelopeId = relayUserIdSchema.safeParse(url.searchParams.get("envelopeId"));
+      if (!userId.success || !envelopeId.success) {
+        return Response.json({ error: "invalid" }, { status: 400 });
+      }
+      const coordinator = env.TENANT_COORDINATOR.getByName(userId.data);
+      return coordinator.fetch(
+        `https://coordinator.internal/e2e/result?envelopeId=${encodeURIComponent(envelopeId.data)}`,
+      );
+    }
+
     if (request.method === "POST" && url.pathname === "/internal/ingest") {
       const value = await request.json<{ userId?: unknown; envelope?: unknown }>();
       const userId = relayUserIdSchema.safeParse(value.userId);

@@ -15,6 +15,10 @@ export async function publishIngress(message: PipelineMessage): Promise<Response
     "content-type": "application/json",
     "x-relay-internal-secret": secret,
   };
+  const pipelineUrl = process.env.RELAY_PIPELINE_URL;
+  if (process.env.NODE_ENV !== "production" && pipelineUrl !== undefined) {
+    return fetch(`${pipelineUrl}/internal/ingest`, { method: "POST", headers, body });
+  }
 
   try {
     const { env } = getCloudflareContext();
@@ -24,11 +28,6 @@ export async function publishIngress(message: PipelineMessage): Promise<Response
       body,
     });
   } catch {
-    const pipelineUrl = process.env.RELAY_PIPELINE_URL;
-    if (pipelineUrl !== undefined) {
-      return fetch(`${pipelineUrl}/internal/ingest`, { method: "POST", headers, body });
-    }
-
     if (process.env.NODE_ENV !== "production" && process.env.RELAY_ALLOW_LOCAL_STUB === "true") {
       return Response.json({ accepted: true, mode: "local-stub" }, { status: 202 });
     }
