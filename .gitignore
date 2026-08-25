@@ -20,6 +20,7 @@ coverage/
 # Native generated projects
 apps/mobile/android/
 apps/mobile/ios/
+apps/mobile/modules/**/android/build/
 
 # Supabase local state
 supabase/.branches/

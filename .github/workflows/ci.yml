@@ -33,6 +33,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm --filter @relay/mobile build-config:check
       - run: pnpm --filter @relay/api cf-typegen:check
       - run: pnpm --filter @relay/api build:worker
         env:
