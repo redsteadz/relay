@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Privacy And Data Lifecycle
@@ -27,9 +27,16 @@ open in issue #6.
 Supabase RLS isolates users. Service-role operations still bind explicit tenant identity from
 verified authentication or connector ownership. Users can inspect disclosure and action history.
 
+During the hackathon, hosted development and demo-production share one Supabase project under
+[ADR-0006](../decisions/0006-shared-supabase-hackathon-backend.md). That project accepts synthetic
+fixtures only. Issue [#63](https://github.com/redsteadz/relay/issues/63) must restore isolated
+production before beta access, non-maintainer accounts, credentials granting access to real sources,
+or real source data.
+
 OpenAI receives only semantic-clause allowlisted fields after redaction. Relay stores disclosure
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and
 cannot choose tools or action configuration.
 
-Related: [key rotation](key-rotation.md), [threat model](threat-model.md), and
-[filter model](../architecture/filter-model.md).
+Related: [key rotation](key-rotation.md), [threat model](threat-model.md),
+[filter model](../architecture/filter-model.md), and
+[Supabase operations](../operations/supabase.md).

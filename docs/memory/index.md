@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Relay Memory Index
@@ -41,12 +41,14 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0003: Deterministic filters before BYOK AI](../decisions/0003-deterministic-before-ai.md)
 - [ADR-0004: Development and release branches](../decisions/0004-development-release-branches.md)
 - [ADR-0005: Versioned wrapping keys](../decisions/0005-versioned-wrapping-keys.md)
+- [ADR-0006: Shared Supabase hackathon backend](../decisions/0006-shared-supabase-hackathon-backend.md)
 
 ## Delivery
 
 - [GitHub issue dependency map](issue-map.md)
 - [Contributor workflow](../../CONTRIBUTING.md)
 - [Cloudflare environments and operations](../operations/cloudflare.md)
+- [Supabase environments and operations](../operations/supabase.md)
 
 Graphify output is generated from these documents and code. It is an index and discovery aid, not
 an authority over contracts, migrations, or accepted ADRs.
