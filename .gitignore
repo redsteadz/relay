@@ -14,11 +14,13 @@ coverage/
 .env.*
 !.env.example
 *.local
-.dev.vars
+.dev.vars*
+!.dev.vars.example
 
 # Native generated projects
 apps/mobile/android/
 apps/mobile/ios/
+apps/mobile/modules/**/android/build/
 
 # Supabase local state
 supabase/.branches/

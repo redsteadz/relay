@@ -25,6 +25,10 @@ Durable Objects reduce concurrent contention.
 Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
 and envelope ID, never raw source bodies. Coordinator acknowledges only after Supabase persistence.
 Explicit local development mode may use Durable Object storage instead, with seven-day alarms.
+Producers reject encrypted messages above Relay's conservative 120 KB serialized cap under
+[Cloudflare's 128 KB Queue limit](https://developers.cloudflare.com/queues/platform/limits/).
+Consumers validate encrypted metadata before dispatch. Malformed bodies are dropped rather than
+copied into the dead-letter queue, because an invalid body cannot be trusted to contain ciphertext.
 
 Provider delivery uses Relay action UUID as idempotency identity. Nextcloud Budget accepts it
 directly. Webhooks transmit it for receiver dedupe. Google Tasks needs a reconciliation marker

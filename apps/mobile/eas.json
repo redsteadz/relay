@@ -1,18 +1,32 @@
 {
   "cli": {
-    "version": ">= 18.0.0",
+    "version": "22.3.0",
+    "requireCommit": true,
     "appVersionSource": "remote"
   },
   "build": {
+    "base": {
+      "node": "22.23.2",
+      "pnpm": "11.23.0",
+      "environment": "development"
+    },
     "development": {
+      "extends": "base",
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "RELAY_BUILD_VARIANT": "development"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "sideload": {
+      "extends": "base",
       "distribution": "internal",
+      "env": {
+        "RELAY_BUILD_VARIANT": "sideload"
+      },
       "android": {
         "buildType": "apk"
       }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { filterPlanSchema, ingressEnvelopeSchema } from "../src/index.js";
+import {
+  filterPlanSchema,
+  ingressEnvelopeSchema,
+  ingressQueueMessageSchema,
+} from "../src/index.js";
 
 describe("ingressEnvelopeSchema", () => {
   it("accepts a versioned notification payload", () => {
@@ -28,6 +32,56 @@ describe("filterPlanSchema", () => {
     const result = filterPlanSchema.safeParse({
       schemaVersion: 1,
       intent: "Purchases from transit providers",
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("ingressQueueMessageSchema", () => {
+  const message = {
+    userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
+    envelopeId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+    encrypted: {
+      algorithm: "AES-GCM-256",
+      ciphertext: "AAAAAAAAAAAAAAAAAAAAAA==",
+      keyVersion: 1,
+      nonce: "AAAAAAAAAAAAAAAA",
+      wrappedKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      wrapNonce: "AAAAAAAAAAAAAAAA",
+    },
+  };
+
+  it("accepts bounded encrypted queue metadata", () => {
+    expect(ingressQueueMessageSchema.safeParse(message).success).toBe(true);
+  });
+
+  it("rejects key versions outside PostgreSQL integer range", () => {
+    const result = ingressQueueMessageSchema.safeParse({
+      ...message,
+      encrypted: { ...message.encrypted, keyVersion: 2_147_483_648 },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects malformed nonce and wrapped-key lengths", () => {
+    const result = ingressQueueMessageSchema.safeParse({
+      ...message,
+      encrypted: { ...message.encrypted, nonce: "AA==", wrappedKey: "AA==" },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects padded base64 with incorrect decoded lengths", () => {
+    const result = ingressQueueMessageSchema.safeParse({
+      ...message,
+      encrypted: {
+        ...message.encrypted,
+        nonce: btoa("\0".repeat(10)),
+        wrappedKey: btoa("\0".repeat(46)),
+      },
     });
 
     expect(result.success).toBe(false);

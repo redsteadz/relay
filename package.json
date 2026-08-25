@@ -13,12 +13,16 @@
     "dev": "turbo run dev --parallel",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "turbo run lint",
-    "test": "turbo run test",
+    "lint": "turbo run lint && eslint scripts",
+    "test": "turbo run test && node --test scripts/*.test.mjs",
     "typecheck": "turbo run typecheck",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm --filter @relay/mobile build-config:check && pnpm --filter @relay/api cf-typegen:check && NEXT_PUBLIC_SUPABASE_URL=https://relay-build.invalid NEXT_PUBLIC_SUPABASE_ANON_KEY=synthetic-build-only pnpm --filter @relay/api build:worker",
     "supabase:start": "supabase start",
-    "supabase:stop": "supabase stop"
+    "supabase:stop": "supabase stop",
+    "supabase:auth:configure": "node --env-file-if-exists=.env scripts/configure-supabase-auth.mjs",
+    "supabase:types": "node --env-file-if-exists=.env scripts/supabase-types.mjs write",
+    "supabase:types:check": "node --env-file-if-exists=.env scripts/supabase-types.mjs check",
+    "supabase:types:remote:check": "node --env-file-if-exists=.env scripts/supabase-types.mjs check-remote"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

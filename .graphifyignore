@@ -7,3 +7,8 @@ dist/
 coverage/
 graphify-out/
 pnpm-lock.yaml
+.env
+.env.*
+!.env.example
+.dev.vars*
+!.dev.vars.example
