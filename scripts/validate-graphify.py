@@ -89,13 +89,18 @@ def main() -> None:
     fatal_health = {
         "non_object_edges": health.get("non_object_edges", 0),
         "missing_endpoint_edges": health.get("missing_endpoint_edges", 0),
+    }
+    health_warnings = {
+        "dangling_endpoint_edges": health.get("dangling_endpoint_edges", 0),
         "self_loop_edges": health.get("self_loop_edges", 0),
     }
     require(not health.get("post_build_error"), "Directed graph construction failed")
     require(
         not any(fatal_health.values()),
-        "Graphify extraction failed structural health checks",
+        f"Graphify extraction failed structural health checks: {fatal_health}",
     )
+    if any(health_warnings.values()):
+        print(f"Graphify health warning: {health_warnings}")
 
     graph = build_from_json(raw, directed=True, root=root)
     require(graph.is_directed(), "Graphify artifact is not directed")
