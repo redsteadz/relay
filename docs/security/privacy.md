@@ -37,6 +37,15 @@ OpenAI receives only semantic-clause allowlisted fields after redaction. Relay s
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and
 cannot choose tools or action configuration.
 
+## Local Harness
+
+The end-to-end harness uses only the repository's deterministic synthetic fixture and seeded local
+users. It creates an ephemeral KEK keyring and ingress secret in an owner-only temporary directory,
+removes them after the run, and rejects non-loopback Supabase endpoints. Assertions inspect only
+ciphertext, encryption metadata, row counts, and metadata-only Durable Object results. Child process
+logs are scanned as streams for fixture or credential leakage and are never retained or replayed by
+the harness.
+
 Related: [key rotation](key-rotation.md), [threat model](threat-model.md),
 [filter model](../architecture/filter-model.md), and
 [Supabase operations](../operations/supabase.md).

@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(18);
+select plan(19);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at
@@ -184,10 +184,20 @@ select ok(
 );
 
 update public.source_items
-set raw_expires_at = now() - interval '1 second'
+set raw_expires_at = '2030-01-01T00:00:00Z'
 where id = '32000000-0000-0000-0000-000000000003';
 
-select is(public.purge_expired_raw_payloads(), 1::bigint, 'retention purges encrypted source row');
+select is(
+  public.purge_expired_raw_payloads('2029-12-31T23:59:59Z'),
+  0::bigint,
+  'controlled retention keeps unexpired source ciphertext'
+);
+
+select is(
+  public.purge_expired_raw_payloads('2030-01-01T00:00:01Z'),
+  1::bigint,
+  'controlled retention purges expired source ciphertext'
+);
 
 select is(
   (select encryption_environment from public.source_items

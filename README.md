@@ -54,7 +54,11 @@ npx pnpm@11.23.0 lint
 npx pnpm@11.23.0 typecheck
 npx pnpm@11.23.0 test
 npx pnpm@11.23.0 build
+npx pnpm@11.23.0 e2e:local
 ```
+
+`e2e:local` resets local Supabase and uses only the deterministic synthetic fixture under `fixtures/`.
+It creates no remote resources and requires Docker.
 
 Read [project memory](docs/memory/index.md), [contribution workflow](CONTRIBUTING.md), and
 [security model](docs/security/privacy.md) before implementation work. Hosted database provisioning

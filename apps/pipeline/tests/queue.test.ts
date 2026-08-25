@@ -33,6 +33,28 @@ function message(body: IngressQueueMessage) {
 }
 
 describe("processIngressQueue", () => {
+  it("acks e2e dead-letter messages only after durable metadata storage", async () => {
+    const deadLetter = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"));
+    const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+    const env = {
+      RELAY_E2E_DEAD_LETTER_QUEUE: "relay-ingress-dead-letter-e2e-local",
+      RELAY_E2E_MODE: "true",
+      TENANT_COORDINATOR: { getByName: vi.fn(() => ({ fetch })) },
+    } as unknown as Env;
+
+    await processIngressQueue(
+      {
+        messages: [deadLetter.value],
+        queue: "relay-ingress-dead-letter-e2e-local",
+      } as unknown as MessageBatch<IngressQueueMessage>,
+      env,
+    );
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(deadLetter.ack).toHaveBeenCalledOnce();
+    expect(deadLetter.retry).not.toHaveBeenCalled();
+  });
+
   it("retries one failed message without blocking later acknowledgements", async () => {
     const failed = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"));
     const accepted = message(queueMessage("06f96f7d-3e1a-4a66-b98e-58be9766b96e"));

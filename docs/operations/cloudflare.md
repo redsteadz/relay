@@ -136,6 +136,21 @@ deploy commands for remote environments. `--env development` and `--env producti
 
 Record nonsecret resource names, deployment version IDs, timestamps, and operator in issue #7.
 
+## Local End-To-End Verification
+
+Run the complete synthetic ingress path with one command from the repository root:
+
+```bash
+npx pnpm@11.23.0 e2e:local
+```
+
+Docker must be running. The harness starts local Supabase when needed, resets and seeds it, builds
+shared packages, and launches API plus Wrangler with `--env e2e --local`. Explicit
+`RELAY_PIPELINE_URL` routing takes precedence over Cloudflare service bindings only outside
+production. The harness uses temporary random secrets, rejects non-loopback Supabase status, removes
+temporary Worker state, and stops Supabase only when it started the stack. No Cloudflare login,
+remote Queue, remote Worker, or hosted Supabase project participates.
+
 ## Rollback
 
 List deployments, select a known-good version, and record the reason:

@@ -23,6 +23,32 @@ export async function processIngressQueue(
   batch: MessageBatch<IngressQueueMessage>,
   env: Env,
 ): Promise<void> {
+  if (
+    env.RELAY_E2E_MODE === "true" &&
+    env.RELAY_E2E_DEAD_LETTER_QUEUE !== undefined &&
+    batch.queue === env.RELAY_E2E_DEAD_LETTER_QUEUE
+  ) {
+    for (const message of batch.messages) {
+      const parsed = ingressQueueMessageSchema.safeParse(message.body);
+      if (!parsed.success) {
+        message.ack();
+        continue;
+      }
+      try {
+        const coordinator = env.TENANT_COORDINATOR.getByName(parsed.data.userId);
+        const response = await coordinator.fetch("https://coordinator.internal/e2e/result", {
+          method: "POST",
+          body: JSON.stringify(parsed.data),
+        });
+        if (response.ok) message.ack();
+        else message.retry();
+      } catch {
+        message.retry();
+      }
+    }
+    return;
+  }
+
   for (const message of batch.messages) {
     const parsed = ingressQueueMessageSchema.safeParse(message.body);
     if (!parsed.success) {

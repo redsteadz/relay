@@ -1,24 +1,8 @@
-import type { IngressEnvelope } from "@relay/contracts";
+import { ingressEnvelopeSchema } from "@relay/contracts";
 
-export const demoIngress: IngressEnvelope = {
-  schemaVersion: 1,
-  id: "cf4c3c89-0a15-4edb-94df-77786bcdddb4",
-  occurredAt: "2026-08-24T12:41:00Z",
-  capturedAt: "2026-08-24T12:41:01Z",
-  source: {
-    kind: "notification",
-    externalId: "demo-card-purchase",
-    applicationId: "com.example.bank",
-  },
-  sender: "Example Bank",
-  subject: "Card purchase approved",
-  body: "USD 14.20 at NORTH STATION",
-  attributes: {
-    amount: "14.20",
-    currency: "USD",
-    merchant: "North Station",
-  },
-};
+import demoIngressFixture from "../../../fixtures/demo-ingress.json";
+
+export const demoIngress = ingressEnvelopeSchema.parse(demoIngressFixture);
 
 export async function sendDemoIngress(): Promise<{ accepted: boolean; id: string }> {
   const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
