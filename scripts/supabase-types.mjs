@@ -23,8 +23,12 @@ function run(command, args, input, env = process.env) {
   });
 }
 
-export function localTypeGenerationEnvironment(environment) {
-  return { ...environment, SUPABASE_DB_PASSWORD: "postgres" };
+export function localTypeGenerationEnvironment(environment, status) {
+  const databaseUrl = /^DB_URL="([^"]+)"$/mu.exec(status)?.[1];
+  if (databaseUrl === undefined) throw new Error("Supabase local status omitted DB_URL");
+  const password = new URL(databaseUrl).password;
+  if (password.length === 0) throw new Error("Supabase local DB_URL omitted its password");
+  return { ...environment, SUPABASE_DB_PASSWORD: decodeURIComponent(password) };
 }
 
 export function normalizeGeneratedTypes(generated) {
@@ -71,11 +75,14 @@ async function generateTypes(remote) {
   if (remote && !/^[a-z]{20}$/u.test(process.env.RELAY_SUPABASE_PROJECT_REF ?? "")) {
     throw new Error("RELAY_SUPABASE_PROJECT_REF must be a 20-letter project ref");
   }
+  const environment = remote
+    ? process.env
+    : localTypeGenerationEnvironment(process.env, await run("supabase", ["status", "-o", "env"]));
   const generated = await run(
     "supabase",
     ["gen", "types", "typescript", ...target, "--schema", "public"],
     undefined,
-    remote ? process.env : localTypeGenerationEnvironment(process.env),
+    environment,
   );
   if (!generated.includes("export type Database")) {
     throw new Error("Supabase returned an invalid database type definition");

@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { localTypeGenerationEnvironment, normalizeGeneratedTypes } from "./supabase-types.mjs";
 
-test("replaces hosted database password for local type generation", () => {
-  assert.deepEqual(
-    localTypeGenerationEnvironment({ PATH: "/bin", SUPABASE_DB_PASSWORD: "hosted-secret" }),
-    { PATH: "/bin", SUPABASE_DB_PASSWORD: "postgres" },
+test("uses local status password for local type generation", () => {
+  const password = randomUUID();
+  const databaseUrl = new URL("postgresql://127.0.0.1:55322/postgres");
+  databaseUrl.username = "postgres";
+  databaseUrl.password = password;
+
+  const environment = localTypeGenerationEnvironment(
+    { PATH: "/bin" },
+    `DB_URL="${databaseUrl.toString()}"\n`,
   );
+
+  assert.equal(environment.PATH, "/bin");
+  assert.equal(environment.SUPABASE_DB_PASSWORD, password);
 });
 
 test("removes hosted PostgREST metadata without changing schema types", () => {
