@@ -2,7 +2,9 @@ import { healthResponseSchema, ingressEnvelopeSchema, relayUserIdSchema } from "
 import { encryptValue, parseKekKeyring } from "@relay/crypto";
 
 import { TenantCoordinator } from "./coordinator";
+import { sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
+import { runScheduledMaintenance } from "./maintenance";
 import { processIngressQueue, publishIngressQueueMessage } from "./queue";
 import { ActionWorkflow } from "./workflow";
 
@@ -44,7 +46,7 @@ export default {
         );
       }
 
-      const context = `ingress:${userId.data}:${envelope.data.id}`;
+      const context = sourceItemEncryptionContext(userId.data, envelope.data.id);
       const encrypted = await encryptValue(JSON.stringify(envelope.data), keyring, context);
       const published = await publishIngressQueueMessage(env.INGRESS_QUEUE, {
         userId: userId.data,
@@ -75,21 +77,6 @@ export default {
   },
 
   async scheduled(_controller, env): Promise<void> {
-    if (env.SUPABASE_URL === undefined || env.SUPABASE_SERVICE_ROLE_KEY === undefined) {
-      if (env.RELAY_ALLOW_LOCAL_DURABILITY === "true") return;
-      throw new Error("Retention cleanup requires Supabase configuration");
-    }
-
-    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/purge_expired_raw_payloads`, {
-      method: "POST",
-      headers: {
-        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-        authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        "content-type": "application/json",
-      },
-      body: "{}",
-    });
-    if (!response.ok)
-      throw new Error(`Retention cleanup failed with ${response.status.toString()}`);
+    await runScheduledMaintenance(env);
   },
 } satisfies ExportedHandler<Env, IngressQueueMessage>;

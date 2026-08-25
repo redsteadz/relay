@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Data Flow
@@ -24,6 +24,8 @@ Durable Objects reduce concurrent contention.
 
 Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
 and envelope ID, never raw source bodies. Coordinator acknowledges only after Supabase persistence.
+Persisted encrypted rows also carry their owning Cloudflare environment so separate KEKs remain
+isolated when a temporary backend is shared.
 Explicit local development mode may use Durable Object storage instead, with seven-day alarms.
 Producers reject encrypted messages above Relay's conservative 120 KB serialized cap under
 [Cloudflare's 128 KB Queue limit](https://developers.cloudflare.com/queues/platform/limits/).

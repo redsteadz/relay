@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Threat Model
@@ -30,8 +30,8 @@ filter intent, financial records, calendars/tasks, and action authority.
 ## Open Risks
 
 Gmail restricted-scope verification, Google API Limited Use review, SMS distribution approval,
-provider reconciliation details, environment secret provisioning, production wrapping-key rotation,
-abuse/rate limits, and account deletion completion need tracked implementation and release issues.
+provider reconciliation details, abuse/rate limits, and account deletion completion need tracked
+implementation and release issues.
 
 Related: [key rotation](key-rotation.md), [system boundaries](../architecture/system.md), and
 [MVP scope](../product/scope.md).
