@@ -3,14 +3,14 @@ import { spawn } from "node:child_process";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL, URL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputPath = resolve(root, "supabase/database.generated.ts");
 
-function run(command, args, input) {
+function run(command, args, input, env = process.env) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(command, args, { cwd: root, env: process.env, stdio: "pipe" });
+    const child = spawn(command, args, { cwd: root, env, stdio: "pipe" });
     const stdout = [];
     child.stdout.on("data", (chunk) => stdout.push(chunk));
     child.stderr.resume();
@@ -21,6 +21,14 @@ function run(command, args, input) {
     });
     child.stdin.end(input);
   });
+}
+
+export function localTypeGenerationEnvironment(environment, status) {
+  const databaseUrl = /^DB_URL="([^"]+)"$/mu.exec(status)?.[1];
+  if (databaseUrl === undefined) throw new Error("Supabase local status omitted DB_URL");
+  const password = new URL(databaseUrl).password;
+  if (password.length === 0) throw new Error("Supabase local DB_URL omitted its password");
+  return { ...environment, SUPABASE_DB_PASSWORD: decodeURIComponent(password) };
 }
 
 export function normalizeGeneratedTypes(generated) {
@@ -67,14 +75,15 @@ async function generateTypes(remote) {
   if (remote && !/^[a-z]{20}$/u.test(process.env.RELAY_SUPABASE_PROJECT_REF ?? "")) {
     throw new Error("RELAY_SUPABASE_PROJECT_REF must be a 20-letter project ref");
   }
-  const generated = await run("supabase", [
-    "gen",
-    "types",
-    "typescript",
-    ...target,
-    "--schema",
-    "public",
-  ]);
+  const environment = remote
+    ? process.env
+    : localTypeGenerationEnvironment(process.env, await run("supabase", ["status", "-o", "env"]));
+  const generated = await run(
+    "supabase",
+    ["gen", "types", "typescript", ...target, "--schema", "public"],
+    undefined,
+    environment,
+  );
   if (!generated.includes("export type Database")) {
     throw new Error("Supabase returned an invalid database type definition");
   }

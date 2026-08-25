@@ -30,17 +30,20 @@ insert into public.devices (id, user_id, name, platform) values
   );
 
 insert into public.connections (
-  id, user_id, provider, credential_ciphertext, credential_nonce, wrapped_data_key, wrap_nonce
+  id, user_id, provider, credential_ciphertext, credential_nonce, wrapped_data_key, wrap_nonce,
+  encryption_environment
 ) values
   (
     '11000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000001',
-    'synthetic', decode('00', 'hex'), decode('01', 'hex'), decode('02', 'hex'), decode('03', 'hex')
+    'synthetic', decode('00', 'hex'), decode('01', 'hex'), decode('02', 'hex'), decode('03', 'hex'),
+    'development'
   ),
   (
     '22000000-0000-0000-0000-000000000002',
     '20000000-0000-0000-0000-000000000002',
-    'synthetic', decode('10', 'hex'), decode('11', 'hex'), decode('12', 'hex'), decode('13', 'hex')
+    'synthetic', decode('10', 'hex'), decode('11', 'hex'), decode('12', 'hex'), decode('13', 'hex'),
+    'development'
   );
 
 insert into public.source_items (
@@ -318,11 +321,13 @@ select results_eq(
 
 select throws_ok(
   $$insert into public.connections (
-      id, user_id, provider, credential_ciphertext, credential_nonce, wrapped_data_key, wrap_nonce
+      id, user_id, provider, credential_ciphertext, credential_nonce, wrapped_data_key, wrap_nonce,
+      encryption_environment
     ) values (
       '17000000-0000-0000-0000-000000000001',
       '10000000-0000-0000-0000-000000000001',
-      'blocked', decode('00', 'hex'), decode('01', 'hex'), decode('02', 'hex'), decode('03', 'hex')
+      'blocked', decode('00', 'hex'), decode('01', 'hex'), decode('02', 'hex'), decode('03', 'hex'),
+      'development'
     )$$,
   '42501',
   null,
