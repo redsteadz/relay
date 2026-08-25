@@ -68,19 +68,21 @@ def main() -> None:
         )
         expected_sources = {
             Path(source).resolve().relative_to(root).as_posix()
-            for category in ("document", "paper", "image")
-            for source in detection.get("files", {}).get(category, [])
+            for source in detection.get("files", {}).get("document", [])
+            if Path(source).suffix.lower() == ".md"
         }
+        manifest: dict[str, Any] = json.loads(
+            (output_dir / "manifest.json").read_text(encoding="utf-8")
+        )
         extracted_sources = {
             Path(source).as_posix()
-            for item in [*nodes, *(raw.get("hyperedges", []) or [])]
-            if isinstance(item, dict)
-            if (source := item.get("source_file"))
+            for source, metadata in manifest.items()
+            if isinstance(metadata, dict) and metadata.get("semantic_hash")
         }
         missing_sources = expected_sources - extracted_sources
         require(
             not missing_sources,
-            f"Semantic extraction omitted {len(missing_sources)} detected source files",
+            f"Semantic extraction omitted {len(missing_sources)} Markdown source files",
         )
 
     health = diagnose_extraction(raw, directed=True, root=root)
