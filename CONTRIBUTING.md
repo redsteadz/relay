@@ -43,6 +43,7 @@ code-oriented. Load `GEMINI_API_KEY` from the approved secret store without prin
 
 ```bash
 uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --mode deep --force --no-cluster --token-budget 5000 --max-concurrency 4
+uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --mode deep --no-cluster --token-budget 2000 --max-concurrency 4
 uv run --with "graphifyy[gemini,sql]==0.9.49" python scripts/validate-graphify.py
 ```
 
