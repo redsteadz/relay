@@ -21,8 +21,8 @@ or clients. Queue bundles include algorithm; current Supabase rows imply `AES-GC
 nonce, wrapped data key, wrapping nonce, and KEK version. AES-GCM associated data binds tenant,
 record, and purpose to both payload and wrapped key. Payload data uses a stable format version;
 wrapped-key data binds the KEK version so rotation can rewrap only the data key without exposing
-plaintext. Runtime primitives are implemented; platform provisioning and production rotation remain
-open in issue #6.
+plaintext. Environment-owned rows, private hourly rotation batches, exact compare-and-set updates,
+historical canaries, and separate platform keyrings enforce rotation without payload decryption.
 
 Supabase RLS isolates users. Service-role operations still bind explicit tenant identity from
 verified authentication or connector ownership. Users can inspect disclosure and action history.

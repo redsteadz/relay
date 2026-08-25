@@ -314,6 +314,7 @@ export type Database = {
           created_at: string;
           credential_ciphertext: string;
           credential_nonce: string;
+          encryption_environment: string;
           external_account_id: string | null;
           id: string;
           key_version: number;
@@ -330,6 +331,7 @@ export type Database = {
           created_at?: string;
           credential_ciphertext: string;
           credential_nonce: string;
+          encryption_environment: string;
           external_account_id?: string | null;
           id?: string;
           key_version?: number;
@@ -346,6 +348,7 @@ export type Database = {
           created_at?: string;
           credential_ciphertext?: string;
           credential_nonce?: string;
+          encryption_environment?: string;
           external_account_id?: string | null;
           id?: string;
           key_version?: number;
@@ -517,6 +520,7 @@ export type Database = {
           connection_id: string | null;
           content_fingerprint: string;
           created_at: string;
+          encryption_environment: string | null;
           external_id: string;
           id: string;
           key_version: number | null;
@@ -540,6 +544,7 @@ export type Database = {
           connection_id?: string | null;
           content_fingerprint: string;
           created_at?: string;
+          encryption_environment?: string | null;
           external_id: string;
           id: string;
           key_version?: number | null;
@@ -563,6 +568,7 @@ export type Database = {
           connection_id?: string | null;
           content_fingerprint?: string;
           created_at?: string;
+          encryption_environment?: string | null;
           external_id?: string;
           id?: string;
           key_version?: number | null;
@@ -594,6 +600,38 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      cas_rewrap_connection_data_key: {
+        Args: {
+          p_environment: string;
+          p_expected_ciphertext: string;
+          p_expected_key_version: number;
+          p_expected_payload_nonce: string;
+          p_expected_wrap_nonce: string;
+          p_expected_wrapped_data_key: string;
+          p_id: string;
+          p_new_key_version: number;
+          p_new_wrap_nonce: string;
+          p_new_wrapped_data_key: string;
+          p_user_id: string;
+        };
+        Returns: boolean;
+      };
+      cas_rewrap_source_item_data_key: {
+        Args: {
+          p_environment: string;
+          p_expected_ciphertext: string;
+          p_expected_key_version: number;
+          p_expected_payload_nonce: string;
+          p_expected_wrap_nonce: string;
+          p_expected_wrapped_data_key: string;
+          p_id: string;
+          p_new_key_version: number;
+          p_new_wrap_nonce: string;
+          p_new_wrapped_data_key: string;
+          p_user_id: string;
+        };
+        Returns: boolean;
+      };
       decide_action_run: {
         Args: { p_action_run_id: string; p_decision: string };
         Returns: {
@@ -620,6 +658,14 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      kek_encryption_inventory: {
+        Args: { p_environment: string };
+        Returns: {
+          key_version: number;
+          row_count: number;
+          store: string;
+        }[];
       };
       purge_expired_raw_payloads: { Args: never; Returns: number };
     };

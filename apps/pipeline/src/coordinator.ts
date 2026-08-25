@@ -4,6 +4,11 @@ import { ingressEnvelopeSchema, ingressQueueMessageSchema } from "@relay/contrac
 import { decryptValue, parseKekKeyring } from "@relay/crypto";
 import { contentFingerprint, sourceIdentity } from "@relay/domain";
 
+import {
+  base64ToPostgresBytea,
+  parseRelayEnvironment,
+  sourceItemEncryptionContext,
+} from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
 
 type LocalSourceRecord = {
@@ -12,15 +17,6 @@ type LocalSourceRecord = {
 };
 
 const RAW_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
-
-function base64ToBytea(value: string): string {
-  const binary = atob(value);
-  let hex = "";
-  for (let index = 0; index < binary.length; index += 1) {
-    hex += binary.charCodeAt(index).toString(16).padStart(2, "0");
-  }
-  return `\\x${hex}`;
-}
 
 export class TenantCoordinator extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
@@ -31,7 +27,7 @@ export class TenantCoordinator extends DurableObject<Env> {
       return Response.json({ accepted: false, reason: "invalid" }, { status: 400 });
     }
     const message: IngressQueueMessage = candidate.data;
-    const context = `ingress:${message.userId}:${message.envelopeId}`;
+    const context = sourceItemEncryptionContext(message.userId, message.envelopeId);
     const keyring = parseKekKeyring(this.env.RELAY_CREDENTIAL_KEK_KEYRING);
     const plaintext = await decryptValue(message.encrypted, keyring, context);
     const parsed = ingressEnvelopeSchema.safeParse(JSON.parse(plaintext) as unknown);
@@ -93,10 +89,11 @@ export class TenantCoordinator extends DurableObject<Env> {
         occurred_at: envelope.occurredAt,
         captured_at: envelope.capturedAt,
         content_fingerprint: fingerprint,
-        raw_ciphertext: base64ToBytea(message.encrypted.ciphertext),
-        raw_nonce: base64ToBytea(message.encrypted.nonce),
-        wrapped_data_key: base64ToBytea(message.encrypted.wrappedKey),
-        wrap_nonce: base64ToBytea(message.encrypted.wrapNonce),
+        encryption_environment: parseRelayEnvironment(this.env.RELAY_ENVIRONMENT),
+        raw_ciphertext: base64ToPostgresBytea(message.encrypted.ciphertext),
+        raw_nonce: base64ToPostgresBytea(message.encrypted.nonce),
+        wrapped_data_key: base64ToPostgresBytea(message.encrypted.wrappedKey),
+        wrap_nonce: base64ToPostgresBytea(message.encrypted.wrapNonce),
         key_version: message.encrypted.keyVersion,
       }),
     });
