@@ -30,7 +30,9 @@ jobs:
       - name: Build graph
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: graphify extract . --backend gemini --mode deep --force --no-cluster
+        run: >-
+          graphify extract . --backend gemini --mode deep --force --no-cluster
+          --token-budget 5000 --max-concurrency 4
       - name: Validate directed graph
         run: python scripts/validate-graphify.py
       - uses: actions/upload-artifact@v4
