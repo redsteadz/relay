@@ -12,6 +12,7 @@ const developmentConfig = {
 
 test("builds an exact development Auth allowlist", () => {
   assert.deepEqual(buildHostedAuthConfig(developmentConfig).body, {
+    disable_signup: true,
     site_url: "https://dev.relay.example",
     uri_allow_list: "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
   });
@@ -66,12 +67,13 @@ test("rejects preview and development production hosts", () => {
   }
 });
 
-test("patches only Auth URLs and verifies the response", async () => {
+test("patches the restricted Auth policy and verifies the response", async () => {
   let request;
   const fetchImpl = async (url, options) => {
     request = { options, url };
     return {
       json: async () => ({
+        disable_signup: true,
         site_url: "https://dev.relay.example",
         uri_allow_list:
           "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
@@ -89,6 +91,7 @@ test("patches only Auth URLs and verifies the response", async () => {
   );
   assert.equal(request.options.method, "PATCH");
   assert.deepEqual(JSON.parse(request.options.body), {
+    disable_signup: true,
     site_url: "https://dev.relay.example",
     uri_allow_list: "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
   });
@@ -98,6 +101,7 @@ test("patches only Auth URLs and verifies the response", async () => {
 test("rejects an inexact Auth response", async () => {
   const fetchImpl = async () => ({
     json: async () => ({
+      disable_signup: true,
       site_url: "https://dev.relay.example/unexpected",
       uri_allow_list: "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
     }),
@@ -107,6 +111,23 @@ test("rejects an inexact Auth response", async () => {
 
   await assert.rejects(
     configureHostedAuth(developmentConfig, "synthetic-token", fetchImpl),
-    /did not match exact requested URLs/u,
+    /did not match requested policy/u,
+  );
+});
+
+test("rejects an Auth response that leaves signup enabled", async () => {
+  const fetchImpl = async () => ({
+    json: async () => ({
+      disable_signup: false,
+      site_url: "https://dev.relay.example",
+      uri_allow_list: "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
+    }),
+    ok: true,
+    status: 200,
+  });
+
+  await assert.rejects(
+    configureHostedAuth(developmentConfig, "synthetic-token", fetchImpl),
+    /did not match requested policy/u,
   );
 });

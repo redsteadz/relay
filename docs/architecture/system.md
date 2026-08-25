@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 ---
 
 # System Architecture
@@ -26,6 +26,22 @@ Mobile and external callbacks are untrusted until authenticated and validated. Q
 internal but remain schema-validated because deployments and retries can mix versions. Source text
 is untrusted throughout classification and AI evaluation. Provider responses are untrusted and
 validated before persistence.
+
+## User Identity Flow
+
+Mobile requests an email magic link for an existing approved account with PKCE and the exact
+`com.redsteadz.relay://auth/callback` redirect. The callback route accepts one bounded authorization
+code, exchanges it without logging provider details, and persists the refreshable session through
+Expo SecureStore. Mobile sends the current access token as a bearer credential and refreshes only
+while the native app is active. Sign-out clears only this device's local session; other device
+sessions remain explicit user-controlled state.
+
+The API does not decode unverified token claims. It asks the environment's configured Supabase Auth
+service for the user, validates the returned user ID as a Relay UUID, then forwards only that ID to
+the pipeline. Missing, malformed, expired, and wrong-project credentials receive stable `401`
+responses. The synthetic development identity header is accepted only outside production runtime.
+Automatic account creation remains disabled in both Supabase Auth and mobile until issue
+[#63](https://github.com/redsteadz/relay/issues/63) restores isolated production Supabase.
 
 Related: [data flow](data-flow.md), [threat model](../security/threat-model.md),
 [ADR-0002](../decisions/0002-cloudflare-processing-boundary.md).

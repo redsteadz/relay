@@ -3,15 +3,18 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Page, palette } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { useAuth } from "@/lib/auth-context";
 import { sendDemoIngress } from "@/lib/demo";
 
 export default function InboxScreen() {
+  const { session } = useAuth();
   const [status, setStatus] = useState("Ready for local simulation");
 
   async function simulate() {
     setStatus("Sending...");
     try {
-      const result = await sendDemoIngress();
+      if (session === null) throw new Error("Authentication required");
+      const result = await sendDemoIngress(session.access_token);
       setStatus(result.accepted ? `Queued ${result.id.slice(0, 8)}` : "Not accepted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unknown ingestion error");
