@@ -42,8 +42,8 @@ For mixed code and documentation changes, run a fresh deep extraction because in
 code-oriented. Load `GEMINI_API_KEY` from the approved secret store without printing it, then run:
 
 ```bash
-uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --model gemini-2.5-flash-lite --mode deep --force --no-cluster --token-budget 5000 --max-concurrency 1
-uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --model gemini-2.5-flash-lite --mode deep --no-cluster --token-budget 2000 --max-concurrency 1
+uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --model gemini-3.5-flash-lite --mode deep --force --no-cluster --token-budget 5000 --max-concurrency 1
+uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --model gemini-3.5-flash-lite --mode deep --no-cluster --token-budget 2000 --max-concurrency 1
 uv run --with "graphifyy[gemini,sql]==0.9.49" python scripts/validate-graphify.py
 ```
 
