@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeGeneratedTypes } from "./supabase-types.mjs";
+import { localTypeGenerationEnvironment, normalizeGeneratedTypes } from "./supabase-types.mjs";
+
+test("replaces hosted database password for local type generation", () => {
+  assert.deepEqual(
+    localTypeGenerationEnvironment({ PATH: "/bin", SUPABASE_DB_PASSWORD: "hosted-secret" }),
+    { PATH: "/bin", SUPABASE_DB_PASSWORD: "postgres" },
+  );
+});
 
 test("removes hosted PostgREST metadata without changing schema types", () => {
   const generated = `export type Database = {

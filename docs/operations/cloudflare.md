@@ -29,9 +29,10 @@ explicit service-binding invocations can reach them. The development API uses it
 `workers.dev` URL. The production API disables `workers.dev` and uses the approved
 `relay.redsteadz.dpdns.org` custom domain, which is also the canonical hosted Auth origin.
 
-Queue messages use 24-hour retention at provisioning time. This is supported on Cloudflare's free
-and paid Workers plans, remains below Relay's seven-day raw-payload limit, and bounds old-KEK Queue
-retirement waits.
+Ingress and dead-letter Queue messages use 24-hour retention at provisioning time. Cloudflare fixes
+Free-plan retention at 24 hours. A failed ingress message can spend one retention period in ingress
+and another after transfer to the dead-letter Queue, so old-KEK retirement requires a 48-hour wait
+plus empty-backlog verification when operators do not drain both Queues.
 
 ## Ownership
 

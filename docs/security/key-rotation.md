@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Secret Provisioning And KEK Rotation
@@ -47,6 +47,12 @@ store that non-user ciphertext beside the version metadata. Retain the canary un
 backup requiring it are destroyed. A restored key must decrypt the historical canary; generating new
 ciphertext with a candidate key proves nothing about old records.
 
+Encrypted database rows record `encryption_environment` so independent Cloudflare keyrings cannot
+cross into another environment while ADR-0006 shares one Supabase project. Connection credentials use
+`connection:<user-id>:<connection-id>:credential` as encryption context. Source items retain their
+ingress context `ingress:<user-id>:<source-item-id>`. Context formats are immutable for existing
+ciphertext.
+
 When migrating from `RELAY_CREDENTIAL_KEK`, keyring entry `"1"` must contain those exact existing
 bytes. Do not generate a replacement version `1`. Before deployment, inventory Supabase rows,
 Durable Object local records, ingress Queue messages, and dead-letter messages. If any legacy
@@ -75,23 +81,36 @@ record secret values in project documentation.
    `N` still active so every runtime can decrypt existing records.
 2. Change `activeVersion` to `N+1`, replace the Worker secret, and verify synthetic ingress. New
    writes now use `N+1`; old records remain readable through lookup.
-3. For each encrypted row, call `rewrapValue` with tenant, record, and purpose context. Persist only
-   `wrapped_data_key`, `wrap_nonce`, and `key_version`; ciphertext and payload nonce must not change.
-4. Use a compare-and-set update constrained by row ID, tenant ID, previous key version, wrapped key,
-   wrap nonce, ciphertext, and payload nonce. Reread on a mismatch so a concurrent credential refresh
-   cannot pair stale wrapped-key material with new ciphertext. Rows already at the active version are
-   no-ops.
-5. Count remaining live rows by key version in `connections`, `source_items`, and Durable Object local
-   records. Drain or replay ingress and dead-letter Queue messages encrypted under version `N`, or
-   wait through their maximum retention. Inventory every ciphertext store before retirement.
-6. Retire version `N` from the online keyring only after live counts reach zero, queues contain no
-   version-`N` messages, and backup-retention requirements are satisfied.
-7. Keep any backup-recovery copy under separate access control until backups encrypted with version
+3. The private Pipeline Worker's hourly schedule purges expired raw payloads, inventories its own
+   environment, and rewraps at most five `connections` plus five `source_items` per invocation. It
+   aborts before writes when storage contains a future version or an old version absent from the
+   keyring.
+4. The executor calls `rewrapValue` with the canonical row context. Service-role-only Supabase RPCs
+   compare row ID, tenant ID, environment, previous key version, wrapped key, wrap nonce, ciphertext,
+   and payload nonce, then update only `wrapped_data_key`, `wrap_nonce`, and `key_version`. RPC bodies,
+   not URLs, carry encrypted comparison values.
+5. On a compare-and-set mismatch, reread the row. A deleted, expired, or already-active row is a
+   no-op. Rewrap the refreshed tuple and retry once; defer a second conflict to the next hourly batch.
+   Never pair a rewrap result from the stale read with refreshed ciphertext.
+6. Count remaining live rows by environment and key version:
+
+   ```sql
+   select * from public.kek_encryption_inventory('development');
+   select * from public.kek_encryption_inventory('production');
+   ```
+
+7. Drain ingress and dead-letter Queues or wait at least 48 hours after activation. Each Queue has
+   24-hour retention on the Free plan, and movement from ingress to the dead-letter Queue starts a
+   second retention period. Verify both backlogs are empty. Replaying an old-version message resets
+   the gate unless replay rewraps its data key under the original ingress context.
+8. Retire version `N` from the online keyring only after database inventories contain no version-`N`
+   rows, the Queue gate completes, Durable Object local-development records are clear, and every
+   backup or export containing version `N` has expired or been destroyed.
+9. Keep any backup-recovery copy under separate access control until backups encrypted with version
    `N` expire. Then destroy that copy and record destruction time without recording key material.
 
-Production rotation needs a pipeline-owned batch executor implementing these compare-and-set and
-inventory rules. The `rewrapValue` primitive and synthetic tests are not permission to rotate live
-rows manually; issue #6 remains open until executor and platform provisioning are verified.
+The executor never changes or retires a keyring. Activation and retirement remain explicit operator
+actions. Run no manual row updates around the compare-and-set RPCs.
 
 Rotation unwraps the random 32-byte data key and wraps it under the new KEK. It never decrypts raw
 messages or provider credentials. Synthetic tests deliberately replace payload ciphertext before
@@ -134,3 +153,4 @@ Related: [privacy lifecycle](privacy.md), [threat model](threat-model.md), and
 
 - [Cloudflare Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
 - [Cloudflare Queue limits and retention](https://developers.cloudflare.com/queues/platform/limits/)
+- [Cloudflare Queue configuration](https://developers.cloudflare.com/queues/configuration/configure-queues/)

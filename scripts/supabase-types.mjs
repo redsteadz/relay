@@ -8,9 +8,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputPath = resolve(root, "supabase/database.generated.ts");
 
-function run(command, args, input) {
+function run(command, args, input, env = process.env) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(command, args, { cwd: root, env: process.env, stdio: "pipe" });
+    const child = spawn(command, args, { cwd: root, env, stdio: "pipe" });
     const stdout = [];
     child.stdout.on("data", (chunk) => stdout.push(chunk));
     child.stderr.resume();
@@ -21,6 +21,10 @@ function run(command, args, input) {
     });
     child.stdin.end(input);
   });
+}
+
+export function localTypeGenerationEnvironment(environment) {
+  return { ...environment, SUPABASE_DB_PASSWORD: "postgres" };
 }
 
 export function normalizeGeneratedTypes(generated) {
@@ -67,14 +71,12 @@ async function generateTypes(remote) {
   if (remote && !/^[a-z]{20}$/u.test(process.env.RELAY_SUPABASE_PROJECT_REF ?? "")) {
     throw new Error("RELAY_SUPABASE_PROJECT_REF must be a 20-letter project ref");
   }
-  const generated = await run("supabase", [
-    "gen",
-    "types",
-    "typescript",
-    ...target,
-    "--schema",
-    "public",
-  ]);
+  const generated = await run(
+    "supabase",
+    ["gen", "types", "typescript", ...target, "--schema", "public"],
+    undefined,
+    remote ? process.env : localTypeGenerationEnvironment(process.env),
+  );
   if (!generated.includes("export type Database")) {
     throw new Error("Supabase returned an invalid database type definition");
   }

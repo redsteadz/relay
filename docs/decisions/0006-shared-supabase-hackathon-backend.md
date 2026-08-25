@@ -29,6 +29,9 @@ The exception has these hard limits:
   `https://relay.redsteadz.dpdns.org/auth/callback` plus the mobile deep link as exact redirects.
 - Shared Supabase values are still entered independently into each Cloudflare environment. Runtime
   code must not infer an environment from the Supabase project name or key.
+- Every encrypted hosted row records its owning Cloudflare environment. KEK inventory, rotation reads,
+  and compare-and-set writes filter that value so development and demo-production keyrings never
+  process each other's ciphertext.
 - Local Supabase remains the resettable test database. Hosted schema changes still come only from
   reviewed migrations.
 - Issue #63 is a release gate before beta access, non-maintainer accounts, production source

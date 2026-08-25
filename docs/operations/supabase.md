@@ -119,6 +119,22 @@ Hosted generation includes a PostgREST version hint that local generation omits;
 only that provider metadata before comparison. Any remaining difference blocks deployment. Fix
 migrations or regenerate locally; never edit generated output by hand.
 
+## Encryption Environment Ownership
+
+While ADR-0006 shares one project, encrypted `connections` and encrypted `source_items` carry the
+Cloudflare environment that owns their KEK. The pipeline filters every rotation inventory and write by
+that value. Unencrypted or retention-purged source rows carry no encryption environment.
+
+The ownership migration rejects existing encrypted rows because their environment cannot be inferred
+safely. Before applying it, pause both Queue consumers and run metadata-only counts for connections
+and encrypted source items. Delete only confirmed synthetic fixtures or defer migration; never guess
+ownership. Apply the reviewed migration, deploy both pipeline environments, then resume consumers and
+run one synthetic ingress canary per environment.
+
+Only `service_role` can execute KEK inventory and compare-and-set RPCs. The rotation executor sends
+encrypted comparison tuples in POST bodies and updates only wrapped data key, wrap nonce, and key
+version. Inventory output contains store, environment-scoped key version, and count only.
+
 ## Application Keys
 
 Retrieve the shared project's URL and modern publishable/secret keys through the Dashboard. Provision:
@@ -171,6 +187,7 @@ changes. Review members quarterly and immediately remove departed operators.
 - [Native mobile deep linking](https://supabase.com/docs/guides/auth/native-mobile-deep-linking)
 - [Update Auth service config](https://supabase.com/docs/reference/api/v1-update-auth-service-config)
 - [Database backups](https://supabase.com/docs/guides/platform/backups)
+- [Database functions](https://supabase.com/docs/guides/database/functions)
 - [Supabase access control](https://supabase.com/docs/guides/platform/access-control)
 
 Related: [privacy](../security/privacy.md), [system architecture](../architecture/system.md),
