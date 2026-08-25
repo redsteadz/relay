@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Cloudflare Environments And Operations
@@ -12,20 +12,22 @@ Relay uses one Cloudflare account with isolated development and production resou
 the environment suffix to each Worker name. Bindings and variables are repeated explicitly because
 Wrangler does not inherit them into environments.
 
-| Resource             | Development                             | Production                             |
-| -------------------- | --------------------------------------- | -------------------------------------- |
-| API Worker           | `relay-api-development`                 | `relay-api-production`                 |
-| Pipeline Worker      | `relay-pipeline-development`            | `relay-pipeline-production`            |
-| Ingress Queue        | `relay-ingress-development`             | `relay-ingress-production`             |
-| Dead-letter Queue    | `relay-ingress-dead-letter-development` | `relay-ingress-dead-letter-production` |
-| Action Workflow      | `relay-action-workflow-development`     | `relay-action-workflow-production`     |
-| Tenant coordinator   | `TENANT_COORDINATOR` SQLite DO binding  | `TENANT_COORDINATOR` SQLite DO binding |
-| Retention cron       | Hourly at minute 17                     | Hourly at minute 17                    |
-| API to pipeline call | `PIPELINE` service binding              | `PIPELINE` service binding             |
+| Resource             | Development                             | Production                                |
+| -------------------- | --------------------------------------- | ----------------------------------------- |
+| API Worker           | `relay-api-development`                 | `relay-api-production`                    |
+| Pipeline Worker      | `relay-pipeline-development`            | `relay-pipeline-production`               |
+| Ingress Queue        | `relay-ingress-development`             | `relay-ingress-production`                |
+| Dead-letter Queue    | `relay-ingress-dead-letter-development` | `relay-ingress-dead-letter-production`    |
+| Action Workflow      | `relay-action-workflow-development`     | `relay-action-workflow-production`        |
+| Tenant coordinator   | `TENANT_COORDINATOR` SQLite DO binding  | `TENANT_COORDINATOR` SQLite DO binding    |
+| Retention cron       | Hourly at minute 17                     | Hourly at minute 17                       |
+| API to pipeline call | `PIPELINE` service binding              | `PIPELINE` service binding                |
+| Public API endpoint  | Environment-specific `workers.dev` URL  | `relay.redsteadz.dpdns.org` custom domain |
 
 Pipeline Workers disable `workers.dev` and preview URLs and declare no routes. Only Queue, cron, and
-explicit service-binding invocations can reach them. API Workers remain public through environment
-specific `workers.dev` URLs until production custom domains are approved.
+explicit service-binding invocations can reach them. The development API uses its environment-specific
+`workers.dev` URL. The production API disables `workers.dev` and uses the approved
+`relay.redsteadz.dpdns.org` custom domain, which is also the canonical hosted Auth origin.
 
 Queue messages use 24-hour retention at provisioning time. This is supported on Cloudflare's free
 and paid Workers plans, remains below Relay's seven-day raw-payload limit, and bounds old-KEK Queue
