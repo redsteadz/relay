@@ -25,3 +25,26 @@ participate in the shared gate.
 Fixtures must be synthetic. Logs must not contain message bodies, SMS content, access tokens,
 provider credentials, OpenAI keys, or raw authorization headers. Any PR touching ingestion,
 encryption, AI disclosure, notification dismissal, or provider actions requires security review.
+
+## Graphify Memory
+
+Generated `graphify-out/` content is disposable and must never be committed. Keep credentials, raw
+messages, and real payloads out of the corpus and query text. Query an existing graph before reading
+the repository broadly:
+
+```bash
+graphify query "How does ingestion reach durable storage?"
+graphify path "API" "Supabase"
+graphify explain "TenantCoordinator"
+```
+
+For mixed code and documentation changes, run a fresh deep extraction because incremental update is
+code-oriented. Load `GEMINI_API_KEY` from the approved secret store without printing it, then run:
+
+```bash
+uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --mode deep --force --no-cluster
+uv run --with "graphifyy[gemini,sql]==0.9.49" python scripts/validate-graphify.py
+```
+
+Use `graphify update .` only for code-only changes after an initial graph exists. Query-result logging
+remains disabled for Relay; do not enable it for source content.
