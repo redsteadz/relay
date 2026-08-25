@@ -32,6 +32,19 @@ Producers reject encrypted messages above Relay's conservative 120 KB serialized
 Consumers validate encrypted metadata before dispatch. Malformed bodies are dropped rather than
 copied into the dead-letter queue, because an invalid body cannot be trusted to contain ciphertext.
 
+## Local End-To-End Harness
+
+`pnpm e2e:local` resets a local Supabase stack, starts local API and Wrangler processes, and sends the
+shared synthetic mobile fixture through the complete encrypted ingress path. The harness verifies
+encrypted Supabase persistence, source-identity and fingerprint deduplication, acknowledgement after
+durable persistence, dead-letter metadata delivery, and controlled seven-day retention cleanup. It
+accepts only a loopback Supabase URL and creates no remote Cloudflare or Supabase resources.
+
+The `e2e` Wrangler environment exists only for `wrangler dev --local`. Result markers contain status
+and key version only and remain in temporary local Durable Object storage. Controlled retention time
+is honored only when `RELAY_E2E_MODE=true`, a valid explicit timestamp is present, and Supabase uses
+an HTTP loopback URL.
+
 Provider delivery uses Relay action UUID as idempotency identity. Nextcloud Budget accepts it
 directly. Webhooks transmit it for receiver dedupe. Google Tasks needs a reconciliation marker
 because Tasks insert does not provide equivalent idempotency semantics; implementation must search

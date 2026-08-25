@@ -61,5 +61,6 @@ jobs:
       - run: pnpm exec supabase db reset
       - run: pnpm exec supabase test db
       - run: pnpm supabase:types:check
+      - run: pnpm e2e:local
       - if: always()
         run: pnpm exec supabase stop --no-backup
