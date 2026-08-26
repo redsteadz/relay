@@ -15,6 +15,7 @@ recovery copy only in maintainers' password manager.
 | ------------------------------ | -------------------- | -------------------------------------------- |
 | `RELAY_CREDENTIAL_KEK_KEYRING` | Pipeline Worker      | Wrap per-record data keys                    |
 | `RELAY_INGEST_SHARED_SECRET`   | API, Pipeline Worker | Authenticate internal ingestion              |
+| `RELAY_RECOVERY_SHARED_SECRET` | API, Pipeline Worker | Authorize metadata inspection and replay     |
 | `SUPABASE_SERVICE_ROLE_KEY`    | Pipeline Worker      | Perform tenant-bound persistence and cleanup |
 
 `SUPABASE_SERVICE_ROLE_KEY` is retained as the binding name, but its value must be the dedicated
@@ -29,7 +30,8 @@ issue #9 owns Supabase project access and key lifecycle.
 ## Keyring Contract
 
 `RELAY_CREDENTIAL_KEK_KEYRING` is a JSON secret with one active positive integer version and one or
-more base64-encoded 32-byte AES keys:
+more base64-encoded 32-byte AES keys. Generate ingress and recovery secrets independently with at
+least 32 random bytes; neither credential substitutes for other:
 
 ```json
 {
@@ -43,7 +45,7 @@ more base64-encoded 32-byte AES keys:
 
 Versions increase monotonically and are never reused. New records use `activeVersion`; decryption
 selects key recorded on each ciphertext bundle. Generate hosted KEK from cryptographically secure
-32-byte source. Generate ingress secret independently with at least 32 random bytes.
+32-byte source.
 
 When each version activates, create a known-plaintext synthetic canary bundle with fixed context and
 store that non-user ciphertext beside the version metadata. Retain the canary until the KEK and every
@@ -54,6 +56,8 @@ Encrypted database rows retain `encryption_environment='production'` as stable h
 inventory scope under ADR-0007. It does not identify separate deployment. Connection credentials use
 `connection:<user-id>:<connection-id>:credential` as encryption context. Source items retain ingress
 context `ingress:<user-id>:<source-item-id>`. Context formats are immutable for existing ciphertext.
+Dead-letter rows preserve same ingress context with envelope ID, even though recovery row ID is stored
+separately.
 
 When migrating from `RELAY_CREDENTIAL_KEK`, keyring entry `"1"` must contain those exact existing
 bytes. Do not generate a replacement version `1`. Before deployment, inventory Supabase rows,
@@ -90,9 +94,9 @@ for development-labeled ciphertext.
 2. Change `activeVersion` to `N+1`, replace the Worker secret, and verify synthetic ingress. New
    writes now use `N+1`; old records remain readable through lookup.
 3. The private Pipeline Worker's hourly schedule purges expired raw payloads, inventories its own
-   hosted scope, and rewraps at most five `connections` plus five `source_items` per invocation. It
-   aborts before writes when storage contains a future version or an old version absent from the
-   keyring.
+   hosted scope, and rewraps at most five rows from each of `connections`, `source_items`, and
+   `dead_letter_items` per invocation. It aborts before writes when storage contains a future version
+   or an old version absent from the keyring.
 4. The executor calls `rewrapValue` with the canonical row context. Service-role-only Supabase RPCs
    compare row ID, tenant ID, environment, previous key version, wrapped key, wrap nonce, ciphertext,
    and payload nonce, then update only `wrapped_data_key`, `wrap_nonce`, and `key_version`. RPC bodies,

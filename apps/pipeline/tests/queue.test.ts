@@ -1,16 +1,27 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Env, IngressQueueMessage } from "../src/env";
+import { completeDeadLetterReplay, recordDeadLetterItem } from "../src/recovery";
 import {
   prepareIngressQueueMessage,
   processIngressQueue,
   publishIngressQueueMessage,
 } from "../src/queue";
 
+vi.mock("../src/recovery", () => ({
+  completeDeadLetterReplay: vi.fn(() => Promise.resolve()),
+  recordDeadLetterItem: vi.fn(() => Promise.resolve()),
+}));
+
 function queueMessage(envelopeId: string): IngressQueueMessage {
   return {
+    schemaVersion: 1,
     userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
     envelopeId,
+    acceptedAt: "2026-08-24T10:00:00.000Z",
+    rawExpiresAt: "2026-08-31T10:00:00.000Z",
+    encryptionEnvironment: "production",
+    recoveryId: envelopeId,
     encrypted: {
       algorithm: "AES-GCM-256",
       ciphertext: "AAAAAAAAAAAAAAAAAAAAAA==",
@@ -22,22 +33,28 @@ function queueMessage(envelopeId: string): IngressQueueMessage {
   };
 }
 
-function message(body: IngressQueueMessage) {
+function message(body: IngressQueueMessage, attempts = 1) {
   const ack = vi.fn();
   const retry = vi.fn();
   return {
     ack,
     retry,
-    value: { body, ack, retry } as unknown as Message<IngressQueueMessage>,
+    value: { attempts, body, ack, retry } as unknown as Message<IngressQueueMessage>,
   };
 }
 
 describe("processIngressQueue", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(completeDeadLetterReplay).mockResolvedValue();
+    vi.mocked(recordDeadLetterItem).mockResolvedValue();
+  });
+
   it("acks e2e dead-letter messages only after durable metadata storage", async () => {
     const deadLetter = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"));
     const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
     const env = {
-      RELAY_E2E_DEAD_LETTER_QUEUE: "relay-ingress-dead-letter-e2e-local",
+      RELAY_DEAD_LETTER_QUEUE: "relay-ingress-dead-letter-e2e-local",
       RELAY_E2E_MODE: "true",
       TENANT_COORDINATOR: { getByName: vi.fn(() => ({ fetch })) },
     } as unknown as Env;
@@ -51,8 +68,98 @@ describe("processIngressQueue", () => {
     );
 
     expect(fetch).toHaveBeenCalledOnce();
+    expect(recordDeadLetterItem).toHaveBeenCalledWith(
+      env,
+      deadLetter.value.body,
+      "retry_exhausted_unknown",
+    );
     expect(deadLetter.ack).toHaveBeenCalledOnce();
     expect(deadLetter.retry).not.toHaveBeenCalled();
+  });
+
+  it("completes a replay claim before acknowledging Queue delivery", async () => {
+    const replay = message({
+      ...queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"),
+      replayRequestId: "06f96f7d-3e1a-4a66-b98e-58be9766b96e",
+    });
+    const fetch = vi.fn(() => Promise.resolve(Response.json({ reason: "duplicate" })));
+    const env = {
+      TENANT_COORDINATOR: { getByName: vi.fn(() => ({ fetch })) },
+    } as unknown as Env;
+
+    await processIngressQueue(
+      { messages: [replay.value] } as unknown as MessageBatch<IngressQueueMessage>,
+      env,
+    );
+
+    expect(completeDeadLetterReplay).toHaveBeenCalledWith(env, replay.value.body, "duplicate");
+    expect(replay.ack).toHaveBeenCalledOnce();
+  });
+
+  it("parks unexpired DLQ ciphertext when durable recovery storage is unavailable", async () => {
+    vi.mocked(recordDeadLetterItem).mockRejectedValueOnce(new Error("synthetic Supabase outage"));
+    const deadLetter = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"));
+    const send = vi.fn(() => Promise.resolve());
+    const env = {
+      DEAD_LETTER_QUEUE: { send },
+      RELAY_DEAD_LETTER_QUEUE: "relay-ingress-dead-letter-production",
+    } as unknown as Env;
+
+    await processIngressQueue(
+      {
+        messages: [deadLetter.value],
+        queue: "relay-ingress-dead-letter-production",
+      } as unknown as MessageBatch<IngressQueueMessage>,
+      env,
+    );
+
+    expect(send).toHaveBeenCalledWith(deadLetter.value.body, { delaySeconds: 300 });
+    expect(deadLetter.ack).toHaveBeenCalledOnce();
+    expect(deadLetter.retry).not.toHaveBeenCalled();
+  });
+
+  it("uses delayed platform retry when DLQ parking publication also fails", async () => {
+    vi.mocked(recordDeadLetterItem).mockRejectedValueOnce(new Error("synthetic Supabase outage"));
+    const deadLetter = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"));
+    const send = vi.fn(() => Promise.reject(new Error("synthetic Queue producer outage")));
+    const env = {
+      DEAD_LETTER_QUEUE: { send },
+      RELAY_DEAD_LETTER_QUEUE: "relay-ingress-dead-letter-production",
+    } as unknown as Env;
+
+    await processIngressQueue(
+      {
+        messages: [deadLetter.value],
+        queue: "relay-ingress-dead-letter-production",
+      } as unknown as MessageBatch<IngressQueueMessage>,
+      env,
+    );
+
+    expect(deadLetter.retry).toHaveBeenCalledWith({ delaySeconds: 600 });
+    expect(deadLetter.ack).not.toHaveBeenCalled();
+  });
+
+  it("routes classified terminal processing failure into existing DLQ", async () => {
+    const failed = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"), 5);
+    const coordinatorFetch = vi.fn(() =>
+      Promise.resolve(Response.json({ failureCode: "tenant_id_conflict" }, { status: 503 })),
+    );
+    const send = vi.fn(() => Promise.resolve());
+    const env = {
+      DEAD_LETTER_QUEUE: { send },
+      TENANT_COORDINATOR: { getByName: vi.fn(() => ({ fetch: coordinatorFetch })) },
+    } as unknown as Env;
+
+    await processIngressQueue(
+      { messages: [failed.value] } as unknown as MessageBatch<IngressQueueMessage>,
+      env,
+    );
+
+    expect(send).toHaveBeenCalledWith({
+      ...failed.value.body,
+      failureCode: "tenant_id_conflict",
+    });
+    expect(failed.ack).toHaveBeenCalledOnce();
   });
 
   it("retries one failed message without blocking later acknowledgements", async () => {
@@ -127,7 +234,7 @@ describe("prepareIngressQueueMessage", () => {
         ...queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"),
         encrypted: {
           ...queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8").encrypted,
-          ciphertext: "A".repeat(119_600),
+          ciphertext: "A".repeat(119_200),
         },
       }),
     ).toBeDefined();

@@ -363,6 +363,72 @@ export type Database = {
         };
         Relationships: [];
       };
+      dead_letter_items: {
+        Row: {
+          accepted_at: string;
+          ciphertext: string | null;
+          completed_at: string | null;
+          encryption_environment: string | null;
+          envelope_id: string;
+          failure_code: string;
+          first_failed_at: string;
+          id: string;
+          key_version: number | null;
+          last_failed_at: string;
+          last_replayed_at: string | null;
+          nonce: string | null;
+          raw_expires_at: string;
+          replay_count: number;
+          replay_request_id: string | null;
+          status: string;
+          user_id: string;
+          wrap_nonce: string | null;
+          wrapped_data_key: string | null;
+        };
+        Insert: {
+          accepted_at: string;
+          ciphertext?: string | null;
+          completed_at?: string | null;
+          encryption_environment?: string | null;
+          envelope_id: string;
+          failure_code: string;
+          first_failed_at?: string;
+          id: string;
+          key_version?: number | null;
+          last_failed_at?: string;
+          last_replayed_at?: string | null;
+          nonce?: string | null;
+          raw_expires_at: string;
+          replay_count?: number;
+          replay_request_id?: string | null;
+          status?: string;
+          user_id: string;
+          wrap_nonce?: string | null;
+          wrapped_data_key?: string | null;
+        };
+        Update: {
+          accepted_at?: string;
+          ciphertext?: string | null;
+          completed_at?: string | null;
+          encryption_environment?: string | null;
+          envelope_id?: string;
+          failure_code?: string;
+          first_failed_at?: string;
+          id?: string;
+          key_version?: number | null;
+          last_failed_at?: string;
+          last_replayed_at?: string | null;
+          nonce?: string | null;
+          raw_expires_at?: string;
+          replay_count?: number;
+          replay_request_id?: string | null;
+          status?: string;
+          user_id?: string;
+          wrap_nonce?: string | null;
+          wrapped_data_key?: string | null;
+        };
+        Relationships: [];
+      };
       devices: {
         Row: {
           created_at: string;
@@ -620,6 +686,22 @@ export type Database = {
         };
         Returns: boolean;
       };
+      cas_rewrap_dead_letter_data_key: {
+        Args: {
+          p_environment: string;
+          p_expected_ciphertext: string;
+          p_expected_key_version: number;
+          p_expected_payload_nonce: string;
+          p_expected_wrap_nonce: string;
+          p_expected_wrapped_data_key: string;
+          p_id: string;
+          p_new_key_version: number;
+          p_new_wrap_nonce: string;
+          p_new_wrapped_data_key: string;
+          p_user_id: string;
+        };
+        Returns: boolean;
+      };
       cas_rewrap_source_item_data_key: {
         Args: {
           p_environment: string;
@@ -634,6 +716,26 @@ export type Database = {
           p_new_wrapped_data_key: string;
           p_user_id: string;
         };
+        Returns: boolean;
+      };
+      claim_dead_letter_replay: {
+        Args: { p_id: string; p_request_id: string };
+        Returns: {
+          accepted_at: string;
+          ciphertext: string;
+          encryption_environment: string;
+          envelope_id: string;
+          id: string;
+          key_version: number;
+          nonce: string;
+          raw_expires_at: string;
+          user_id: string;
+          wrap_nonce: string;
+          wrapped_data_key: string;
+        }[];
+      };
+      complete_dead_letter_replay: {
+        Args: { p_id: string; p_request_id: string; p_result: string };
         Returns: boolean;
       };
       decide_action_run: {
@@ -671,6 +773,23 @@ export type Database = {
           store: string;
         }[];
       };
+      list_dead_letter_items: {
+        Args: { p_limit?: number };
+        Returns: {
+          accepted_at: string;
+          completed_at: string;
+          envelope_id: string;
+          failure_code: string;
+          first_failed_at: string;
+          id: string;
+          key_version: number;
+          last_failed_at: string;
+          last_replayed_at: string;
+          raw_expires_at: string;
+          replay_count: number;
+          status: string;
+        }[];
+      };
       persist_encrypted_source_item: {
         Args: {
           p_application_id: string;
@@ -691,7 +810,47 @@ export type Database = {
         };
         Returns: boolean;
       };
+      persist_encrypted_source_item_v2: {
+        Args: {
+          p_accepted_at: string;
+          p_application_id: string;
+          p_captured_at: string;
+          p_content_fingerprint: string;
+          p_encryption_environment: string;
+          p_external_id: string;
+          p_id: string;
+          p_key_version: number;
+          p_occurred_at: string;
+          p_raw_ciphertext: string;
+          p_raw_expires_at: string;
+          p_raw_nonce: string;
+          p_source: Database["public"]["Enums"]["source_kind"];
+          p_source_account_id: string;
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: boolean;
+      };
       purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
+      record_dead_letter_item: {
+        Args: {
+          p_accepted_at: string;
+          p_ciphertext: string;
+          p_encryption_environment: string;
+          p_envelope_id: string;
+          p_failure_code: string;
+          p_id: string;
+          p_key_version: number;
+          p_nonce: string;
+          p_raw_expires_at: string;
+          p_replay_request_id: string;
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: boolean;
+      };
       register_device: {
         Args: { p_device_id: string; p_platform: string };
         Returns: {
@@ -710,6 +869,10 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      release_dead_letter_replay: {
+        Args: { p_id: string; p_request_id: string };
+        Returns: boolean;
       };
       revoke_device: {
         Args: { p_device_id: string };
