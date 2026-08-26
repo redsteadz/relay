@@ -75,15 +75,15 @@ test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 export NEXT_PUBLIC_SUPABASE_URL="$(<password-manager-read-hosted-supabase-url>)"
 export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(<password-manager-read-hosted-supabase-publishable-key>)"
 test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
-pnpm --filter @relay/pipeline deploy -- --secrets-file "$SECRET_DIR/pipeline.json"
-pnpm --filter @relay/api deploy -- --secrets-file "$SECRET_DIR/api.json"
+pnpm --filter @relay/pipeline deploy:hosted -- --secrets-file "$SECRET_DIR/pipeline.json"
+pnpm --filter @relay/api deploy:hosted -- --secrets-file "$SECRET_DIR/api.json"
 unset NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY
 rm -rf -- "$SECRET_DIR"
 trap - EXIT
 ```
 
-Issue #7 records historical provisioning; issue #63 records consolidation. `deploy` is sole hosted
-command. Environment-specific deploy scripts are intentionally absent.
+Issue #7 records historical provisioning; issue #63 records consolidation. `deploy:hosted` is sole
+hosted command. Environment-specific deploy scripts are intentionally absent.
 
 ## Verification
 
