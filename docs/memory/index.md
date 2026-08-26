@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Relay Memory Index
@@ -42,6 +42,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0004: Development and release branches](../decisions/0004-development-release-branches.md)
 - [ADR-0005: Versioned wrapping keys](../decisions/0005-versioned-wrapping-keys.md)
 - [ADR-0006: Shared Supabase hackathon backend](../decisions/0006-shared-supabase-hackathon-backend.md)
+- [ADR-0007: Shared hosted runtime](../decisions/0007-shared-hosted-runtime.md)
 
 ## Delivery
 

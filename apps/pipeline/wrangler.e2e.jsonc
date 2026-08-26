@@ -1,14 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "relay-pipeline-production",
+  "name": "relay-pipeline-e2e-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-24",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
-  "observability": {
-    "enabled": true,
-  },
   "triggers": {
     "crons": ["17 * * * *"],
   },
@@ -16,16 +13,22 @@
     "producers": [
       {
         "binding": "INGRESS_QUEUE",
-        "queue": "relay-ingress-production",
+        "queue": "relay-ingress-e2e-local",
       },
     ],
     "consumers": [
       {
-        "queue": "relay-ingress-production",
-        "max_batch_size": 10,
-        "max_batch_timeout": 5,
-        "max_retries": 5,
-        "dead_letter_queue": "relay-ingress-dead-letter-production",
+        "queue": "relay-ingress-e2e-local",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 1,
+        "dead_letter_queue": "relay-ingress-dead-letter-e2e-local",
+      },
+      {
+        "queue": "relay-ingress-dead-letter-e2e-local",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 1,
       },
     ],
   },
@@ -45,13 +48,16 @@
   },
   "workflows": [
     {
-      "name": "relay-action-workflow-production",
+      "name": "relay-action-workflow-e2e-local",
       "binding": "ACTION_WORKFLOW",
       "class_name": "ActionWorkflow",
     },
   ],
   "vars": {
-    "RELAY_ENVIRONMENT": "production",
+    "RELAY_E2E_DEAD_LETTER_QUEUE": "relay-ingress-dead-letter-e2e-local",
+    "RELAY_E2E_MODE": "true",
+    "RELAY_E2E_RETENTION_NOW": "2030-01-01T00:00:00.000Z",
+    "RELAY_ENVIRONMENT": "development",
   },
   "secrets": {
     "required": [

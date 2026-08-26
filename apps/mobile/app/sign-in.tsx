@@ -41,7 +41,7 @@ export default function SignInScreen() {
     <Page
       eyebrow="Private by default"
       title="Sign in to Relay"
-      detail="Use an approved testing account. Relay stores the refreshable session in device-secure storage."
+      detail="Use an approved Relay account. Relay stores the refreshable session in device-secure storage."
     >
       <Panel title="Email magic link" meta="NO PASSWORD">
         <TextInput
@@ -73,9 +73,7 @@ export default function SignInScreen() {
         </Pressable>
         {status.length === 0 ? null : <Text style={styles.status}>{status}</Text>}
       </Panel>
-      <Text style={styles.note}>
-        New accounts remain disabled until production Supabase isolation is complete.
-      </Text>
+      <Text style={styles.note}>Account enrollment remains operator controlled.</Text>
     </Page>
   );
 }

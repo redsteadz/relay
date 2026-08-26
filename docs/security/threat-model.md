@@ -35,9 +35,9 @@ Gmail restricted-scope verification, Google API Limited Use review, SMS distribu
 provider reconciliation details, abuse/rate limits, and account deletion completion need tracked
 implementation and release issues.
 
-Mobile sign-in requests do not create accounts while development and demo-production share one
-synthetic-only Supabase project. Issue [#63](https://github.com/redsteadz/relay/issues/63) must restore
-environment isolation before beta identity enrollment or real source access.
+One hosted runtime creates shared quota, deployment, backup, and operator blast radius. ADR-0007
+accepts that topology for current stage; tenant controls remain mandatory. Account enrollment remains
+operator controlled until dedicated registration and abuse controls exist.
 
 Related: [key rotation](key-rotation.md), [system boundaries](../architecture/system.md), and
 [MVP scope](../product/scope.md).

@@ -4,7 +4,7 @@ import { pathToFileURL, URL } from "node:url";
 
 const MOBILE_REDIRECT_URL = "com.redsteadz.relay://auth/callback";
 const PROJECT_REF_PATTERN = /^[a-z]{20}$/u;
-const FORBIDDEN_PRODUCTION_LABEL = /(^|[.-])(dev|development|preview|staging|test)([.-]|$)/u;
+const FORBIDDEN_HOSTED_LABEL = /(^|[.-])(dev|development|preview|staging|test)([.-]|$)/u;
 const EPHEMERAL_HOST_SUFFIXES = [".netlify.app", ".pages.dev", ".vercel.app", ".workers.dev"];
 const GLOB_CHARACTERS = ["*", "?", "[", "]", "{", "}", "\\"];
 
@@ -40,8 +40,8 @@ function parseHostedUrl(value, name) {
 }
 
 export function buildHostedAuthConfig({ environment, projectRef, siteUrl, webRedirectUrl }) {
-  if (environment !== "development" && environment !== "production") {
-    throw new Error("RELAY_SUPABASE_ENVIRONMENT must be development or production");
+  if (environment !== "hosted") {
+    throw new Error("RELAY_SUPABASE_ENVIRONMENT must be hosted");
   }
   if (!PROJECT_REF_PATTERN.test(projectRef)) {
     throw new Error("RELAY_SUPABASE_PROJECT_REF must be a 20-letter project ref");
@@ -60,11 +60,10 @@ export function buildHostedAuthConfig({ environment, projectRef, siteUrl, webRed
 
   const hostname = site.hostname.toLowerCase();
   if (
-    environment === "production" &&
-    (FORBIDDEN_PRODUCTION_LABEL.test(hostname) ||
-      EPHEMERAL_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix)))
+    FORBIDDEN_HOSTED_LABEL.test(hostname) ||
+    EPHEMERAL_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix))
   ) {
-    throw new Error("Production Auth must use an approved stable production domain");
+    throw new Error("Hosted Auth must use an approved stable domain");
   }
 
   return {
