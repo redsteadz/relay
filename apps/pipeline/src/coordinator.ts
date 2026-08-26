@@ -1,20 +1,23 @@
 import { DurableObject } from "cloudflare:workers";
 
 import {
-  ingressEnvelopeSchema,
   ingressQueueMessageSchema,
   relayUserIdSchema,
+  type IngressEnvelope,
 } from "@relay/contracts";
-import { decryptValue, parseKekKeyring } from "@relay/crypto";
+import { decryptValue } from "@relay/crypto";
 import { contentFingerprint, sourceIdentity } from "@relay/domain";
 
 import {
-  base64ToPostgresBytea,
-  parseRelayEnvironment,
-  sourceItemEncryptionContext,
-} from "./encryption";
+  readPersistenceConfiguration,
+  supabaseBackendHeaders,
+  type PersistenceConfiguration,
+} from "./configuration";
+import { base64ToPostgresBytea, sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
-import { classifySourcePersistenceResponse } from "./persistence";
+import { recordPipelineMetric } from "./metrics";
+import { parseDecryptedIngressEnvelope, parseSourcePersistenceResponse } from "./persistence";
+import { SerialExecutor } from "./serialization";
 
 type LocalSourceRecord = {
   encrypted: IngressQueueMessage["encrypted"];
@@ -35,6 +38,8 @@ type E2EResult = {
 };
 
 export class TenantCoordinator extends DurableObject<Env> {
+  private readonly processing = new SerialExecutor();
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (this.env.RELAY_E2E_MODE === "true" && url.pathname === "/e2e/result") {
@@ -49,7 +54,9 @@ export class TenantCoordinator extends DurableObject<Env> {
           : Response.json(result);
       }
       if (request.method === "POST") {
-        const message = ingressQueueMessageSchema.safeParse(await request.json<unknown>());
+        const message = ingressQueueMessageSchema.safeParse(
+          await request.json<unknown>().catch(() => undefined),
+        );
         if (!message.success) return new Response("Invalid", { status: 400 });
         await this.ctx.storage.put(`${E2E_RESULT_PREFIX}${message.data.envelopeId}`, {
           keyVersion: message.data.encrypted.keyVersion,
@@ -62,21 +69,27 @@ export class TenantCoordinator extends DurableObject<Env> {
 
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
-    const candidate = ingressQueueMessageSchema.safeParse(await request.json<unknown>());
+    const candidate = ingressQueueMessageSchema.safeParse(
+      await request.json<unknown>().catch(() => undefined),
+    );
     if (!candidate.success) {
       return Response.json({ accepted: false, reason: "invalid" }, { status: 400 });
     }
-    const message: IngressQueueMessage = candidate.data;
+    return this.processing.run(() => this.process(candidate.data));
+  }
+
+  private async process(message: IngressQueueMessage): Promise<Response> {
+    const startedAt = performance.now();
+    const configuration = readPersistenceConfiguration(this.env);
     const context = sourceItemEncryptionContext(message.userId, message.envelopeId);
-    const keyring = parseKekKeyring(this.env.RELAY_CREDENTIAL_KEK_KEYRING);
-    const plaintext = await decryptValue(message.encrypted, keyring, context);
-    const parsed = ingressEnvelopeSchema.safeParse(JSON.parse(plaintext) as unknown);
-    if (!parsed.success || parsed.data.id !== message.envelopeId) {
+    const plaintext = await decryptValue(message.encrypted, configuration.keyring, context);
+    const envelope = parseDecryptedIngressEnvelope(plaintext, message.envelopeId);
+    if (envelope === undefined) {
       return Response.json({ accepted: false, reason: "invalid" }, { status: 400 });
     }
 
-    const identity = sourceIdentity(parsed.data);
-    const fingerprint = await contentFingerprint(parsed.data);
+    const identity = sourceIdentity(envelope);
+    const fingerprint = await contentFingerprint(envelope);
     const identityKey = `source:${identity}`;
     const fingerprintKey = `fingerprint:${fingerprint}`;
     const [seenIdentity, seenFingerprint] = await Promise.all([
@@ -90,12 +103,39 @@ export class TenantCoordinator extends DurableObject<Env> {
           status: seenIdentity !== undefined ? "duplicate-source" : "duplicate-fingerprint",
         } satisfies E2EResult);
       }
+      recordPipelineMetric(
+        this.env.PIPELINE_METRICS,
+        "source_item_duplicate",
+        1,
+        performance.now() - startedAt,
+      );
       return Response.json({ accepted: false, reason: "duplicate" });
     }
 
-    const persistence = await this.persist(message, parsed.data, fingerprint);
+    let persistence: "stored" | "duplicate" | "local";
+    try {
+      persistence = await this.persist(configuration, message, envelope, fingerprint);
+    } catch (error) {
+      recordPipelineMetric(
+        this.env.PIPELINE_METRICS,
+        "source_item_failed",
+        1,
+        performance.now() - startedAt,
+      );
+      throw error;
+    }
+    recordPipelineMetric(
+      this.env.PIPELINE_METRICS,
+      persistence === "duplicate" ? "source_item_duplicate" : "source_item_persisted",
+      1,
+      performance.now() - startedAt,
+    );
     const now = Date.now();
-    const records: Record<string, unknown> = { [identityKey]: now, [fingerprintKey]: now };
+    const records: Record<string, unknown> = {};
+    if (persistence !== "duplicate") {
+      records[identityKey] = now;
+      records[fingerprintKey] = now;
+    }
     if (persistence === "local") {
       const expiresAt = now + RAW_RETENTION_MS;
       records[`source-item:${message.envelopeId}`] = { encrypted: message.encrypted, expiresAt };
@@ -108,49 +148,48 @@ export class TenantCoordinator extends DurableObject<Env> {
         status: persistence === "duplicate" ? "duplicate-database" : "persisted",
       } satisfies E2EResult;
     }
-    await this.ctx.storage.put(records);
+    if (Object.keys(records).length > 0) await this.ctx.storage.put(records);
 
-    return Response.json({ accepted: persistence !== "duplicate", identity, fingerprint });
+    return Response.json({
+      accepted: persistence !== "duplicate",
+      reason: persistence === "duplicate" ? "duplicate" : "persisted",
+    });
   }
 
   private async persist(
+    configuration: PersistenceConfiguration,
     message: IngressQueueMessage,
-    envelope: ReturnType<typeof ingressEnvelopeSchema.parse>,
+    envelope: IngressEnvelope,
     fingerprint: string,
   ): Promise<"stored" | "duplicate" | "local"> {
-    if (this.env.SUPABASE_URL === undefined || this.env.SUPABASE_SERVICE_ROLE_KEY === undefined) {
-      if (this.env.RELAY_ALLOW_LOCAL_DURABILITY === "true") return "local";
-      throw new Error("Source persistence requires Supabase configuration");
-    }
+    if (configuration.supabase === undefined) return "local";
 
-    const response = await fetch(`${this.env.SUPABASE_URL}/rest/v1/source_items`, {
-      method: "POST",
-      headers: {
-        apikey: this.env.SUPABASE_SERVICE_ROLE_KEY,
-        authorization: `Bearer ${this.env.SUPABASE_SERVICE_ROLE_KEY}`,
-        "content-type": "application/json",
-        prefer: "return=minimal",
+    const response = await fetch(
+      `${configuration.supabase.url}/rest/v1/rpc/persist_encrypted_source_item`,
+      {
+        method: "POST",
+        headers: supabaseBackendHeaders(configuration.supabase.serviceRoleKey),
+        body: JSON.stringify({
+          p_application_id: envelope.source.applicationId ?? null,
+          p_captured_at: envelope.capturedAt,
+          p_content_fingerprint: fingerprint,
+          p_encryption_environment: configuration.environment,
+          p_external_id: envelope.source.externalId,
+          p_id: envelope.id,
+          p_key_version: message.encrypted.keyVersion,
+          p_occurred_at: envelope.occurredAt,
+          p_raw_ciphertext: base64ToPostgresBytea(message.encrypted.ciphertext),
+          p_raw_nonce: base64ToPostgresBytea(message.encrypted.nonce),
+          p_source: envelope.source.kind,
+          p_source_account_id: envelope.source.accountId ?? null,
+          p_user_id: message.userId,
+          p_wrap_nonce: base64ToPostgresBytea(message.encrypted.wrapNonce),
+          p_wrapped_data_key: base64ToPostgresBytea(message.encrypted.wrappedKey),
+        }),
       },
-      body: JSON.stringify({
-        id: envelope.id,
-        user_id: message.userId,
-        source: envelope.source.kind,
-        source_account_id: envelope.source.accountId,
-        external_id: envelope.source.externalId,
-        application_id: envelope.source.applicationId,
-        occurred_at: envelope.occurredAt,
-        captured_at: envelope.capturedAt,
-        content_fingerprint: fingerprint,
-        encryption_environment: parseRelayEnvironment(this.env.RELAY_ENVIRONMENT),
-        raw_ciphertext: base64ToPostgresBytea(message.encrypted.ciphertext),
-        raw_nonce: base64ToPostgresBytea(message.encrypted.nonce),
-        wrapped_data_key: base64ToPostgresBytea(message.encrypted.wrappedKey),
-        wrap_nonce: base64ToPostgresBytea(message.encrypted.wrapNonce),
-        key_version: message.encrypted.keyVersion,
-      }),
-    });
+    );
 
-    return classifySourcePersistenceResponse(response);
+    return parseSourcePersistenceResponse(response);
   }
 
   override async alarm(): Promise<void> {

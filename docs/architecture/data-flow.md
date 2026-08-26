@@ -19,8 +19,11 @@ source -> authenticated ingress -> canonical envelope -> envelope encryption -> 
 
 Cloudflare Queues are at-least-once. Every stage can repeat after timeout or deployment. Source
 identity uses provider kind, source account, and external ID. Content fingerprints catch equivalent
-payloads with different delivery IDs. Supabase unique constraints are final durable arbitration;
-Durable Objects reduce concurrent contention.
+payloads with different delivery IDs. One Durable Object instance per tenant explicitly serializes
+decryption, deduplication, and persistence. Supabase unique constraints remain final durable
+arbitration through `persist_encrypted_source_item`; its atomic boolean result reports insert or
+idempotent conflict without reflecting database details. Database conflicts do not populate candidate
+Durable Object identity or fingerprint markers.
 
 Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
 and envelope ID, never raw source bodies. Coordinator acknowledges only after Supabase persistence.
@@ -31,13 +34,20 @@ Producers reject encrypted messages above Relay's conservative 120 KB serialized
 [Cloudflare's 128 KB Queue limit](https://developers.cloudflare.com/queues/platform/limits/).
 Consumers validate encrypted metadata before dispatch. Malformed bodies are dropped rather than
 copied into the dead-letter queue, because an invalid body cannot be trusted to contain ciphertext.
+Hosted ingestion validates the KEK, HTTPS Supabase URL, and backend key before Queue publication.
+Production rejects local Durable Object fallback even when its development flag is present.
+
+Pipeline Analytics Engine points use only fixed metric names, numeric counts, and numeric latency in
+milliseconds. Tenant IDs, envelope IDs, source metadata, ciphertext, URLs, errors, and plaintext are
+not metric dimensions or values.
 
 ## Local End-To-End Harness
 
 `pnpm e2e:local` resets a local Supabase stack, starts local API and Wrangler processes, and sends the
 shared synthetic mobile fixture through the complete encrypted ingress path. The harness verifies
 encrypted Supabase persistence, source-identity and fingerprint deduplication, acknowledgement after
-durable persistence, dead-letter metadata delivery, and controlled seven-day retention cleanup. It
+durable persistence, cold database conflict outcomes, duplicate-cache safety, dead-letter metadata
+delivery, and controlled seven-day retention cleanup. It
 accepts only a loopback Supabase URL and creates no remote Cloudflare or Supabase resources.
 
 The `wrangler.e2e.jsonc` config exists only for `wrangler dev --local`. Result markers contain status

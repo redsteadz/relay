@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(19);
+select plan(25);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at
@@ -204,6 +204,45 @@ select is(
    where id = '32000000-0000-0000-0000-000000000003'),
   null,
   'retention clears source encryption environment ownership'
+);
+
+select ok(
+  (select raw_ciphertext is null from public.source_items
+   where id = '32000000-0000-0000-0000-000000000003'),
+  'retention clears source ciphertext'
+);
+
+select ok(
+  (select raw_nonce is null from public.source_items
+   where id = '32000000-0000-0000-0000-000000000003'),
+  'retention clears source payload nonce'
+);
+
+select ok(
+  (select wrapped_data_key is null from public.source_items
+   where id = '32000000-0000-0000-0000-000000000003'),
+  'retention clears wrapped source data key'
+);
+
+select ok(
+  (select wrap_nonce is null from public.source_items
+   where id = '32000000-0000-0000-0000-000000000003'),
+  'retention clears source wrapping nonce'
+);
+
+select ok(
+  (select key_version is null from public.source_items
+   where id = '32000000-0000-0000-0000-000000000003'),
+  'retention clears source key version'
+);
+
+select ok(
+  exists (
+    select 1 from public.source_items
+    where id = '32000000-0000-0000-0000-000000000003'
+      and content_fingerprint = 'rotation-fingerprint'
+  ),
+  'retention preserves source metadata'
 );
 
 select throws_ok(

@@ -32,6 +32,11 @@ Relay intentionally uses one hosted Supabase and Cloudflare runtime under
 relax tenant RLS, encryption, source consent, retention, credential handling, or deletion controls.
 Future infrastructure isolation requires measured need rather than serving as user-data gate.
 
+Pipeline application metrics use fixed operation names plus count and latency numbers only. They do
+not contain tenant, device, envelope, source, provider, ciphertext, URL, error, credential, or raw
+content values. Decrypted JSON parse failures become a fixed invalid outcome before platform
+observability can receive parser text.
+
 OpenAI receives only semantic-clause allowlisted fields after redaction. Relay stores disclosure
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and
 cannot choose tools or action configuration.

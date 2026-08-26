@@ -12,6 +12,12 @@
   "triggers": {
     "crons": ["17 * * * *"],
   },
+  "analytics_engine_datasets": [
+    {
+      "binding": "PIPELINE_METRICS",
+      "dataset": "relay_pipeline_production",
+    },
+  ],
   "queues": {
     "producers": [
       {

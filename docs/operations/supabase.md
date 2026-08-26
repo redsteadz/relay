@@ -130,6 +130,14 @@ Only backend secret role can execute KEK inventory and compare-and-set RPCs. Rot
 encrypted comparison tuples in POST bodies and updates only wrapped data key, wrap nonce, and key
 version. Inventory output contains store, environment-scoped key version, and count only.
 
+Only backend secret role can execute `persist_encrypted_source_item`. It validates the complete
+encrypted bundle and inserts with `on conflict do nothing`; `true` means stored and `false` means a
+same-tenant source-ID, source-identity, or content-fingerprint conflict was already durable. A global
+source-ID collision owned by another tenant remains an error and cannot acknowledge that tenant's
+message. Callers treat only `true` and `false` as successful Queue outcomes and never parse or expose
+PostgreSQL conflict details. Modern `sb_secret_` keys are sent only as `apikey`; they are not JWTs and
+must not appear in an `Authorization` header.
+
 ## Application Keys
 
 Retrieve the shared project's URL and modern publishable/secret keys through the Dashboard. Provision:

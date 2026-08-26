@@ -92,6 +92,13 @@ describe("ingressQueueMessageSchema", () => {
     expect(ingressQueueMessageSchema.safeParse(message).success).toBe(true);
   });
 
+  it.each(["body", "sender", "envelope"])("rejects plaintext field %s", (field) => {
+    expect(
+      ingressQueueMessageSchema.safeParse({ ...message, [field]: "synthetic-sensitive-value" })
+        .success,
+    ).toBe(false);
+  });
+
   it("rejects key versions outside PostgreSQL integer range", () => {
     const result = ingressQueueMessageSchema.safeParse({
       ...message,

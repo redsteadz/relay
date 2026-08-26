@@ -1,10 +1,10 @@
 import { relayUserIdSchema } from "@relay/contracts";
-import { parseKekKeyring, rewrapValue, type EncryptedValue, type KekKeyring } from "@relay/crypto";
+import { rewrapValue, type EncryptedValue, type KekKeyring } from "@relay/crypto";
 
+import { readPersistenceConfiguration, supabaseBackendHeaders } from "./configuration";
 import {
   base64ToPostgresBytea,
   connectionCredentialEncryptionContext,
-  parseRelayEnvironment,
   postgresByteaToBase64,
   sourceItemEncryptionContext,
   type RelayEnvironment,
@@ -58,14 +58,6 @@ const STORE_SPECS: readonly StoreSpec[] = [
   },
 ];
 
-function supabaseHeaders(serviceRoleKey: string): HeadersInit {
-  return {
-    apikey: serviceRoleKey,
-    authorization: `Bearer ${serviceRoleKey}`,
-    "content-type": "application/json",
-  };
-}
-
 async function supabaseJson(
   fetcher: Fetcher,
   url: string,
@@ -75,7 +67,7 @@ async function supabaseJson(
 ): Promise<unknown> {
   const response = await fetcher(url, {
     ...init,
-    headers: { ...supabaseHeaders(serviceRoleKey), ...init?.headers },
+    headers: { ...supabaseBackendHeaders(serviceRoleKey), ...init?.headers },
   });
   if (!response.ok) {
     throw new Error(`KEK rotation ${operation} failed with ${response.status.toString()}`);
@@ -298,15 +290,15 @@ export async function executeKekRotationBatch(
   env: Env,
   fetcher: Fetcher = fetch,
 ): Promise<KekRotationSummary> {
-  if (env.SUPABASE_URL === undefined || env.SUPABASE_SERVICE_ROLE_KEY === undefined) {
+  const configuration = readPersistenceConfiguration(env);
+  if (configuration.supabase === undefined) {
     throw new Error("KEK rotation requires Supabase configuration");
   }
-  const environment = parseRelayEnvironment(env.RELAY_ENVIRONMENT);
-  const keyring = parseKekKeyring(env.RELAY_CREDENTIAL_KEK_KEYRING);
+  const { environment, keyring, supabase } = configuration;
   const inventory = await supabaseJson(
     fetcher,
-    new URL("/rest/v1/rpc/kek_encryption_inventory", env.SUPABASE_URL).toString(),
-    env.SUPABASE_SERVICE_ROLE_KEY,
+    new URL("/rest/v1/rpc/kek_encryption_inventory", supabase.url).toString(),
+    supabase.serviceRoleKey,
     "inventory",
     { body: JSON.stringify({ p_environment: environment }), method: "POST" },
   );
@@ -322,8 +314,8 @@ export async function executeKekRotationBatch(
     if (!stores.has(spec.store)) continue;
     const rows = await readRows(
       fetcher,
-      env.SUPABASE_URL,
-      env.SUPABASE_SERVICE_ROLE_KEY,
+      supabase.url,
+      supabase.serviceRoleKey,
       environment,
       spec,
       keyring.activeVersion,
@@ -332,8 +324,8 @@ export async function executeKekRotationBatch(
       summary.scanned += 1;
       const result = await rewrapRow(
         fetcher,
-        env.SUPABASE_URL,
-        env.SUPABASE_SERVICE_ROLE_KEY,
+        supabase.url,
+        supabase.serviceRoleKey,
         environment,
         spec,
         row,
