@@ -1,10 +1,46 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deviceIngressRequestSchema,
+  deviceRegistrationRequestSchema,
   filterPlanSchema,
   ingressEnvelopeSchema,
   ingressQueueMessageSchema,
 } from "../src/index.js";
+
+describe("device contracts", () => {
+  it("accepts only client-owned registration fields", () => {
+    expect(
+      deviceRegistrationRequestSchema.safeParse({
+        id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        platform: "android",
+      }).success,
+    ).toBe(true);
+    expect(
+      deviceRegistrationRequestSchema.safeParse({
+        id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        platform: "android",
+        userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires device identity outside the source envelope", () => {
+    expect(
+      deviceIngressRequestSchema.safeParse({
+        deviceId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        envelope: {
+          schemaVersion: 1,
+          id: "638ce145-a77d-4c32-b798-cb398e881fc9",
+          occurredAt: "2026-08-24T10:00:00Z",
+          capturedAt: "2026-08-24T10:00:01Z",
+          source: { kind: "notification", externalId: "synthetic" },
+          attributes: {},
+        },
+      }).success,
+    ).toBe(true);
+  });
+});
 
 describe("ingressEnvelopeSchema", () => {
   it("accepts a versioned notification payload", () => {

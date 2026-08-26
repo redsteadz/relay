@@ -44,7 +44,7 @@ describe("authenticateRequest", () => {
       }),
     );
 
-    expect(result).toEqual({ userId });
+    expect(result).toEqual({ accessToken: "synthetic-access-token", userId });
     expect(supabase.getUser).toHaveBeenCalledWith("synthetic-access-token");
   });
 

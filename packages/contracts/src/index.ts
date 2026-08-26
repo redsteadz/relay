@@ -3,7 +3,18 @@ import { z } from "zod";
 export const sourceKindSchema = z.enum(["gmail", "notification", "sms", "email"]);
 export type SourceKind = z.infer<typeof sourceKindSchema>;
 export const relayUserIdSchema = z.uuid();
+export const deviceIdSchema = z.uuid();
+export const devicePlatformSchema = z.enum(["android", "ios", "web"]);
 export const MAX_INGRESS_QUEUE_MESSAGE_BYTES = 120_000;
+
+export const deviceRegistrationRequestSchema = z
+  .object({ id: deviceIdSchema, platform: devicePlatformSchema })
+  .strict();
+export const deviceMutationRequestSchema = z.object({ id: deviceIdSchema }).strict();
+export const deviceRegistrationResponseSchema = z
+  .object({ id: deviceIdSchema, name: z.string().min(1).max(80), platform: devicePlatformSchema })
+  .strict();
+export type DeviceRegistrationResponse = z.infer<typeof deviceRegistrationResponseSchema>;
 
 export const sourceReferenceSchema = z.object({
   kind: sourceKindSchema,
@@ -24,6 +35,10 @@ export const ingressEnvelopeSchema = z.object({
   attributes: z.record(z.string(), z.unknown()).default({}),
 });
 export type IngressEnvelope = z.infer<typeof ingressEnvelopeSchema>;
+
+export const deviceIngressRequestSchema = z
+  .object({ deviceId: deviceIdSchema, envelope: ingressEnvelopeSchema })
+  .strict();
 
 const postgresIntegerSchema = z.int().min(1).max(2_147_483_647);
 

@@ -6,6 +6,7 @@ export const demoIngress = ingressEnvelopeSchema.parse(demoIngressFixture);
 
 export async function sendDemoIngress(
   accessToken: string,
+  deviceId: string,
 ): Promise<{ accepted: boolean; id: string }> {
   const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
   const response = await fetch(`${baseUrl}/api/ingest`, {
@@ -14,7 +15,7 @@ export async function sendDemoIngress(
       authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify(demoIngress),
+    body: JSON.stringify({ deviceId, envelope: demoIngress }),
   });
 
   if (!response.ok) {

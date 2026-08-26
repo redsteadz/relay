@@ -90,9 +90,11 @@ unset RELAY_SUPABASE_PROJECT_REF
 
 The RLS suite creates two deterministic synthetic tenants inside a transaction, checks every
 user-owned table's visibility, exercises every client-writable policy, checks privileged action
-decisions, then rolls back. Record command, migration version, UTC timestamp, operator, and pass/fail
-result in issue #9. Never paste connection strings, keys, tokens, test output containing credentials,
-or real rows.
+decisions, and verifies device registration, revocation, and ingress authorization before rolling
+back. Device table writes remain unavailable to authenticated clients; security-definer RPCs derive
+ownership exclusively from `auth.uid()`. Record command, migration version, UTC timestamp, operator,
+and pass/fail result in issue #9. Never paste connection strings, keys, tokens, test output containing
+credentials, or real rows.
 
 Record shared-project evidence in issue #9. Do not apply a second hosted target during the hackathon.
 Issue #63 repeats the dry-run, push, migration list, RLS test, and type comparison against isolated
