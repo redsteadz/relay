@@ -5,6 +5,7 @@ import { Page, palette } from "@/components/Page";
 import { Panel } from "@/components/Panel";
 import { useAuth } from "@/lib/auth-context";
 import { sendDemoIngress } from "@/lib/demo";
+import { registerInstallation } from "@/lib/device";
 
 export default function InboxScreen() {
   const { session } = useAuth();
@@ -14,7 +15,8 @@ export default function InboxScreen() {
     setStatus("Sending...");
     try {
       if (session === null) throw new Error("Authentication required");
-      const result = await sendDemoIngress(session.access_token);
+      const device = await registerInstallation(session.user.id, session.access_token);
+      const result = await sendDemoIngress(session.access_token, device.id);
       setStatus(result.accepted ? `Queued ${result.id.slice(0, 8)}` : "Not accepted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unknown ingestion error");

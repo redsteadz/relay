@@ -26,7 +26,7 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Malicious callback                  | Google Pub/Sub JWT audience verification, signed webhook authentication  |
 | Credential leakage in observability | Structured metadata-only logs, header/body redaction                     |
 | Unwanted notification deletion      | Explicit deterministic rules, dry run, audit, no category-only dismissal |
-| Compromised device                  | SecureStore/Keystore, revocable device record, short offline retention   |
+| Compromised device                  | SecureStore ID, active-device gate, revocable record                     |
 | SSRF through Nextcloud/webhook URL  | HTTPS requirement, address validation, redirect policy, re-resolution    |
 
 ## Open Risks
