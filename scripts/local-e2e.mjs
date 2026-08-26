@@ -197,7 +197,7 @@ async function sendIngress(envelope, relayUserId) {
       "content-type": "application/json",
       "x-relay-development-user": relayUserId,
     },
-    body: JSON.stringify(envelope),
+    body: JSON.stringify({ deviceId: "19784902-e7a4-4f7f-b04d-e3a78c876629", envelope }),
   });
   if (response.status !== 202) {
     stage = `synthetic ingress acceptance (HTTP ${response.status})`;
