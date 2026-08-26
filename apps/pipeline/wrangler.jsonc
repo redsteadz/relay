@@ -49,13 +49,6 @@
       "storage": "sqlite",
     },
   },
-  "workflows": [
-    {
-      "name": "relay-action-workflow-production",
-      "binding": "ACTION_WORKFLOW",
-      "class_name": "ActionWorkflow",
-    },
-  ],
   "vars": {
     "RELAY_ENVIRONMENT": "production",
   },

@@ -20,12 +20,13 @@ current measured risk. Branch promotion and local verification already provide c
 
 Relay uses one hosted runtime until measured scale, compliance, recovery, or risk requirements justify
 isolation. Existing production-suffixed Cloudflare resources become canonical to preserve Queue,
-Durable Object, Workflow, custom-domain, secret, and deployment state:
+Durable Object, custom-domain, secret, and deployment state:
 
 - `relay-api-production` is the only hosted API Worker.
 - `relay-pipeline-production` is the only hosted Pipeline Worker.
-- `relay-ingress-production`, its dead-letter Queue, and
-  `relay-action-workflow-production` are the only hosted asynchronous resources.
+- `relay-ingress-production` and its dead-letter Queue are the only hosted asynchronous resources.
+- No Action Workflow is provisioned until a persisted action dispatch path exists; issue #35 owns
+  that implementation.
 - `relay-development` remains the one hosted Supabase project despite its historical name.
 - One hosted publishable-key record, backend secret set, ingress secret, and KEK keyring serve the
   runtime.
@@ -56,7 +57,8 @@ Future separation requires a new ADR with a concrete trigger and cutover plan. V
 contractual or regulatory isolation, multiple deployment operators, incompatible release cadences,
 material quota contention, tested recovery objectives requiring independent failure domains, or usage
 where shared-runtime blast radius exceeds accepted risk. A split must inventory and migrate Queue,
-Durable Object, Workflow, KEK, Auth, and database state rather than create empty parallel resources.
+Durable Object, any implemented Workflow, KEK, Auth, and database state rather than create empty
+parallel resources.
 
 Related: [Cloudflare operations](../operations/cloudflare.md),
 [Supabase operations](../operations/supabase.md),
