@@ -16,7 +16,7 @@ entry points and cross-milestone flow without copying issue prose.
 - [#9 Supabase projects](https://github.com/redsteadz/relay/issues/9)
 - [#10 Expo and EAS builds](https://github.com/redsteadz/relay/issues/10)
 - [#11 Local end-to-end harness](https://github.com/redsteadz/relay/issues/11)
-- [#44 Graphify semantic memory CI](https://github.com/redsteadz/relay/issues/44)
+- [#65 Retire Graphify CI](https://github.com/redsteadz/relay/issues/65)
 
 ## M1 Ingestion
 
