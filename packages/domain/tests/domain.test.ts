@@ -21,8 +21,20 @@ const item: IngressEnvelope = {
 };
 
 describe("sourceIdentity", () => {
-  it("uses stable provider identity", () => {
-    expect(sourceIdentity(item)).toBe("notification:device:42");
+  it("uses an unambiguous provider identity tuple", () => {
+    expect(sourceIdentity(item)).toBe('["notification",null,"42"]');
+  });
+
+  it("does not collide omitted accounts with literal account values", () => {
+    const omittedAccount = {
+      ...item,
+      source: { ...item.source, externalId: "device:42" },
+    };
+    const literalAccount = {
+      ...item,
+      source: { ...item.source, accountId: "device", externalId: "42" },
+    };
+    expect(sourceIdentity(omittedAccount)).not.toBe(sourceIdentity(literalAccount));
   });
 });
 

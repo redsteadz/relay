@@ -15,8 +15,12 @@ const userId = "00000000-0000-4000-8000-000000000001";
 const failedUserId = "00000000-0000-4000-8000-000000000099";
 const fingerprintDuplicateId = "cf4c3c89-0a15-4edb-94df-77786bcdddb5";
 const deadLetterId = "cf4c3c89-0a15-4edb-94df-77786bcdddb6";
+const databaseConflictSeedId = "cf4c3c89-0a15-4edb-94df-77786bcdddb7";
+const databaseConflictFirstId = "cf4c3c89-0a15-4edb-94df-77786bcdddb8";
+const databaseConflictSecondId = "cf4c3c89-0a15-4edb-94df-77786bcdddb9";
 const deadLetterSubject = "Synthetic persistence failure";
 const deadLetterBody = "SYNTHETIC FAILURE BODY MUST NOT APPEAR";
+const databaseConflictBody = "SYNTHETIC DATABASE CONFLICT BODY MUST NOT APPEAR";
 const pipelineUrl = "http://127.0.0.1:8787";
 const apiUrl = "http://127.0.0.1:3300";
 const maxLogBytes = 64_000;
@@ -175,7 +179,6 @@ async function readSupabaseStatus(environment) {
 function serviceHeaders(status) {
   return {
     apikey: status.SECRET_KEY,
-    authorization: `Bearer ${status.SECRET_KEY}`,
     "content-type": "application/json",
   };
 }
@@ -188,6 +191,15 @@ async function sourceRows(status, query) {
   const rows = await response.json();
   if (!Array.isArray(rows)) throw new Error("Local source metadata response is invalid");
   return rows;
+}
+
+async function insertSourceMetadata(status, row) {
+  const response = await globalThis.fetch(`${status.API_URL}/rest/v1/source_items`, {
+    method: "POST",
+    headers: { ...serviceHeaders(status), prefer: "return=minimal" },
+    body: JSON.stringify(row),
+  });
+  if (!response.ok) throw new Error("Local source metadata seed failed");
 }
 
 async function sendIngress(envelope, relayUserId) {
@@ -295,6 +307,7 @@ async function main() {
     fixture.body,
     deadLetterSubject,
     deadLetterBody,
+    databaseConflictBody,
     kek,
     keyring,
     ingressSecret,
@@ -397,6 +410,43 @@ async function main() {
   );
   const userRows = await sourceRows(status, `user_id=eq.${encodeURIComponent(userId)}&select=id`);
   requireCondition(userRows.length === 1, "Duplicate ingress created another source row");
+
+  stage = "database source identity conflict";
+  await insertSourceMetadata(status, {
+    application_id: fixture.source.applicationId,
+    captured_at: fixture.capturedAt,
+    content_fingerprint: "b".repeat(64),
+    external_id: "database-conflict",
+    id: databaseConflictSeedId,
+    occurred_at: fixture.occurredAt,
+    source: fixture.source.kind,
+    user_id: userId,
+  });
+  for (const [id, body] of [
+    [databaseConflictFirstId, databaseConflictBody],
+    [databaseConflictSecondId, `${databaseConflictBody} SECOND`],
+  ]) {
+    const databaseConflict = {
+      ...fixture,
+      body,
+      id,
+      source: { ...fixture.source, externalId: "database-conflict" },
+    };
+    await sendIngress(databaseConflict, userId);
+    await poll(
+      "database duplicate result",
+      () => e2eResult(ingressSecret, userId, databaseConflict.id),
+      (value) => value?.status === "duplicate-database",
+    );
+  }
+  const conflictRows = await sourceRows(
+    status,
+    `id=in.(${databaseConflictSeedId},${databaseConflictFirstId},${databaseConflictSecondId})&select=id`,
+  );
+  requireCondition(
+    conflictRows.length === 1 && conflictRows[0].id === databaseConflictSeedId,
+    "Database duplicate outcome polluted source identity cache",
+  );
 
   stage = "dead-letter delivery";
   const deadLetterFixture = {

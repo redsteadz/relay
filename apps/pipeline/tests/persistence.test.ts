@@ -1,23 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { classifySourcePersistenceResponse } from "../src/persistence";
+import { parseDecryptedIngressEnvelope, parseSourcePersistenceResponse } from "../src/persistence";
 
-describe("classifySourcePersistenceResponse", () => {
+describe("parseSourcePersistenceResponse", () => {
   it("accepts durable persistence", async () => {
-    await expect(
-      classifySourcePersistenceResponse(new Response(null, { status: 201 })),
-    ).resolves.toBe("stored");
+    await expect(parseSourcePersistenceResponse(Response.json(true))).resolves.toBe("stored");
   });
 
-  it("classifies only unique violations as duplicates", async () => {
-    await expect(
-      classifySourcePersistenceResponse(Response.json({ code: "23505" }, { status: 409 })),
-    ).resolves.toBe("duplicate");
+  it("accepts atomic duplicate outcomes", async () => {
+    await expect(parseSourcePersistenceResponse(Response.json(false))).resolves.toBe("duplicate");
   });
 
-  it("keeps foreign-key violations retryable without reflecting the response", async () => {
+  it("keeps database failures retryable without reflecting the response", async () => {
     await expect(
-      classifySourcePersistenceResponse(
+      parseSourcePersistenceResponse(
         Response.json(
           { code: "23503", details: "synthetic-sensitive-database-detail" },
           { status: 409 },
@@ -28,7 +24,18 @@ describe("classifySourcePersistenceResponse", () => {
 
   it("rejects malformed conflict responses", async () => {
     await expect(
-      classifySourcePersistenceResponse(new Response("not-json", { status: 409 })),
-    ).rejects.toThrow("Source persistence failed with 409");
+      parseSourcePersistenceResponse(new Response("not-json", { status: 200 })),
+    ).rejects.toThrow("Source persistence response is invalid");
+  });
+});
+
+describe("parseDecryptedIngressEnvelope", () => {
+  it("returns a fixed invalid outcome for malformed sensitive plaintext", () => {
+    expect(
+      parseDecryptedIngressEnvelope(
+        '{"body":"SYNTHETIC SECRET THAT MUST NOT ENTER AN ERROR"',
+        "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+      ),
+    ).toBeUndefined();
   });
 });

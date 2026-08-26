@@ -671,6 +671,26 @@ export type Database = {
           store: string;
         }[];
       };
+      persist_encrypted_source_item: {
+        Args: {
+          p_application_id: string;
+          p_captured_at: string;
+          p_content_fingerprint: string;
+          p_encryption_environment: string;
+          p_external_id: string;
+          p_id: string;
+          p_key_version: number;
+          p_occurred_at: string;
+          p_raw_ciphertext: string;
+          p_raw_nonce: string;
+          p_source: Database["public"]["Enums"]["source_kind"];
+          p_source_account_id: string;
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: boolean;
+      };
       purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
       register_device: {
         Args: { p_device_id: string; p_platform: string };
