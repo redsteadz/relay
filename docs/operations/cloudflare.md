@@ -1,33 +1,32 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
-# Cloudflare Environments And Operations
+# Cloudflare Hosted Runtime Operations
 
 ## Resource Contract
 
-Relay uses one Cloudflare account with isolated development and production resources. Wrangler adds
-the environment suffix to each Worker name. Bindings and variables are repeated explicitly because
-Wrangler does not inherit them into environments.
+Relay uses one Cloudflare account and one hosted runtime under
+[ADR-0007](../decisions/0007-shared-hosted-runtime.md). Production-suffixed names remain because those
+resources already own durable state; the suffix is historical and does not imply a second deployment.
 
-| Resource             | Development                             | Production                                |
-| -------------------- | --------------------------------------- | ----------------------------------------- |
-| API Worker           | `relay-api-development`                 | `relay-api-production`                    |
-| Pipeline Worker      | `relay-pipeline-development`            | `relay-pipeline-production`               |
-| Ingress Queue        | `relay-ingress-development`             | `relay-ingress-production`                |
-| Dead-letter Queue    | `relay-ingress-dead-letter-development` | `relay-ingress-dead-letter-production`    |
-| Action Workflow      | `relay-action-workflow-development`     | `relay-action-workflow-production`        |
-| Tenant coordinator   | `TENANT_COORDINATOR` SQLite DO binding  | `TENANT_COORDINATOR` SQLite DO binding    |
-| Retention cron       | Hourly at minute 17                     | Hourly at minute 17                       |
-| API to pipeline call | `PIPELINE` service binding              | `PIPELINE` service binding                |
-| Public API endpoint  | Environment-specific `workers.dev` URL  | `relay.redsteadz.dpdns.org` custom domain |
+| Resource             | Canonical hosted value                     |
+| -------------------- | ------------------------------------------ |
+| API Worker           | `relay-api-production`                     |
+| Pipeline Worker      | `relay-pipeline-production`                |
+| Ingress Queue        | `relay-ingress-production`                 |
+| Dead-letter Queue    | `relay-ingress-dead-letter-production`     |
+| Action Workflow      | `relay-action-workflow-production`         |
+| Tenant coordinator   | `TENANT_COORDINATOR` SQLite Durable Object |
+| Retention cron       | Hourly at minute 17                        |
+| API to pipeline call | `PIPELINE` service binding                 |
+| Public API endpoint  | `relay.redsteadz.dpdns.org` custom domain  |
 
-Pipeline Workers disable `workers.dev` and preview URLs and declare no routes. Only Queue, cron, and
-explicit service-binding invocations can reach them. The development API uses its environment-specific
-`workers.dev` URL. The production API disables `workers.dev` and uses the approved
-`relay.redsteadz.dpdns.org` custom domain, which is also the canonical hosted Auth origin.
+Pipeline disables `workers.dev`, preview URLs, and routes. Only Queue, cron, and explicit service
+binding invocations can reach it. API disables `workers.dev` and uses the stable custom domain, which
+is also canonical hosted Auth origin.
 
 Ingress and dead-letter Queue messages use 24-hour retention at provisioning time. Cloudflare fixes
 Free-plan retention at 24 hours. A failed ingress message can spend one retention period in ingress
@@ -36,93 +35,78 @@ plus empty-backlog verification when operators do not drain both Queues.
 
 ## Ownership
 
-Maintainers own both environments. Production changes require a reviewed `dev` to `main` release and
-a named operator. Store Cloudflare account IDs and tokens in operator or CI secret stores, not this
-repository. Resource names contain environment and function only, never tenant IDs, provider
+Maintainers own shared runtime. Hosted changes require reviewed `dev` to `main` release and named
+operator. Never deploy feature branches or `dev` remotely. Store Cloudflare account IDs and tokens in
+operator or CI secret stores, not repository. Resource names never contain tenant IDs, provider
 accounts, credentials, or source content.
 
 ## First Provisioning
 
-Confirm the target Cloudflare account and plan before creating resources. Create Queues first:
+Confirm target Cloudflare account and plan before creating resources. Create Queues first:
 
 ```bash
-pnpm --filter @relay/pipeline exec wrangler queues create relay-ingress-development --message-retention-period-secs 86400
-pnpm --filter @relay/pipeline exec wrangler queues create relay-ingress-dead-letter-development --message-retention-period-secs 86400
 pnpm --filter @relay/pipeline exec wrangler queues create relay-ingress-production --message-retention-period-secs 86400
 pnpm --filter @relay/pipeline exec wrangler queues create relay-ingress-dead-letter-production --message-retention-period-secs 86400
 ```
 
-Provision environment-specific secrets from [the key runbook](../security/key-rotation.md) and
-Supabase values from issue #9. Wrangler declares required secret names without values and blocks an
-incomplete deployment. For first deployment, export separate API and pipeline JSON secret files into
-a random owner-only directory. Keep them outside the repository and delete them immediately after
-deployment. Never print their contents:
+Provision one secret set from [key runbook](../security/key-rotation.md) and Supabase values from issue
+#9. Wrangler declares required secret names without values. Export API and Pipeline JSON secret files
+into random owner-only directory. Keep them outside repository, delete immediately after deployment,
+and never print contents:
 
 ```bash
 umask 077
 SECRET_DIR="$(mktemp -d)"
 trap 'rm -rf -- "$SECRET_DIR"' EXIT
 test "$(stat -c %a "$SECRET_DIR")" = "700"
-<password-manager-export-pipeline-development> > "$SECRET_DIR/pipeline-development.json"
-<password-manager-export-api-development> > "$SECRET_DIR/api-development.json"
-<password-manager-export-pipeline-production> > "$SECRET_DIR/pipeline-production.json"
-<password-manager-export-api-production> > "$SECRET_DIR/api-production.json"
+<password-manager-export-pipeline> > "$SECRET_DIR/pipeline.json"
+<password-manager-export-api> > "$SECRET_DIR/api.json"
 ```
 
-API builds require nonempty environment-specific `NEXT_PUBLIC_SUPABASE_URL` and
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` values from issue #9. Next.js freezes these values during each build,
-so load and validate development values immediately before development deployment:
+API build requires nonempty hosted `NEXT_PUBLIC_SUPABASE_URL` and publishable key in the historically
+named `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Next.js freezes values during build, so load and validate them
+only after checking out reviewed `main`:
 
 ```bash
-export NEXT_PUBLIC_SUPABASE_URL="$(<password-manager-read-development-supabase-url>)"
-export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(<password-manager-read-development-supabase-anon-key>)"
+git switch main
+git fetch origin main
+test -z "$(git status --porcelain)"
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+export NEXT_PUBLIC_SUPABASE_URL="$(<password-manager-read-hosted-supabase-url>)"
+export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(<password-manager-read-hosted-supabase-publishable-key>)"
 test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
-pnpm --filter @relay/pipeline exec wrangler deploy --env development --secrets-file "$SECRET_DIR/pipeline-development.json"
-pnpm --filter @relay/api deploy:development -- --secrets-file "$SECRET_DIR/api-development.json"
-unset NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY
-```
-
-Load production values separately and deploy production only from the reviewed `main` release:
-
-```bash
-export NEXT_PUBLIC_SUPABASE_URL="$(<password-manager-read-production-supabase-url>)"
-export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(<password-manager-read-production-supabase-anon-key>)"
-test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
-pnpm --filter @relay/pipeline exec wrangler deploy --env production --secrets-file "$SECRET_DIR/pipeline-production.json"
-pnpm --filter @relay/api deploy:production -- --secrets-file "$SECRET_DIR/api-production.json"
+pnpm --filter @relay/pipeline deploy -- --secrets-file "$SECRET_DIR/pipeline.json"
+pnpm --filter @relay/api deploy -- --secrets-file "$SECRET_DIR/api.json"
 unset NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY
 rm -rf -- "$SECRET_DIR"
 trap - EXIT
 ```
 
-Issue #7 operator creates resources and executes first deployment; issue #6 owner supplies approved
-secret material and records nonsecret provisioning evidence. Close #7 after resource verification,
-then #6 verifies platform ownership, migration canaries, and rotation readiness. Never use top-level
-deploy commands for remote environments. `--env development` and `--env production` are mandatory.
+Issue #7 records historical provisioning; issue #63 records consolidation. `deploy` is sole hosted
+command. Environment-specific deploy scripts are intentionally absent.
 
 ## Verification
 
-1. Run `wrangler queues list` and verify all four names. The list command omits retention; inspect each
-   Queue's `message_retention_period` through Cloudflare API or dashboard and run the idempotent update
-   command when it differs:
+1. Run `wrangler queues list` and verify canonical ingress and dead-letter names. Inspect each Queue's
+   `message_retention_period` through Cloudflare API or dashboard and update when it differs:
 
    ```bash
    pnpm --filter @relay/pipeline exec wrangler queues update <queue-name> --message-retention-period-secs 86400
    ```
 
-2. Run `wrangler deployments list --env <environment>` in both app directories.
-3. Run `wrangler workflows list` and verify both action workflows.
+2. Run `wrangler deployments list` in both app directories.
+3. Run `wrangler workflows list` and verify canonical action Workflow.
 4. Confirm pipeline deployment output shows Queue, Workflow, SQLite Durable Object, and hourly cron
    bindings.
-5. Confirm pipeline has no public URL, route, or preview URL. Confirm API output binds `PIPELINE` to
-   the same environment suffix.
+5. Confirm Pipeline has no public URL, route, or preview URL. Confirm API binds `PIPELINE` to
+   `relay-pipeline-production`.
 6. Trigger synthetic authenticated ingress only after Supabase and issue #6 secrets are provisioned.
    Verify Queue acknowledgement follows durable persistence and logs contain metadata only.
 7. Test the scheduled handler locally after loading synthetic development configuration. Run
    Wrangler in one terminal:
 
    ```bash
-   pnpm --filter @relay/pipeline exec wrangler dev --env development --test-scheduled
+   pnpm --filter @relay/pipeline exec wrangler dev --local --test-scheduled
    ```
 
    Call the scheduled route from a second terminal:
@@ -134,7 +118,30 @@ deploy commands for remote environments. `--env development` and `--env producti
    After remote deployment, verify cron `17 * * * *` and a successful invocation in Cron Events.
    Confirm cleanup logs contain no row contents.
 
-Record nonsecret resource names, deployment version IDs, timestamps, and operator in issue #7.
+Record nonsecret resource names, deployment version IDs, timestamps, and operator in release issue.
+
+## Consolidation Cutover
+
+Legacy development resources predate ADR-0007. Configuration removal does not stop their Queue
+consumers, cron, public endpoint, or existing deployments. Decommission them only after all gates pass:
+
+1. Confirm `public.kek_encryption_inventory('development')` returns no rows and metadata-only counts
+   find no encrypted hosted row with `encryption_environment='development'`.
+2. Confirm `relay-ingress-development` and `relay-ingress-dead-letter-development` have zero backlog.
+   Pause producer access and wait one full 48-hour ingress-plus-DLQ retention window when backlog
+   history is uncertain.
+3. Confirm no `relay-action-workflow-development` instance is running or waiting.
+4. Deploy canonical Pipeline and API from clean reviewed `main`; run authenticated synthetic canary
+   through custom domain and verify encrypted persistence plus cleanup.
+5. Disable or delete `relay-api-development` first so no caller can publish new work. Then delete
+   `relay-pipeline-development`, development Workflow, and empty development Queues through Wrangler
+   or Cloudflare dashboard. Never delete canonical production-suffixed resources.
+6. Re-list Workers, Queues, Workflows, cron triggers, and service bindings. Record nonsecret deletion
+   timestamps. Retain development KEK recovery copy until database, Queue, Durable Object, Workflow,
+   and backup inventories are all zero.
+
+Cloudflare deletion is irreversible for Worker-local state. If any gate is nonzero, stop cutover and
+inventory state; do not relabel, replay, or discard encrypted work to satisfy topology decision.
 
 ## Local End-To-End Verification
 
@@ -145,7 +152,7 @@ npx pnpm@11.23.0 e2e:local
 ```
 
 Docker must be running. The harness starts local Supabase when needed, resets and seeds it, builds
-shared packages, and launches API plus Wrangler with `--env e2e --local`. Explicit
+shared packages, and launches API plus Wrangler with `--config wrangler.e2e.jsonc --local`. Explicit
 `RELAY_PIPELINE_URL` routing takes precedence over Cloudflare service bindings only outside
 production. The harness uses temporary random secrets, rejects non-loopback Supabase status, removes
 temporary Worker state, and stops Supabase only when it started the stack. No Cloudflare login,
@@ -153,13 +160,13 @@ remote Queue, remote Worker, or hosted Supabase project participates.
 
 ## Rollback
 
-List deployments, select a known-good version, and record the reason:
+List deployments, select known-good version, and record reason:
 
 ```bash
-pnpm --filter @relay/api exec wrangler deployments list --env <environment>
-pnpm --filter @relay/api exec wrangler rollback <version-id> --env <environment> --message "rollback reason"
-pnpm --filter @relay/pipeline exec wrangler deployments list --env <environment>
-pnpm --filter @relay/pipeline exec wrangler rollback <version-id> --env <environment> --message "rollback reason"
+pnpm --filter @relay/api exec wrangler deployments list
+pnpm --filter @relay/api exec wrangler rollback <version-id> --message "rollback reason"
+pnpm --filter @relay/pipeline exec wrangler deployments list
+pnpm --filter @relay/pipeline exec wrangler rollback <version-id> --message "rollback reason"
 ```
 
 Roll back the API caller before the pipeline target when both changed. Worker rollback does not roll
@@ -180,5 +187,6 @@ activated KEK version even when code rolls back.
 - [OpenNext Cloudflare CLI](https://opennext.js.org/cloudflare/cli)
 - [Worker rollbacks](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
 
-Related: [Cloudflare processing boundary](../decisions/0002-cloudflare-processing-boundary.md),
+Related: [shared hosted runtime](../decisions/0007-shared-hosted-runtime.md),
+[Cloudflare processing boundary](../decisions/0002-cloudflare-processing-boundary.md),
 [data flow](../architecture/data-flow.md), and [secret provisioning](../security/key-rotation.md).

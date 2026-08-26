@@ -39,9 +39,9 @@ sessions remain explicit user-controlled state.
 The API does not decode unverified token claims. It asks the environment's configured Supabase Auth
 service for the user, validates the returned user ID as a Relay UUID, then forwards only that ID to
 the pipeline. Missing, malformed, expired, and wrong-project credentials receive stable `401`
-responses. The synthetic development identity header is accepted only outside production runtime.
-Automatic account creation remains disabled in both Supabase Auth and mobile until issue
-[#63](https://github.com/redsteadz/relay/issues/63) restores isolated production Supabase.
+responses. Synthetic development identity header is accepted only in local non-production runtime.
+Automatic account creation remains disabled as operator-controlled enrollment policy, not an
+infrastructure-isolation gate.
 
 Each mobile user installation generates a random UUID and stores it in SecureStore under a
 user-specific key. An authenticated registration RPC derives ownership from `auth.uid()` and creates

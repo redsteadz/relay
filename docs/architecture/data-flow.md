@@ -24,8 +24,8 @@ Durable Objects reduce concurrent contention.
 
 Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
 and envelope ID, never raw source bodies. Coordinator acknowledges only after Supabase persistence.
-Persisted encrypted rows also carry their owning Cloudflare environment so separate KEKs remain
-isolated when a temporary backend is shared.
+Persisted encrypted rows retain stable hosted KEK scope for rotation compatibility. Relay currently
+has one hosted keyring; local E2E scope exists only in resettable local database.
 Explicit local development mode may use Durable Object storage instead, with seven-day alarms.
 Producers reject encrypted messages above Relay's conservative 120 KB serialized cap under
 [Cloudflare's 128 KB Queue limit](https://developers.cloudflare.com/queues/platform/limits/).
@@ -40,7 +40,7 @@ encrypted Supabase persistence, source-identity and fingerprint deduplication, a
 durable persistence, dead-letter metadata delivery, and controlled seven-day retention cleanup. It
 accepts only a loopback Supabase URL and creates no remote Cloudflare or Supabase resources.
 
-The `e2e` Wrangler environment exists only for `wrangler dev --local`. Result markers contain status
+The `wrangler.e2e.jsonc` config exists only for `wrangler dev --local`. Result markers contain status
 and key version only and remain in temporary local Durable Object storage. Controlled retention time
 is honored only when `RELAY_E2E_MODE=true`, a valid explicit timestamp is present, and Supabase uses
 an HTTP loopback URL.

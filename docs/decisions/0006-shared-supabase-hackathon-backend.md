@@ -1,10 +1,13 @@
 ---
-status: accepted
+status: superseded
 date: 2026-08-25
 owners: maintainers
+superseded_by: 0007-shared-hosted-runtime
 ---
 
 # ADR-0006: Shared Supabase Hackathon Backend
+
+Superseded by [ADR-0007](0007-shared-hosted-runtime.md). Historical context remains below.
 
 ## Context
 
