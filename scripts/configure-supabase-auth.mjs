@@ -69,6 +69,7 @@ export function buildHostedAuthConfig({ environment, projectRef, siteUrl, webRed
 
   return {
     body: {
+      disable_signup: true,
       site_url: site.origin,
       uri_allow_list: `${MOBILE_REDIRECT_URL},${webRedirect.href}`,
     },
@@ -107,17 +108,18 @@ export async function configureHostedAuth(input, accessToken, fetchImpl = global
   try {
     actualSite = new URL(result.site_url);
   } catch {
-    throw new Error("Supabase Auth update response did not match exact requested URLs");
+    throw new Error("Supabase Auth update response did not match requested policy");
   }
   if (
     actualSite.origin !== config.body.site_url ||
     actualSite.pathname !== "/" ||
     actualSite.search !== "" ||
     actualSite.hash !== "" ||
+    result.disable_signup !== true ||
     actualRedirects.size !== expectedRedirects.size ||
     [...expectedRedirects].some((value) => !actualRedirects.has(value))
   ) {
-    throw new Error("Supabase Auth update response did not match exact requested URLs");
+    throw new Error("Supabase Auth update response did not match requested policy");
   }
 
   return config;
@@ -133,7 +135,7 @@ async function main() {
     },
     process.env.SUPABASE_ACCESS_TOKEN,
   );
-  globalThis.console.log(`Updated exact Supabase Auth URLs for ${config.environment}.`);
+  globalThis.console.log(`Updated restricted Supabase Auth policy for ${config.environment}.`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

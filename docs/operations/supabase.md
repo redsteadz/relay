@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Supabase Environments And Operations
@@ -59,16 +59,17 @@ unset SUPABASE_ACCESS_TOKEN RELAY_SUPABASE_PROJECT_REF RELAY_SUPABASE_ENVIRONMEN
 unset RELAY_AUTH_SITE_URL RELAY_AUTH_WEB_REDIRECT_URL
 ```
 
-The configuration command updates only `site_url` and `uri_allow_list` through the Supabase Auth
-Management API. It requires HTTPS hosted origins, one exact `/auth/callback` path on the Site URL's
-origin, and no wildcard syntax, credentials, query, fragment, IP address, localhost, or nonstandard
-port. Production validation rejects common development, test, preview, and ephemeral hosting domains.
-It verifies the API response contains only the requested mobile and web redirects without printing
-the access token or response.
+The configuration command sets `disable_signup=true` and updates only `site_url` and
+`uri_allow_list` through the Supabase Auth Management API. It requires HTTPS hosted origins, one exact
+`/auth/callback` path on the Site URL's origin, and no wildcard syntax, credentials, query, fragment,
+IP address, localhost, or nonstandard port. Production validation rejects common development, test,
+preview, and ephemeral hosting domains. It verifies signup remains disabled and the API response
+contains only the requested mobile and web redirects without printing the access token or response.
 
 Inspect Auth URL Configuration after each update and confirm only exact approved destinations exist.
 Magic-link code must pass one of these same exact callbacks as `emailRedirectTo`; never rely on an
-unreviewed default destination.
+unreviewed default destination. Relay uses PKCE so the mobile callback receives a one-time code rather
+than access and refresh tokens. Keep automatic account creation disabled until issue #63 completes.
 
 ## Initial Migration
 
@@ -185,6 +186,7 @@ changes. Review members quarterly and immediately remove departed operators.
 - [Generating TypeScript types](https://supabase.com/docs/guides/api/rest/generating-types)
 - [Auth redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls)
 - [Native mobile deep linking](https://supabase.com/docs/guides/auth/native-mobile-deep-linking)
+- [Passwordless email and PKCE](https://supabase.com/docs/guides/auth/auth-email-passwordless)
 - [Update Auth service config](https://supabase.com/docs/reference/api/v1-update-auth-service-config)
 - [Database backups](https://supabase.com/docs/guides/platform/backups)
 - [Database functions](https://supabase.com/docs/guides/database/functions)

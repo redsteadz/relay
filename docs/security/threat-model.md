@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Threat Model
@@ -16,6 +16,8 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Threat                              | Primary controls                                                         |
 | ----------------------------------- | ------------------------------------------------------------------------ |
 | Cross-tenant data access            | Supabase RLS, verified user ID, repository tests with two users          |
+| Magic-link substitution or replay   | Exact callback allowlist, PKCE, one-time bounded code, generic failures  |
+| Mobile session disclosure           | SecureStore persistence, active-only refresh, no token or callback logs  |
 | Database disclosure                 | Envelope encryption, Cloudflare-held wrapping key, seven-day raw expiry  |
 | Wrapping-key loss or compromise     | Required: versioned keyring, data-key rewrap, recovery/incident runbooks |
 | Prompt injection from source        | Strict data boundary, schema output, fixed provider/rule allowlist       |
@@ -32,6 +34,10 @@ filter intent, financial records, calendars/tasks, and action authority.
 Gmail restricted-scope verification, Google API Limited Use review, SMS distribution approval,
 provider reconciliation details, abuse/rate limits, and account deletion completion need tracked
 implementation and release issues.
+
+Mobile sign-in requests do not create accounts while development and demo-production share one
+synthetic-only Supabase project. Issue [#63](https://github.com/redsteadz/relay/issues/63) must restore
+environment isolation before beta identity enrollment or real source access.
 
 Related: [key rotation](key-rotation.md), [system boundaries](../architecture/system.md), and
 [MVP scope](../product/scope.md).

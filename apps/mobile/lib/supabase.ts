@@ -1,10 +1,24 @@
 import * as SecureStore from "expo-secure-store";
 import { createClient } from "@supabase/supabase-js";
+import { Platform } from "react-native";
 
 const secureStorage = {
   getItem: (key: string) => SecureStore.getItemAsync(key),
   removeItem: (key: string) => SecureStore.deleteItemAsync(key),
   setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+};
+
+const volatileWebValues = new Map<string, string>();
+const volatileWebStorage = {
+  getItem: (key: string) => Promise.resolve(volatileWebValues.get(key) ?? null),
+  removeItem: (key: string) => {
+    volatileWebValues.delete(key);
+    return Promise.resolve();
+  },
+  setItem: (key: string, value: string) => {
+    volatileWebValues.set(key, value);
+    return Promise.resolve();
+  },
 };
 
 export function createRelaySupabaseClient() {
@@ -16,10 +30,11 @@ export function createRelaySupabaseClient() {
 
   return createClient(url, anonKey, {
     auth: {
-      autoRefreshToken: true,
+      autoRefreshToken: false,
       detectSessionInUrl: false,
+      flowType: "pkce",
       persistSession: true,
-      storage: secureStorage,
+      storage: Platform.OS === "web" ? volatileWebStorage : secureStorage,
     },
   });
 }
