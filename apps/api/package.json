@@ -21,6 +21,7 @@
   "dependencies": {
     "@opennextjs/cloudflare": "1.20.2",
     "@relay/contracts": "workspace:*",
+    "@relay/crypto": "workspace:*",
     "@supabase/supabase-js": "2.112.3",
     "next": "16.3.2",
     "react": "19.2.3",
