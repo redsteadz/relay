@@ -46,13 +46,6 @@
       "storage": "sqlite",
     },
   },
-  "workflows": [
-    {
-      "name": "relay-action-workflow-e2e-local",
-      "binding": "ACTION_WORKFLOW",
-      "class_name": "ActionWorkflow",
-    },
-  ],
   "vars": {
     "RELAY_E2E_DEAD_LETTER_QUEUE": "relay-ingress-dead-letter-e2e-local",
     "RELAY_E2E_MODE": "true",

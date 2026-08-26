@@ -18,8 +18,8 @@ resources already own durable state; the suffix is historical and does not imply
 | Pipeline Worker      | `relay-pipeline-production`                |
 | Ingress Queue        | `relay-ingress-production`                 |
 | Dead-letter Queue    | `relay-ingress-dead-letter-production`     |
-| Action Workflow      | `relay-action-workflow-production`         |
 | Tenant coordinator   | `TENANT_COORDINATOR` SQLite Durable Object |
+| Metrics dataset      | `relay_pipeline_production`                |
 | Retention cron       | Hourly at minute 17                        |
 | API to pipeline call | `PIPELINE` service binding                 |
 | Public API endpoint  | `relay.redsteadz.dpdns.org` custom domain  |
@@ -27,6 +27,10 @@ resources already own durable state; the suffix is historical and does not imply
 Pipeline disables `workers.dev`, preview URLs, and routes. Only Queue, cron, and explicit service
 binding invocations can reach it. API disables `workers.dev` and uses the stable custom domain, which
 is also canonical hosted Auth origin.
+
+No Action Workflow is provisioned while `/internal/actions` returns `501` and no persisted dispatch
+path exists. Issue #35 owns Workflow implementation and must add the binding only with retry-safe,
+persisted action execution.
 
 Ingress and dead-letter Queue messages use 24-hour retention at provisioning time. Cloudflare fixes
 Free-plan retention at 24 hours. A failed ingress message can spend one retention period in ingress
@@ -95,9 +99,9 @@ hosted command. Environment-specific deploy scripts are intentionally absent.
    ```
 
 2. Run `wrangler deployments list` in both app directories.
-3. Run `wrangler workflows list` and verify canonical action Workflow.
-4. Confirm pipeline deployment output shows Queue, Workflow, SQLite Durable Object, and hourly cron
-   bindings.
+3. Run `wrangler workflows list` and verify Relay has no Workflow before issue #35 is implemented.
+4. Confirm pipeline deployment output shows Queue, Analytics Engine, SQLite Durable Object, and hourly
+   cron bindings.
 5. Confirm Pipeline has no public URL, route, or preview URL. Confirm API binds `PIPELINE` to
    `relay-pipeline-production`.
 6. Trigger synthetic authenticated ingress only after Supabase and issue #6 secrets are provisioned.
@@ -119,6 +123,32 @@ hosted command. Environment-specific deploy scripts are intentionally absent.
    Confirm cleanup logs contain no row contents.
 
 Record nonsecret resource names, deployment version IDs, timestamps, and operator in release issue.
+
+## Unused Action Workflow Removal
+
+Remove the placeholder Workflow only in this order:
+
+1. Confirm the exact hosted Workflow has no instances:
+
+   ```bash
+   pnpm --filter @relay/pipeline exec wrangler workflows instances list relay-action-workflow-production
+   ```
+
+2. Merge the binding removal through `dev` to `main`, then deploy Pipeline from clean reviewed `main`.
+3. Verify authenticated ingestion, Queue persistence, DLQ configuration, hourly cron, Durable Object,
+   Analytics Engine binding, and API health before deleting the resource.
+4. Re-run the exact-name instance check. Stop if any instance exists.
+5. Delete only the unused Relay Workflow:
+
+   ```bash
+   pnpm --filter @relay/pipeline exec wrangler workflows delete relay-action-workflow-production
+   ```
+
+6. Run `wrangler workflows list` and verify Relay has no Workflow. Re-list Pipeline bindings and rerun
+   authenticated ingestion.
+
+Workflow deletion also deletes its instances and cannot be reversed. Never use a broad or unrelated
+resource name. Issue #35 must provision a new Workflow only after persisted action dispatch exists.
 
 ## Persistence Metrics
 
@@ -157,7 +187,8 @@ consumers, cron, public endpoint, or existing deployments. Decommission them onl
    through custom domain and verify encrypted persistence plus cleanup.
 5. Disable or delete `relay-api-development` first so no caller can publish new work. Then delete
    `relay-pipeline-development`, development Workflow, and empty development Queues through Wrangler
-   or Cloudflare dashboard. Never delete canonical production-suffixed resources.
+   or Cloudflare dashboard. Never delete canonical API, Pipeline, Queue, DLQ, or Durable Object
+   resources.
 6. Re-list Workers, Queues, Workflows, cron triggers, and service bindings. Record nonsecret deletion
    timestamps. Retain development KEK recovery copy until database, Queue, Durable Object, Workflow,
    and backup inventories are all zero.
@@ -191,11 +222,13 @@ pnpm --filter @relay/pipeline exec wrangler deployments list
 pnpm --filter @relay/pipeline exec wrangler rollback <version-id> --message "rollback reason"
 ```
 
-Roll back the API caller before the pipeline target when both changed. Worker rollback does not roll
-back bindings or Durable Object storage. A target version from before the latest `exports` lifecycle
-change is ineligible; forward-deploy compatible code retaining current `exports` instead. Never
-delete Queues, Workflow, or Durable Object resources during incident rollback. Retain the highest
-activated KEK version even when code rolls back.
+Roll back the API caller before the pipeline target when both changed. Worker versions capture their
+bindings, but rollback does not recreate deleted resource state or Durable Object storage. After
+deleting `relay-action-workflow-production`, every Pipeline version that references `ACTION_WORKFLOW`
+is ineligible; forward-deploy known-good code without that binding instead. A target version from
+before the latest `exports` lifecycle change is likewise ineligible. Never delete Queues or Durable
+Object resources during incident rollback. Retain the highest activated KEK version even when code
+rolls back.
 
 ## Sources
 

@@ -2,13 +2,7 @@ import type { IngressQueueMessage as ContractIngressQueueMessage } from "@relay/
 
 export type IngressQueueMessage = ContractIngressQueueMessage;
 
-export type ActionWorkflowParams = {
-  userId: string;
-  actionRunId: string;
-};
-
 export interface Env {
-  ACTION_WORKFLOW: Workflow<ActionWorkflowParams>;
   INGRESS_QUEUE: Queue<IngressQueueMessage>;
   PIPELINE_METRICS?: AnalyticsEngineDataset;
   RELAY_ALLOW_LOCAL_DURABILITY?: string;

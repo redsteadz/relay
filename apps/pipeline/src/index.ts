@@ -7,9 +7,8 @@ import { sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
 import { runScheduledMaintenance } from "./maintenance";
 import { processIngressQueue, publishIngressQueueMessage } from "./queue";
-import { ActionWorkflow } from "./workflow";
 
-export { ActionWorkflow, TenantCoordinator };
+export { TenantCoordinator };
 
 function isInternalRequest(request: Request, env: Env): boolean {
   const expected = env.RELAY_INGEST_SHARED_SECRET;
