@@ -26,11 +26,14 @@ Fixtures must be synthetic. Logs must not contain message bodies, SMS content, a
 provider credentials, OpenAI keys, or raw authorization headers. Any PR touching ingestion,
 encryption, AI disclosure, notification dismissal, or provider actions requires security review.
 
-## Graphify Memory
+## Optional Graphify
 
 Generated `graphify-out/` content is disposable and must never be committed. Keep credentials, raw
-messages, and real payloads out of the corpus and query text. Query an existing graph before reading
-the repository broadly:
+messages, and real payloads out of the corpus and query text. Graphify is an optional local discovery
+aid, not a CI check, release gate, or source of truth. Provider or extraction failure must not block a
+change that passes canonical tests and documentation checks.
+
+When a local graph already exists, it can be queried before reading the repository broadly:
 
 ```bash
 graphify query "How does ingestion reach durable storage?"
@@ -38,14 +41,6 @@ graphify path "API" "Supabase"
 graphify explain "TenantCoordinator"
 ```
 
-For mixed code and documentation changes, run a fresh deep extraction because incremental update is
-code-oriented. Load `GEMINI_API_KEY` from the approved secret store without printing it, then run:
-
-```bash
-uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --model gemini-3.5-flash --mode deep --force --no-cluster --token-budget 5000 --max-concurrency 1
-uvx --from "graphifyy[gemini,sql]==0.9.49" graphify extract . --backend gemini --model gemini-3.5-flash --mode deep --no-cluster --token-budget 2000 --max-concurrency 1
-uv run --with "graphifyy[gemini,sql]==0.9.49" python scripts/validate-graphify.py
-```
-
-Use `graphify update .` only for code-only changes after an initial graph exists. Query-result logging
-remains disabled for Relay; do not enable it for source content.
+Local generation may use `graphify` and `scripts/validate-graphify.py` on a best-effort basis. Never
+load a provider key into repository files or logs. Query-result logging remains disabled for Relay;
+do not enable it for source content.

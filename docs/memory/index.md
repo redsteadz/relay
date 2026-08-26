@@ -51,5 +51,5 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [Cloudflare environments and operations](../operations/cloudflare.md)
 - [Supabase environments and operations](../operations/supabase.md)
 
-Graphify output is generated from these documents and code. It is an index and discovery aid, not
-an authority over contracts, migrations, or accepted ADRs.
+When generated locally, Graphify output indexes these documents and code for discovery. It is not CI
+evidence or an authority over contracts, migrations, or accepted ADRs.
