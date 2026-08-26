@@ -8,14 +8,14 @@ last_verified: 2026-08-26
 
 ## Components
 
-| Component             | Owns                                                                  | Must not own                                  |
-| --------------------- | --------------------------------------------------------------------- | --------------------------------------------- |
-| Expo mobile           | Consent, source settings, local capture queue, inbox UI               | Service credentials, classification authority |
-| Next API              | User auth, callback verification, schema validation, connector setup  | Long processing, provider effects             |
-| Pipeline Worker       | Queue consumption, orchestration, filter execution, provider dispatch | Primary user identity UI                      |
-| Tenant Durable Object | Per-user/source ordering and short-lived coordination                 | Sole permanent idempotency record             |
-| Cloudflare Workflow   | Approval waits, retry-safe provider steps                             | Undocumented arbitrary actions                |
-| Supabase              | Auth, RLS, encrypted durable data, audit and action ledger            | Plaintext credentials or raw payloads         |
+| Component             | Owns                                                            | Must not own                                  |
+| --------------------- | --------------------------------------------------------------- | --------------------------------------------- |
+| Expo mobile           | Consent, source settings, local capture queue, inbox UI         | Service credentials, classification authority |
+| Next API              | User auth, recovery auth, validation, connector setup           | Long processing, provider effects             |
+| Pipeline Worker       | Queue/DLQ processing, orchestration, filters, provider dispatch | Primary user identity UI                      |
+| Tenant Durable Object | Per-user/source ordering and short-lived coordination           | Sole permanent idempotency record             |
+| Cloudflare Workflow   | Approval waits, retry-safe provider steps                       | Undocumented arbitrary actions                |
+| Supabase              | Auth, RLS, encrypted durable data, audit and action ledger      | Plaintext credentials or raw payloads         |
 
 Shared wire shapes live in `packages/contracts`. Pure domain rules live in `packages/domain`.
 Envelope encryption lives in `packages/crypto`.

@@ -24,6 +24,10 @@
         "binding": "INGRESS_QUEUE",
         "queue": "relay-ingress-production",
       },
+      {
+        "binding": "DEAD_LETTER_QUEUE",
+        "queue": "relay-ingress-dead-letter-production",
+      },
     ],
     "consumers": [
       {
@@ -32,6 +36,13 @@
         "max_batch_timeout": 5,
         "max_retries": 5,
         "dead_letter_queue": "relay-ingress-dead-letter-production",
+      },
+      {
+        "queue": "relay-ingress-dead-letter-production",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 100,
+        "retry_delay": 600,
       },
     ],
   },
@@ -50,12 +61,14 @@
     },
   },
   "vars": {
+    "RELAY_DEAD_LETTER_QUEUE": "relay-ingress-dead-letter-production",
     "RELAY_ENVIRONMENT": "production",
   },
   "secrets": {
     "required": [
       "RELAY_CREDENTIAL_KEK_KEYRING",
       "RELAY_INGEST_SHARED_SECRET",
+      "RELAY_RECOVERY_SHARED_SECRET",
       "SUPABASE_URL",
       "SUPABASE_SERVICE_ROLE_KEY",
     ],

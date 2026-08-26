@@ -6,6 +6,7 @@ export const relayUserIdSchema = z.uuid();
 export const deviceIdSchema = z.uuid();
 export const devicePlatformSchema = z.enum(["android", "ios", "web"]);
 export const MAX_INGRESS_QUEUE_MESSAGE_BYTES = 120_000;
+export const RAW_PAYLOAD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const deviceRegistrationRequestSchema = z
   .object({ id: deviceIdSchema, platform: devicePlatformSchema })
@@ -36,6 +37,21 @@ export const ingressEnvelopeSchema = z.object({
 });
 export type IngressEnvelope = z.infer<typeof ingressEnvelopeSchema>;
 
+export const encryptedIngressPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    acceptedAt: z.iso.datetime({ offset: true }),
+    rawExpiresAt: z.iso.datetime({ offset: true }),
+    envelope: ingressEnvelopeSchema,
+  })
+  .strict()
+  .refine(
+    (value) =>
+      Date.parse(value.rawExpiresAt) - Date.parse(value.acceptedAt) === RAW_PAYLOAD_RETENTION_MS,
+    { message: "Raw payload expiry must be exactly seven days after acceptance" },
+  );
+export type EncryptedIngressPayload = z.infer<typeof encryptedIngressPayloadSchema>;
+
 export const deviceIngressRequestSchema = z
   .object({ deviceId: deviceIdSchema, envelope: ingressEnvelopeSchema })
   .strict();
@@ -64,14 +80,69 @@ export const encryptedValueSchema = z
   .strict();
 export type EncryptedValueContract = z.infer<typeof encryptedValueSchema>;
 
+export const deadLetterFailureCodeSchema = z.enum([
+  "configuration_invalid",
+  "key_version_unavailable",
+  "ciphertext_invalid",
+  "envelope_invalid",
+  "persistence_unavailable",
+  "tenant_id_conflict",
+  "persistence_response_invalid",
+  "coordinator_unavailable",
+  "retry_exhausted_unknown",
+]);
+export type DeadLetterFailureCode = z.infer<typeof deadLetterFailureCodeSchema>;
+
 export const ingressQueueMessageSchema = z
   .object({
+    schemaVersion: z.literal(1),
     userId: relayUserIdSchema,
     envelopeId: z.uuid(),
+    acceptedAt: z.iso.datetime({ offset: true }),
+    rawExpiresAt: z.iso.datetime({ offset: true }),
+    encryptionEnvironment: z.enum(["development", "production"]),
+    recoveryId: z.uuid(),
+    replayRequestId: z.uuid().optional(),
+    failureCode: deadLetterFailureCodeSchema.optional(),
     encrypted: encryptedValueSchema,
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      Date.parse(value.rawExpiresAt) - Date.parse(value.acceptedAt) === RAW_PAYLOAD_RETENTION_MS,
+    { message: "Queue expiry must be exactly seven days after acceptance" },
+  );
 export type IngressQueueMessage = z.infer<typeof ingressQueueMessageSchema>;
+
+export const deadLetterStatusSchema = z.enum([
+  "available",
+  "replaying",
+  "succeeded",
+  "duplicate",
+  "expired",
+]);
+
+export const deadLetterMetadataSchema = z
+  .object({
+    id: z.uuid(),
+    envelopeId: z.uuid(),
+    failureCode: deadLetterFailureCodeSchema,
+    status: deadLetterStatusSchema,
+    acceptedAt: z.iso.datetime({ offset: true }),
+    rawExpiresAt: z.iso.datetime({ offset: true }),
+    keyVersion: postgresIntegerSchema.nullable(),
+    replayCount: z.int().min(0),
+    firstFailedAt: z.iso.datetime({ offset: true }),
+    lastFailedAt: z.iso.datetime({ offset: true }),
+    lastReplayedAt: z.iso.datetime({ offset: true }).nullable(),
+    completedAt: z.iso.datetime({ offset: true }).nullable(),
+  })
+  .strict();
+export type DeadLetterMetadata = z.infer<typeof deadLetterMetadataSchema>;
+
+export const deadLetterReplayRequestSchema = z
+  .object({ id: z.uuid(), requestId: z.uuid() })
+  .strict();
 
 export const categorySlugSchema = z.enum([
   "transaction",

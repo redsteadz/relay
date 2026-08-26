@@ -20,3 +20,16 @@ insert into auth.identities (
   '{"sub":"00000000-0000-4000-8000-000000000001","email":"relay-local-harness@example.test"}'::jsonb,
   'email', now(), now(), now()
 );
+
+-- Synthetic second tenant used to force a cross-tenant persistence conflict in local DLQ tests.
+insert into auth.users (
+  id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+  confirmation_token, recovery_token, email_change_token_new, email_change,
+  raw_app_meta_data, raw_user_meta_data, is_super_admin, created_at, updated_at
+) values (
+  '00000000-0000-4000-8000-000000000099',
+  '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated', 'relay-local-conflict@example.test', '', now(),
+  '', '', '', '',
+  '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, false, now(), now()
+);

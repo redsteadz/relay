@@ -28,6 +28,9 @@ Pipeline disables `workers.dev`, preview URLs, and routes. Only Queue, cron, and
 binding invocations can reach it. API disables `workers.dev` and uses the stable custom domain, which
 is also canonical hosted Auth origin.
 
+Pipeline consumes both canonical ingress and dead-letter Queues. Dead-letter consumption persists
+ciphertext and fixed failure metadata before acknowledgement; it does not decrypt source content.
+
 No Action Workflow is provisioned while `/internal/actions` returns `501` and no persisted dispatch
 path exists. Issue #35 owns Workflow implementation and must add the binding only with retry-safe,
 persisted action execution.
@@ -124,6 +127,74 @@ hosted command. Environment-specific deploy scripts are intentionally absent.
 
 Record nonsecret resource names, deployment version IDs, timestamps, and operator in release issue.
 
+## First Recovery Rollout
+
+Queue envelope v1 adds authenticated acceptance/expiry fields and is intentionally not compatible
+with older retained Queue bodies. Before first issue #17 Pipeline deployment:
+
+1. Pause public ingress at API edge without deleting Worker, Queue, or route.
+2. Verify both canonical ingress and dead-letter Queue backlogs are exactly zero. If either is nonzero,
+   resume old consumer processing or stop rollout; never acknowledge, discard, or reinterpret an old
+   body to satisfy deployment timing.
+3. Apply migration `202608260003_dead_letter_recovery.sql`. It adds
+   `persist_encrypted_source_item_v2`; old RPC remains executable for running Worker during rollout.
+4. Provision recovery secret, deploy reviewed Pipeline, then deploy reviewed API.
+5. Verify both Queue consumers, DLQ producer binding, recovery auth rejection, synthetic ingress, and
+   metadata-only recovery canary before resuming public ingress.
+
+This drain gate is mandatory because old Queue ciphertext did not authenticate original acceptance or
+expiry. Synthesizing those fields would extend retention and is prohibited.
+
+## Dead-Letter Recovery
+
+Provision one independently generated `RELAY_RECOVERY_SHARED_SECRET` into API and Pipeline. It must
+differ from ingestion secret. Public API accepts it only as bearer authorization on
+`/api/recovery/dead-letters`; Pipeline accepts it only on private `/internal/recovery/*` routes through
+service binding. Authenticated users, mobile clients, and ingestion credential cannot inspect or
+replay dead letters. Supabase recovery RPCs remain backend-secret-only.
+
+Inventory response exposes recovery ID, envelope ID, fixed failure code, status, original acceptance
+and expiry, key version, replay count, and transition timestamps. It never exposes tenant ID,
+ciphertext, nonces, wrapped keys, source attributes, or plaintext. There is no recovery decrypt route.
+
+Use password-manager injection that avoids shell history and process arguments. Inspect metadata:
+
+```bash
+printf 'header = "Authorization: Bearer %s"\n' "$RELAY_RECOVERY_TOKEN" \
+  | curl --fail-with-body --silent --show-error --config - \
+      'https://relay.redsteadz.dpdns.org/api/recovery/dead-letters?limit=100'
+```
+
+Select only an `available`, unexpired item after resolving its fixed failure code. Generate one UUID
+request ID and retain it for retries of that operator command. Do not generate a new request ID after
+an ambiguous response:
+
+```bash
+RECOVERY_ID='<dead-letter-uuid>'
+REQUEST_ID='<stable-random-uuid>'
+printf 'header = "Authorization: Bearer %s"\n' "$RELAY_RECOVERY_TOKEN" \
+  | curl --fail-with-body --silent --show-error --config - \
+      --header 'content-type: application/json' \
+      --data "{\"id\":\"$RECOVERY_ID\",\"requestId\":\"$REQUEST_ID\"}" \
+      'https://relay.redsteadz.dpdns.org/api/recovery/dead-letters'
+```
+
+`202` means exact ciphertext was queued. `409` means item is unavailable, active under another request,
+expired, or terminal; inspect metadata again instead of changing database state. `503` after an
+ambiguous request is safe to retry with same request ID. Confirm terminal `succeeded` or `duplicate`,
+null key version, and matching metadata-only `dead_letter.replay_requested` plus
+`dead_letter.replay_completed` audit events. Never update recovery rows manually. Expiry or successful
+completion destroys ciphertext and cannot be reversed.
+
+When Supabase recovery persistence is unavailable, DLQ consumer republishes exact encrypted message
+to same canonical dead-letter Queue with five-minute delay and acknowledges only after publication.
+This parking loop continues only until authenticated raw expiry; it never extends payload retention or
+creates another Queue. Alert on repeated recovery persistence failures and restore Supabase before
+expiry. Failed parking publication retries every ten minutes for up to 100 attempts and emits fixed
+`dead_letter_parking_failed` metric; Queue's 24-hour retention remains hard outer bound during a
+simultaneous Queue producer outage. Once raw expiry arrives, ciphertext is acknowledged and discarded
+by design.
+
 ## Unused Action Workflow Removal
 
 Remove the placeholder Workflow only in this order:
@@ -155,8 +226,8 @@ resource name. Issue #35 must provision a new Workflow only after persisted acti
 Pipeline binds Analytics Engine dataset `relay_pipeline_production` as `PIPELINE_METRICS`. Point
 schema is fixed:
 
-- `index1`: `source_item_persisted`, `source_item_duplicate`, `source_item_failed`, or
-  `retention_purge`.
+- `index1`: `source_item_persisted`, `source_item_duplicate`, `source_item_failed`,
+  `dead_letter_parking_failed`, or `retention_purge`.
 - `double1`: count.
 - `double2`: latency in milliseconds.
 - blobs and remaining indexes/doubles: unused.

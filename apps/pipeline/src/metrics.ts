@@ -1,5 +1,9 @@
 export type PipelineMetricName =
-  "retention_purge" | "source_item_duplicate" | "source_item_failed" | "source_item_persisted";
+  | "dead_letter_parking_failed"
+  | "retention_purge"
+  | "source_item_duplicate"
+  | "source_item_failed"
+  | "source_item_persisted";
 
 export function recordPipelineMetric(
   dataset: AnalyticsEngineDataset | undefined,

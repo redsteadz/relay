@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   ingressQueueMessageSchema,
   relayUserIdSchema,
+  type DeadLetterFailureCode,
   type IngressEnvelope,
 } from "@relay/contracts";
 import { decryptValue } from "@relay/crypto";
@@ -16,7 +17,11 @@ import {
 import { base64ToPostgresBytea, sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
 import { recordPipelineMetric } from "./metrics";
-import { parseDecryptedIngressEnvelope, parseSourcePersistenceResponse } from "./persistence";
+import {
+  parseDecryptedIngressEnvelope,
+  parseSourcePersistenceResponse,
+  SourcePersistenceError,
+} from "./persistence";
 import { SerialExecutor } from "./serialization";
 
 type LocalSourceRecord = {
@@ -24,8 +29,11 @@ type LocalSourceRecord = {
   expiresAt: number;
 };
 
-const RAW_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const E2E_RESULT_PREFIX = "e2e-result:";
+
+function failureResponse(failureCode: DeadLetterFailureCode): Response {
+  return Response.json({ accepted: false, failureCode }, { status: 503 });
+}
 
 type E2EResult = {
   keyVersion: number;
@@ -80,12 +88,31 @@ export class TenantCoordinator extends DurableObject<Env> {
 
   private async process(message: IngressQueueMessage): Promise<Response> {
     const startedAt = performance.now();
-    const configuration = readPersistenceConfiguration(this.env);
+    let configuration: PersistenceConfiguration;
+    try {
+      configuration = readPersistenceConfiguration(this.env);
+    } catch {
+      return failureResponse("configuration_invalid");
+    }
+    if (message.encryptionEnvironment !== configuration.environment) {
+      return failureResponse("configuration_invalid");
+    }
+    if (configuration.keyring.keys[message.encrypted.keyVersion] === undefined) {
+      return failureResponse("key_version_unavailable");
+    }
     const context = sourceItemEncryptionContext(message.userId, message.envelopeId);
-    const plaintext = await decryptValue(message.encrypted, configuration.keyring, context);
-    const envelope = parseDecryptedIngressEnvelope(plaintext, message.envelopeId);
+    let plaintext: string;
+    try {
+      plaintext = await decryptValue(message.encrypted, configuration.keyring, context);
+    } catch {
+      return failureResponse("ciphertext_invalid");
+    }
+    const envelope = parseDecryptedIngressEnvelope(plaintext, message);
     if (envelope === undefined) {
-      return Response.json({ accepted: false, reason: "invalid" }, { status: 400 });
+      return failureResponse("envelope_invalid");
+    }
+    if (Date.parse(message.rawExpiresAt) <= Date.now()) {
+      return Response.json({ accepted: false, reason: "expired" }, { status: 410 });
     }
 
     const identity = sourceIdentity(envelope);
@@ -122,7 +149,9 @@ export class TenantCoordinator extends DurableObject<Env> {
         1,
         performance.now() - startedAt,
       );
-      throw error;
+      return failureResponse(
+        error instanceof SourcePersistenceError ? error.reason : "persistence_unavailable",
+      );
     }
     recordPipelineMetric(
       this.env.PIPELINE_METRICS,
@@ -137,7 +166,7 @@ export class TenantCoordinator extends DurableObject<Env> {
       records[fingerprintKey] = now;
     }
     if (persistence === "local") {
-      const expiresAt = now + RAW_RETENTION_MS;
+      const expiresAt = Date.parse(message.rawExpiresAt);
       records[`source-item:${message.envelopeId}`] = { encrypted: message.encrypted, expiresAt };
       const alarm = await this.ctx.storage.getAlarm();
       if (alarm === null || alarm > expiresAt) await this.ctx.storage.setAlarm(expiresAt);
@@ -165,12 +194,13 @@ export class TenantCoordinator extends DurableObject<Env> {
     if (configuration.supabase === undefined) return "local";
 
     const response = await fetch(
-      `${configuration.supabase.url}/rest/v1/rpc/persist_encrypted_source_item`,
+      `${configuration.supabase.url}/rest/v1/rpc/persist_encrypted_source_item_v2`,
       {
         method: "POST",
         headers: supabaseBackendHeaders(configuration.supabase.serviceRoleKey),
         body: JSON.stringify({
           p_application_id: envelope.source.applicationId ?? null,
+          p_accepted_at: message.acceptedAt,
           p_captured_at: envelope.capturedAt,
           p_content_fingerprint: fingerprint,
           p_encryption_environment: configuration.environment,
@@ -179,6 +209,7 @@ export class TenantCoordinator extends DurableObject<Env> {
           p_key_version: message.encrypted.keyVersion,
           p_occurred_at: envelope.occurredAt,
           p_raw_ciphertext: base64ToPostgresBytea(message.encrypted.ciphertext),
+          p_raw_expires_at: message.rawExpiresAt,
           p_raw_nonce: base64ToPostgresBytea(message.encrypted.nonce),
           p_source: envelope.source.kind,
           p_source_account_id: envelope.source.accountId ?? null,
