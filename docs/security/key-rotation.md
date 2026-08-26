@@ -17,6 +17,10 @@ recovery copy only in maintainers' password manager.
 | `RELAY_INGEST_SHARED_SECRET`   | API, Pipeline Worker | Authenticate internal ingestion              |
 | `SUPABASE_SERVICE_ROLE_KEY`    | Pipeline Worker      | Perform tenant-bound persistence and cleanup |
 
+`SUPABASE_SERVICE_ROLE_KEY` is retained as the binding name, but its value must be the dedicated
+modern `sb_secret_` backend key. Send it only as Supabase's `apikey` header; it is not a JWT and must
+not appear in an `Authorization` header. Publishable keys fail Pipeline startup validation.
+
 Never place these values in Wrangler configuration, Supabase metadata, EAS public variables,
 command arguments, issue comments, CI output, or application logs. Stream values from password
 manager into platform secret commands through standard input. Issue #63 owns shared Worker topology;

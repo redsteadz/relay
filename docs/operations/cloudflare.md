@@ -120,6 +120,28 @@ hosted command. Environment-specific deploy scripts are intentionally absent.
 
 Record nonsecret resource names, deployment version IDs, timestamps, and operator in release issue.
 
+## Persistence Metrics
+
+Pipeline binds Analytics Engine dataset `relay_pipeline_production` as `PIPELINE_METRICS`. Point
+schema is fixed:
+
+- `index1`: `source_item_persisted`, `source_item_duplicate`, `source_item_failed`, or
+  `retention_purge`.
+- `double1`: count.
+- `double2`: latency in milliseconds.
+- blobs and remaining indexes/doubles: unused.
+
+Do not add tenant, envelope, source, URL, ciphertext, error, or plaintext dimensions. Metric write
+failure never changes Queue retry, persistence, or cleanup behavior.
+
+For hosted persistence verification, use an operator-controlled synthetic account and random device,
+envelope, and provider IDs. Register the device through the public API, submit only the deterministic
+synthetic fixture, and inspect only row count, encryption-component presence, key version, scope, and
+expiry. Repeat source identity and fingerprint deliveries, verify row count remains one, expire only
+the synthetic row, invoke cleanup with current time rather than a future override, verify every raw
+encryption component is null while metadata remains, then delete the synthetic row and device. Record
+only deployment version, timestamp, counts, latency, and pass/fail result.
+
 ## Consolidation Cutover
 
 Legacy development resources predate ADR-0007. Configuration removal does not stop their Queue

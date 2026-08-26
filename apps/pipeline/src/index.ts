@@ -1,6 +1,7 @@
 import { healthResponseSchema, ingressEnvelopeSchema, relayUserIdSchema } from "@relay/contracts";
-import { encryptValue, parseKekKeyring } from "@relay/crypto";
+import { encryptValue } from "@relay/crypto";
 
+import { PersistenceConfigurationError, readPersistenceConfiguration } from "./configuration";
 import { TenantCoordinator } from "./coordinator";
 import { sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
@@ -45,25 +46,32 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/internal/ingest") {
-      const value = await request.json<{ userId?: unknown; envelope?: unknown }>();
-      const userId = relayUserIdSchema.safeParse(value.userId);
-      const envelope = ingressEnvelopeSchema.safeParse(value.envelope);
+      const value = await request
+        .json<{ userId?: unknown; envelope?: unknown }>()
+        .catch(() => undefined);
+      const userId = relayUserIdSchema.safeParse(value?.userId);
+      const envelope = ingressEnvelopeSchema.safeParse(value?.envelope);
       if (!userId.success || !envelope.success) {
         return Response.json({ accepted: false, reason: "invalid" }, { status: 400 });
       }
 
-      let keyring;
+      let configuration;
       try {
-        keyring = parseKekKeyring(env.RELAY_CREDENTIAL_KEK_KEYRING);
-      } catch {
-        return Response.json(
-          { accepted: false, reason: "encryption-keyring-invalid" },
-          { status: 503 },
-        );
+        configuration = readPersistenceConfiguration(env);
+      } catch (error) {
+        const reason =
+          error instanceof PersistenceConfigurationError
+            ? error.reason
+            : "persistence-configuration-invalid";
+        return Response.json({ accepted: false, reason }, { status: 503 });
       }
 
       const context = sourceItemEncryptionContext(userId.data, envelope.data.id);
-      const encrypted = await encryptValue(JSON.stringify(envelope.data), keyring, context);
+      const encrypted = await encryptValue(
+        JSON.stringify(envelope.data),
+        configuration.keyring,
+        context,
+      );
       const published = await publishIngressQueueMessage(env.INGRESS_QUEUE, {
         userId: userId.data,
         envelopeId: envelope.data.id,

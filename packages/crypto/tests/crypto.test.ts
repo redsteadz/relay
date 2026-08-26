@@ -41,10 +41,23 @@ describe("envelope encryption", () => {
     ).rejects.toThrow();
   });
 
-  it("rejects ciphertext moved to a different record context", async () => {
+  it.each([
+    ["tenant", "ingress:user-b:record-a"],
+    ["record", "ingress:user-a:record-b"],
+    ["purpose", "credential:user-a:record-a"],
+  ])("rejects ciphertext moved to a different %s context", async (_field, changedContext) => {
     const keys = keyring(1, { 1: generateKek() });
-    const encrypted = await encryptValue("secret", keys, "user-a:record-a:credential");
-    await expect(decryptValue(encrypted, keys, "user-a:record-b:credential")).rejects.toThrow();
+    const encrypted = await encryptValue("secret", keys, "ingress:user-a:record-a");
+    await expect(decryptValue(encrypted, keys, changedContext)).rejects.toThrow();
+  });
+
+  it("rejects a wrapped key moved to a different key version", async () => {
+    const keys = keyring(2, { 1: generateKek(), 2: generateKek() });
+    const versionOne = keyring(1, { 1: keys.keys[1] ?? "" });
+    const encrypted = await encryptValue("secret", versionOne, "ingress:user-a:record-a");
+    await expect(
+      decryptValue({ ...encrypted, keyVersion: 2 }, keys, "ingress:user-a:record-a"),
+    ).rejects.toThrow();
   });
 
   it("decrypts records written with retained key versions", async () => {

@@ -10,6 +10,7 @@ export type ActionWorkflowParams = {
 export interface Env {
   ACTION_WORKFLOW: Workflow<ActionWorkflowParams>;
   INGRESS_QUEUE: Queue<IngressQueueMessage>;
+  PIPELINE_METRICS?: AnalyticsEngineDataset;
   RELAY_ALLOW_LOCAL_DURABILITY?: string;
   RELAY_CREDENTIAL_KEK_KEYRING: string;
   RELAY_E2E_DEAD_LETTER_QUEUE?: string;
