@@ -14,9 +14,10 @@ authentication to the KEK version would also force payload decryption whenever t
 
 ## Decision
 
-Store a versioned KEK keyring as one Cloudflare secret per environment. Each encrypted bundle records
-the KEK version used to wrap its random data key. New writes use the active key; reads resolve the
-recorded version.
+Store a versioned KEK keyring as a Cloudflare secret for each independently deployed runtime. Relay
+currently has one hosted runtime and keyring under [ADR-0007](0007-shared-hosted-runtime.md). Each
+encrypted bundle records the KEK version used to wrap its random data key. New writes use the active
+key; reads resolve the recorded version.
 
 Payload AES-GCM associated data binds record context to stable encryption format version `v1`.
 Wrapped-key associated data binds the same context and the KEK version. Rotation unwraps and rewraps

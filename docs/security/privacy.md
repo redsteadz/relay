@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Privacy And Data Lifecycle
@@ -21,17 +21,16 @@ or clients. Queue bundles include algorithm; current Supabase rows imply `AES-GC
 nonce, wrapped data key, wrapping nonce, and KEK version. AES-GCM associated data binds tenant,
 record, and purpose to both payload and wrapped key. Payload data uses a stable format version;
 wrapped-key data binds the KEK version so rotation can rewrap only the data key without exposing
-plaintext. Environment-owned rows, private hourly rotation batches, exact compare-and-set updates,
-historical canaries, and separate platform keyrings enforce rotation without payload decryption.
+plaintext. Stable hosted-scope rows, private hourly rotation batches, exact compare-and-set updates,
+historical canaries, and versioned platform keyring enforce rotation without payload decryption.
 
 Supabase RLS isolates users. Service-role operations still bind explicit tenant identity from
 verified authentication or connector ownership. Users can inspect disclosure and action history.
 
-During the hackathon, hosted development and demo-production share one Supabase project under
-[ADR-0006](../decisions/0006-shared-supabase-hackathon-backend.md). That project accepts synthetic
-fixtures only. Issue [#63](https://github.com/redsteadz/relay/issues/63) must restore isolated
-production before beta access, non-maintainer accounts, credentials granting access to real sources,
-or real source data.
+Relay intentionally uses one hosted Supabase and Cloudflare runtime under
+[ADR-0007](../decisions/0007-shared-hosted-runtime.md). Shared failure and operator boundaries do not
+relax tenant RLS, encryption, source consent, retention, credential handling, or deletion controls.
+Future infrastructure isolation requires measured need rather than serving as user-data gate.
 
 OpenAI receives only semantic-clause allowlisted fields after redaction. Relay stores disclosure
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and

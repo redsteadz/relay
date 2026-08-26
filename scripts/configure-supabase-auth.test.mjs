@@ -3,30 +3,24 @@ import test from "node:test";
 
 import { buildHostedAuthConfig, configureHostedAuth } from "./configure-supabase-auth.mjs";
 
-const developmentConfig = {
-  environment: "development",
+const hostedConfig = {
+  environment: "hosted",
   projectRef: "abcdefghijklmnopqrst",
-  siteUrl: "https://dev.relay.example",
-  webRedirectUrl: "https://dev.relay.example/auth/callback",
+  siteUrl: "https://relay.example",
+  webRedirectUrl: "https://relay.example/auth/callback",
 };
 
-test("builds an exact development Auth allowlist", () => {
-  assert.deepEqual(buildHostedAuthConfig(developmentConfig).body, {
+test("builds the exact hosted Auth allowlist", () => {
+  assert.deepEqual(buildHostedAuthConfig(hostedConfig).body, {
     disable_signup: true,
-    site_url: "https://dev.relay.example",
-    uri_allow_list: "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
+    site_url: "https://relay.example",
+    uri_allow_list: "com.redsteadz.relay://auth/callback,https://relay.example/auth/callback",
   });
 });
 
-test("accepts a stable production domain", () => {
-  assert.doesNotThrow(() =>
-    buildHostedAuthConfig({
-      ...developmentConfig,
-      environment: "production",
-      siteUrl: "https://relay.example",
-      webRedirectUrl: "https://relay.example/auth/callback",
-    }),
-  );
+test("rejects split environment labels", () => {
+  assert.throws(() => buildHostedAuthConfig({ ...hostedConfig, environment: "development" }));
+  assert.throws(() => buildHostedAuthConfig({ ...hostedConfig, environment: "production" }));
 });
 
 test("rejects insecure, local, IP, wildcard, and mismatched URLs", () => {
@@ -38,28 +32,27 @@ test("rejects insecure, local, IP, wildcard, and mismatched URLs", () => {
     "https://relay.example/{path}",
   ];
   for (const siteUrl of invalidUrls) {
-    assert.throws(() => buildHostedAuthConfig({ ...developmentConfig, siteUrl }));
+    assert.throws(() => buildHostedAuthConfig({ ...hostedConfig, siteUrl }));
   }
   assert.throws(() =>
     buildHostedAuthConfig({
-      ...developmentConfig,
+      ...hostedConfig,
       webRedirectUrl: "https://other.example/auth/callback",
     }),
   );
   assert.throws(() =>
     buildHostedAuthConfig({
-      ...developmentConfig,
-      webRedirectUrl: "https://dev.relay.example/other",
+      ...hostedConfig,
+      webRedirectUrl: "https://relay.example/other",
     }),
   );
 });
 
-test("rejects preview and development production hosts", () => {
+test("rejects preview and development hosted domains", () => {
   for (const hostname of ["relay-development.example", "relay.pages.dev", "relay.vercel.app"]) {
     assert.throws(() =>
       buildHostedAuthConfig({
-        ...developmentConfig,
-        environment: "production",
+        ...hostedConfig,
         siteUrl: `https://${hostname}`,
         webRedirectUrl: `https://${hostname}/auth/callback`,
       }),
@@ -74,16 +67,15 @@ test("patches the restricted Auth policy and verifies the response", async () =>
     return {
       json: async () => ({
         disable_signup: true,
-        site_url: "https://dev.relay.example",
-        uri_allow_list:
-          "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
+        site_url: "https://relay.example",
+        uri_allow_list: "com.redsteadz.relay://auth/callback,https://relay.example/auth/callback",
       }),
       ok: true,
       status: 200,
     };
   };
 
-  await configureHostedAuth(developmentConfig, "synthetic-token", fetchImpl);
+  await configureHostedAuth(hostedConfig, "synthetic-token", fetchImpl);
 
   assert.equal(
     request.url,
@@ -92,8 +84,8 @@ test("patches the restricted Auth policy and verifies the response", async () =>
   assert.equal(request.options.method, "PATCH");
   assert.deepEqual(JSON.parse(request.options.body), {
     disable_signup: true,
-    site_url: "https://dev.relay.example",
-    uri_allow_list: "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
+    site_url: "https://relay.example",
+    uri_allow_list: "com.redsteadz.relay://auth/callback,https://relay.example/auth/callback",
   });
   assert.equal(request.options.headers.authorization, "Bearer synthetic-token");
 });
@@ -102,15 +94,15 @@ test("rejects an inexact Auth response", async () => {
   const fetchImpl = async () => ({
     json: async () => ({
       disable_signup: true,
-      site_url: "https://dev.relay.example/unexpected",
-      uri_allow_list: "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
+      site_url: "https://relay.example/unexpected",
+      uri_allow_list: "com.redsteadz.relay://auth/callback,https://relay.example/auth/callback",
     }),
     ok: true,
     status: 200,
   });
 
   await assert.rejects(
-    configureHostedAuth(developmentConfig, "synthetic-token", fetchImpl),
+    configureHostedAuth(hostedConfig, "synthetic-token", fetchImpl),
     /did not match requested policy/u,
   );
 });
@@ -119,15 +111,15 @@ test("rejects an Auth response that leaves signup enabled", async () => {
   const fetchImpl = async () => ({
     json: async () => ({
       disable_signup: false,
-      site_url: "https://dev.relay.example",
-      uri_allow_list: "com.redsteadz.relay://auth/callback,https://dev.relay.example/auth/callback",
+      site_url: "https://relay.example",
+      uri_allow_list: "com.redsteadz.relay://auth/callback,https://relay.example/auth/callback",
     }),
     ok: true,
     status: 200,
   });
 
   await assert.rejects(
-    configureHostedAuth(developmentConfig, "synthetic-token", fetchImpl),
+    configureHostedAuth(hostedConfig, "synthetic-token", fetchImpl),
     /did not match requested policy/u,
   );
 });

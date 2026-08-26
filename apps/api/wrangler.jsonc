@@ -1,9 +1,16 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "relay-api",
+  "name": "relay-api-production",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-24",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "relay.redsteadz.dpdns.org",
+      "custom_domain": true,
+    },
+  ],
   "assets": {
     "binding": "ASSETS",
     "directory": ".open-next/assets",
@@ -11,11 +18,11 @@
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "relay-api",
+      "service": "relay-api-production",
     },
     {
       "binding": "PIPELINE",
-      "service": "relay-pipeline",
+      "service": "relay-pipeline-production",
     },
   ],
   "vars": {
@@ -24,50 +31,7 @@
   "observability": {
     "enabled": true,
   },
-  "env": {
-    "development": {
-      "workers_dev": true,
-      "services": [
-        {
-          "binding": "WORKER_SELF_REFERENCE",
-          "service": "relay-api-development",
-        },
-        {
-          "binding": "PIPELINE",
-          "service": "relay-pipeline-development",
-        },
-      ],
-      "vars": {
-        "NEXTJS_ENV": "production",
-      },
-      "secrets": {
-        "required": ["RELAY_INGEST_SHARED_SECRET"],
-      },
-    },
-    "production": {
-      "workers_dev": false,
-      "routes": [
-        {
-          "pattern": "relay.redsteadz.dpdns.org",
-          "custom_domain": true,
-        },
-      ],
-      "services": [
-        {
-          "binding": "WORKER_SELF_REFERENCE",
-          "service": "relay-api-production",
-        },
-        {
-          "binding": "PIPELINE",
-          "service": "relay-pipeline-production",
-        },
-      ],
-      "vars": {
-        "NEXTJS_ENV": "production",
-      },
-      "secrets": {
-        "required": ["RELAY_INGEST_SHARED_SECRET"],
-      },
-    },
+  "secrets": {
+    "required": ["RELAY_INGEST_SHARED_SECRET"],
   },
 }
