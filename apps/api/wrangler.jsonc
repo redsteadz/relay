@@ -32,6 +32,6 @@
     "enabled": true,
   },
   "secrets": {
-    "required": ["RELAY_INGEST_SHARED_SECRET"],
+    "required": ["RELAY_INGEST_SHARED_SECRET", "RELAY_RECOVERY_SHARED_SECRET"],
   },
 }

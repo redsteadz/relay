@@ -117,10 +117,11 @@ migrations or regenerate locally; never edit generated output by hand.
 
 ## Encryption Scope Compatibility
 
-Encrypted `connections` and `source_items` retain `encryption_environment`. Shared hosted Pipeline
-always writes `production`; this is stable compatibility and KEK inventory scope, not second-runtime
-identity. Local E2E writes `development` only into resettable local database. Unencrypted or
-retention-purged source rows carry no encryption scope.
+Encrypted `connections`, `source_items`, and recoverable `dead_letter_items` retain
+`encryption_environment`. Shared hosted Pipeline always writes `production`; this is stable
+compatibility and KEK inventory scope, not second-runtime identity. Local E2E writes `development`
+only into resettable local database. Unencrypted, terminal, or retention-purged rows carry no
+encryption scope.
 
 Historical ownership migration rejects encrypted rows whose original scope cannot be inferred. Before
 key changes, pause canonical Queue consumer and inventory metadata-only counts. Never relabel existing
@@ -130,13 +131,26 @@ Only backend secret role can execute KEK inventory and compare-and-set RPCs. Rot
 encrypted comparison tuples in POST bodies and updates only wrapped data key, wrap nonce, and key
 version. Inventory output contains store, environment-scoped key version, and count only.
 
-Only backend secret role can execute `persist_encrypted_source_item`. It validates the complete
-encrypted bundle and inserts with `on conflict do nothing`; `true` means stored and `false` means a
+Only backend secret role can execute `persist_encrypted_source_item_v2`. It validates the complete
+encrypted bundle and original raw expiry, then inserts with `on conflict do nothing`; `true` means
+stored and `false` means a
 same-tenant source-ID, source-identity, or content-fingerprint conflict was already durable. A global
 source-ID collision owned by another tenant remains an error and cannot acknowledge that tenant's
 message. Callers treat only `true` and `false` as successful Queue outcomes and never parse or expose
 PostgreSQL conflict details. Modern `sb_secret_` keys are sent only as `apikey`; they are not JWTs and
 must not appear in an `Authorization` header.
+
+Original `persist_encrypted_source_item` remains during first rolling deployment so old Pipeline can
+continue until mandatory Queue drain completes. New code calls only v2. Remove old RPC in later
+reviewed migration after deployed-version rollback window closes; do not overload same PostgREST name.
+
+Only backend secret role can access `dead_letter_items` or execute recovery RPCs. Recording validates
+complete encryption tuple, fixed failure code, stable tenant/envelope identity, and expiry exactly
+seven days after original acceptance. Atomic replay claim accepts one request UUID, returns ciphertext
+only to private Pipeline, and refuses expired or terminal rows. Completion destroys encrypted fields
+and writes metadata-only audit. Duplicate Queue completion is idempotent; terminal rows reject later
+recording, preventing ciphertext resurrection. Authenticated users have neither table privileges nor
+function execution.
 
 ## Application Keys
 

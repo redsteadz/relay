@@ -19,23 +19,48 @@ describe("parseSourcePersistenceResponse", () => {
           { status: 409 },
         ),
       ),
-    ).rejects.toThrow("Source persistence failed with 409");
+    ).rejects.toMatchObject({ reason: "tenant_id_conflict" });
   });
 
   it("rejects malformed conflict responses", async () => {
     await expect(
       parseSourcePersistenceResponse(new Response("not-json", { status: 200 })),
-    ).rejects.toThrow("Source persistence response is invalid");
+    ).rejects.toMatchObject({ reason: "persistence_response_invalid" });
   });
 });
 
 describe("parseDecryptedIngressEnvelope", () => {
   it("returns a fixed invalid outcome for malformed sensitive plaintext", () => {
     expect(
-      parseDecryptedIngressEnvelope(
-        '{"body":"SYNTHETIC SECRET THAT MUST NOT ENTER AN ERROR"',
-        "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
-      ),
+      parseDecryptedIngressEnvelope('{"body":"SYNTHETIC SECRET THAT MUST NOT ENTER AN ERROR"', {
+        acceptedAt: "2026-08-24T10:00:00.000Z",
+        envelopeId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        rawExpiresAt: "2026-08-31T10:00:00.000Z",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("rejects Queue metadata that differs from authenticated retention data", () => {
+    const plaintext = JSON.stringify({
+      schemaVersion: 1,
+      acceptedAt: "2026-08-24T10:00:00.000Z",
+      rawExpiresAt: "2026-08-31T10:00:00.000Z",
+      envelope: {
+        schemaVersion: 1,
+        id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        occurredAt: "2026-08-24T10:00:00Z",
+        capturedAt: "2026-08-24T10:00:01Z",
+        source: { kind: "notification", externalId: "synthetic" },
+        attributes: {},
+      },
+    });
+
+    expect(
+      parseDecryptedIngressEnvelope(plaintext, {
+        acceptedAt: "2026-08-24T10:00:00.000Z",
+        envelopeId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        rawExpiresAt: "2026-09-01T10:00:00.000Z",
+      }),
     ).toBeUndefined();
   });
 });

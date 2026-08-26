@@ -11,6 +11,7 @@ last_verified: 2026-08-26
 | Class                           | Storage                                        | Default lifetime                               |
 | ------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
 | Raw email/notification/SMS      | AES-GCM ciphertext with wrapped per-record key | Seven days                                     |
+| Recoverable dead-letter payload | Exact encrypted ingress bundle                 | Original raw-payload expiry, never restarted   |
 | Provider and OpenAI credentials | AES-GCM ciphertext with wrapped per-record key | Until revoked/deleted                          |
 | Derived facts/events            | Structured tenant-owned rows with provenance   | Until user deletion                            |
 | Audit metadata                  | No raw bodies or secrets                       | Product retention policy, currently unresolved |
@@ -23,6 +24,13 @@ record, and purpose to both payload and wrapped key. Payload data uses a stable 
 wrapped-key data binds the KEK version so rotation can rewrap only the data key without exposing
 plaintext. Stable hosted-scope rows, private hourly rotation batches, exact compare-and-set updates,
 historical canaries, and versioned platform keyring enforce rotation without payload decryption.
+
+Original acceptance and seven-day expiry are authenticated inside encrypted Queue plaintext and
+copied as validated routing metadata. Source and dead-letter persistence use that original expiry;
+Queue delay and replay never restart retention. Dead-letter inspection exposes fixed failure and
+state metadata only. Replay republishes exact encrypted components, and terminal completion or expiry
+destroys ciphertext, nonces, wrapped data key, key version, and encryption scope while preserving
+non-content operational metadata.
 
 Supabase RLS isolates users. Service-role operations still bind explicit tenant identity from
 verified authentication or connector ownership. Users can inspect disclosure and action history.
@@ -44,9 +52,9 @@ cannot choose tools or action configuration.
 ## Local Harness
 
 The end-to-end harness uses only the repository's deterministic synthetic fixture and seeded local
-users. It creates an ephemeral KEK keyring and ingress secret in an owner-only temporary directory,
+users. It creates an ephemeral KEK keyring, ingress secret, and recovery secret in an owner-only temporary directory,
 removes them after the run, and rejects non-loopback Supabase endpoints. Assertions inspect only
-ciphertext, encryption metadata, row counts, and metadata-only Durable Object results. Child process
+ciphertext, encryption metadata, recovery states, row counts, and metadata-only Durable Object results. Child process
 logs are scanned as streams for fixture or credential leakage and are never retained or replayed by
 the harness.
 

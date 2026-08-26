@@ -13,19 +13,24 @@ import type { Env } from "./env";
 
 const ROWS_PER_STORE = 5;
 
-type RotationStore = "connections" | "source_items";
+type RotationStore = "connections" | "dead_letter_items" | "source_items";
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 type StoreSpec = {
-  ciphertext: "credential_ciphertext" | "raw_ciphertext";
+  ciphertext: "ciphertext" | "credential_ciphertext" | "raw_ciphertext";
   context: (userId: string, id: string) => string;
-  nonce: "credential_nonce" | "raw_nonce";
-  rpc: "cas_rewrap_connection_data_key" | "cas_rewrap_source_item_data_key";
+  contextId: "envelope_id" | "id";
+  nonce: "credential_nonce" | "nonce" | "raw_nonce";
+  rpc:
+    | "cas_rewrap_connection_data_key"
+    | "cas_rewrap_dead_letter_data_key"
+    | "cas_rewrap_source_item_data_key";
   store: RotationStore;
 };
 
 type RotationRow = {
   ciphertext: string;
+  contextId: string;
   encrypted: EncryptedValue;
   id: string;
   nonce: string;
@@ -45,6 +50,7 @@ const STORE_SPECS: readonly StoreSpec[] = [
   {
     ciphertext: "credential_ciphertext",
     context: connectionCredentialEncryptionContext,
+    contextId: "id",
     nonce: "credential_nonce",
     rpc: "cas_rewrap_connection_data_key",
     store: "connections",
@@ -52,9 +58,18 @@ const STORE_SPECS: readonly StoreSpec[] = [
   {
     ciphertext: "raw_ciphertext",
     context: sourceItemEncryptionContext,
+    contextId: "id",
     nonce: "raw_nonce",
     rpc: "cas_rewrap_source_item_data_key",
     store: "source_items",
+  },
+  {
+    ciphertext: "ciphertext",
+    context: sourceItemEncryptionContext,
+    contextId: "envelope_id",
+    nonce: "nonce",
+    rpc: "cas_rewrap_dead_letter_data_key",
+    store: "dead_letter_items",
   },
 ];
 
@@ -90,7 +105,7 @@ function parseInventory(value: unknown, keyring: KekKeyring): Set<RotationStore>
       (typeof count === "number" && Number.isSafeInteger(count) && count >= 0) ||
       (typeof count === "string" && /^\d+$/u.test(count));
     if (
-      (store !== "connections" && store !== "source_items") ||
+      (store !== "connections" && store !== "source_items" && store !== "dead_letter_items") ||
       !Number.isSafeInteger(version) ||
       typeof version !== "number" ||
       version <= 0 ||
@@ -116,6 +131,7 @@ function parseRotationRow(value: unknown, spec: StoreSpec): RotationRow {
   const candidate = value as Record<string, unknown>;
   const id = relayUserIdSchema.safeParse(candidate.id);
   const userId = relayUserIdSchema.safeParse(candidate.user_id);
+  const contextId = relayUserIdSchema.safeParse(candidate[spec.contextId]);
   const keyVersion = candidate.key_version;
   const ciphertext = candidate[spec.ciphertext];
   const nonce = candidate[spec.nonce];
@@ -124,6 +140,7 @@ function parseRotationRow(value: unknown, spec: StoreSpec): RotationRow {
   if (
     !id.success ||
     !userId.success ||
+    !contextId.success ||
     typeof keyVersion !== "number" ||
     !Number.isSafeInteger(keyVersion) ||
     keyVersion <= 0 ||
@@ -144,6 +161,7 @@ function parseRotationRow(value: unknown, spec: StoreSpec): RotationRow {
   } satisfies EncryptedValue;
   return {
     ciphertext,
+    contextId: contextId.data,
     encrypted,
     id: id.data,
     nonce,
@@ -164,7 +182,7 @@ function rowsUrl(
   const url = new URL(`/rest/v1/${spec.store}`, supabaseUrl);
   url.searchParams.set(
     "select",
-    `id,user_id,${spec.ciphertext},${spec.nonce},wrapped_data_key,wrap_nonce,key_version`,
+    `id,user_id${spec.contextId === "id" ? "" : `,${spec.contextId}`},${spec.ciphertext},${spec.nonce},wrapped_data_key,wrap_nonce,key_version`,
   );
   url.searchParams.set("encryption_environment", `eq.${environment}`);
   if (id === undefined) {
@@ -243,7 +261,7 @@ async function rewrapRow(
   row: RotationRow,
   keyring: KekKeyring,
 ): Promise<"conflict" | "rewrapped" | "stale"> {
-  const context = spec.context(row.userId, row.id);
+  const context = spec.context(row.userId, row.contextId);
   const rewrapped = await rewrapValue(row.encrypted, keyring, context);
   if (
     await compareAndSet(fetcher, supabaseUrl, serviceRoleKey, environment, spec, row, rewrapped)
@@ -271,7 +289,7 @@ async function rewrapRow(
   const retry = await rewrapValue(
     current.encrypted,
     keyring,
-    spec.context(current.userId, current.id),
+    spec.context(current.userId, current.contextId),
   );
   return (await compareAndSet(
     fetcher,

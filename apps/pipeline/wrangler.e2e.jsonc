@@ -15,6 +15,10 @@
         "binding": "INGRESS_QUEUE",
         "queue": "relay-ingress-e2e-local",
       },
+      {
+        "binding": "DEAD_LETTER_QUEUE",
+        "queue": "relay-ingress-dead-letter-e2e-local",
+      },
     ],
     "consumers": [
       {
@@ -47,6 +51,7 @@
     },
   },
   "vars": {
+    "RELAY_DEAD_LETTER_QUEUE": "relay-ingress-dead-letter-e2e-local",
     "RELAY_E2E_DEAD_LETTER_QUEUE": "relay-ingress-dead-letter-e2e-local",
     "RELAY_E2E_MODE": "true",
     "RELAY_E2E_RETENTION_NOW": "2030-01-01T00:00:00.000Z",
@@ -56,6 +61,7 @@
     "required": [
       "RELAY_CREDENTIAL_KEK_KEYRING",
       "RELAY_INGEST_SHARED_SECRET",
+      "RELAY_RECOVERY_SHARED_SECRET",
       "SUPABASE_URL",
       "SUPABASE_SERVICE_ROLE_KEY",
     ],

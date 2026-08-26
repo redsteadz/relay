@@ -22,6 +22,8 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Wrapping-key loss or compromise     | Required: versioned keyring, data-key rewrap, recovery/incident runbooks |
 | Prompt injection from source        | Strict data boundary, schema output, fixed provider/rule allowlist       |
 | Queue replay                        | Source IDs, fingerprints, unique DB constraints, stable action IDs       |
+| Dead-letter operator overreach      | Dedicated secret, metadata-only API, backend-only RPCs, no decrypt route |
+| Retention resurrection by replay    | Authenticated original expiry, atomic claim, terminal ciphertext purge   |
 | Ambiguous provider timeout          | Provider idempotency or reconciliation before retry                      |
 | Malicious callback                  | Google Pub/Sub JWT audience verification, signed webhook authentication  |
 | Credential leakage in observability | Structured metadata-only logs, header/body redaction                     |
