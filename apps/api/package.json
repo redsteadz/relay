@@ -9,7 +9,7 @@
     "cf-typegen": "rm -rf .open-next && wrangler types --env-interface CloudflareEnv --include-runtime false cloudflare-env.generated.d.ts",
     "cf-typegen:check": "rm -rf .open-next && wrangler types --env-interface CloudflareEnv --include-runtime false --check cloudflare-env.generated.d.ts",
     "clean": "rm -rf .next .open-next",
-    "deploy": "pnpm preflight:cloudflare && opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy:hosted": "pnpm preflight:cloudflare && opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "dev": "next dev",
     "lint": "eslint app lib next.config.ts open-next.config.ts",
     "preflight:cloudflare": "test -n \"$NEXT_PUBLIC_SUPABASE_URL\" && test -n \"$NEXT_PUBLIC_SUPABASE_ANON_KEY\"",
