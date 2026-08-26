@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(30);
+select plan(40);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at
@@ -27,6 +27,11 @@ insert into public.devices (id, user_id, name, platform) values
     '20200000-0000-0000-0000-000000000002',
     '20000000-0000-0000-0000-000000000002',
     'Synthetic two', 'android'
+  ),
+  (
+    '20400000-0000-0000-0000-000000000004',
+    '20000000-0000-0000-0000-000000000002',
+    'Synthetic two alternate', 'ios'
   );
 
 insert into public.connections (
@@ -236,17 +241,70 @@ select results_eq(
 );
 
 select lives_ok(
-  $$insert into public.devices (user_id, name, platform)
-    values ('10000000-0000-0000-0000-000000000001', 'Synthetic device', 'android')$$,
-  'user can register own device'
+  $$select public.register_device('30300000-0000-0000-0000-000000000003', 'android')$$,
+  'user can register own installation'
 );
 
 select throws_ok(
   $$insert into public.devices (user_id, name, platform)
-    values ('20000000-0000-0000-0000-000000000002', 'Cross-tenant device', 'android')$$,
+    values ('10000000-0000-0000-0000-000000000001', 'Direct write', 'android')$$,
   '42501',
   null,
-  'user cannot register another tenant device'
+  'user cannot bypass device registration RPC'
+);
+
+select lives_ok(
+  $$select public.register_device('30300000-0000-0000-0000-000000000003', 'android')$$,
+  'repeated installation registration is idempotent'
+);
+
+select results_eq(
+  $$select count(*)::bigint from public.devices
+    where id = '30300000-0000-0000-0000-000000000003'$$,
+  'values (1::bigint)',
+  'idempotent registration creates one row'
+);
+
+select lives_ok(
+  $$select public.register_device('20200000-0000-0000-0000-000000000002', 'android')$$,
+  'same installation identifier remains tenant scoped'
+);
+
+select is(
+  public.authorize_device_ingress('30300000-0000-0000-0000-000000000003'),
+  true,
+  'active installation is authorized'
+);
+
+select ok(
+  (select last_seen_at is not null from public.devices
+    where id = '30300000-0000-0000-0000-000000000003'),
+  'authorization records metadata-only last seen timestamp'
+);
+
+select lives_ok(
+  $$select public.revoke_device('30300000-0000-0000-0000-000000000003')$$,
+  'user can revoke own installation'
+);
+
+select is(
+  public.authorize_device_ingress('30300000-0000-0000-0000-000000000003'),
+  false,
+  'revoked installation is rejected'
+);
+
+select throws_ok(
+  $$select public.register_device('30300000-0000-0000-0000-000000000003', 'android')$$,
+  'P0002',
+  'Device is unavailable',
+  'registration cannot reactivate revoked installation'
+);
+
+select throws_ok(
+  $$select public.revoke_device('20400000-0000-0000-0000-000000000004')$$,
+  'P0002',
+  'Device is unavailable',
+  'user cannot revoke another tenant installation'
 );
 
 select results_eq(
@@ -437,6 +495,12 @@ select set_config(
   true
 );
 
+select is(
+  public.authorize_device_ingress('10100000-0000-0000-0000-000000000001'),
+  false,
+  'second user cannot authorize first tenant installation'
+);
+
 select results_eq(
   $$select table_name, visible_rows
     from (
@@ -463,7 +527,7 @@ select results_eq(
       ('categories', 10::bigint),
       ('classifications', 1::bigint),
       ('connections', 1::bigint),
-      ('devices', 1::bigint),
+      ('devices', 2::bigint),
       ('filter_rules', 1::bigint),
       ('profiles', 1::bigint),
       ('relay_events', 1::bigint),

@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { relayUserIdSchema } from "@relay/contracts";
 
-type AuthResult = { userId: string } | { error: Response };
+type AuthResult = { userId: string; accessToken?: string } | { error: Response };
 
 function unauthorized(code: "invalid_token" | "unauthorized", message: string): AuthResult {
   return { error: Response.json({ error: { code, message } }, { status: 401 }) };
@@ -37,5 +37,5 @@ export async function authenticateRequest(request: Request): Promise<AuthResult>
   if (error !== null || !userId.success)
     return unauthorized("invalid_token", "Authentication failed");
 
-  return { userId: userId.data };
+  return { accessToken: token, userId: userId.data };
 }

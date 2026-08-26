@@ -600,6 +600,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      authorize_device_ingress: {
+        Args: { p_device_id: string };
+        Returns: boolean;
+      };
       cas_rewrap_connection_data_key: {
         Args: {
           p_environment: string;
@@ -668,6 +672,44 @@ export type Database = {
         }[];
       };
       purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
+      register_device: {
+        Args: { p_device_id: string; p_platform: string };
+        Returns: {
+          created_at: string;
+          id: string;
+          last_seen_at: string | null;
+          name: string;
+          platform: string;
+          public_key: string | null;
+          revoked_at: string | null;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "devices";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      revoke_device: {
+        Args: { p_device_id: string };
+        Returns: {
+          created_at: string;
+          id: string;
+          last_seen_at: string | null;
+          name: string;
+          platform: string;
+          public_key: string | null;
+          revoked_at: string | null;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "devices";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
     };
     Enums: {
       action_provider: "google-tasks" | "nextcloud-budget" | "webhook";

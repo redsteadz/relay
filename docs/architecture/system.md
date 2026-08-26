@@ -43,5 +43,13 @@ responses. The synthetic development identity header is accepted only outside pr
 Automatic account creation remains disabled in both Supabase Auth and mobile until issue
 [#63](https://github.com/redsteadz/relay/issues/63) restores isolated production Supabase.
 
+Each mobile user installation generates a random UUID and stores it in SecureStore under a
+user-specific key. An authenticated registration RPC derives ownership from `auth.uid()` and creates
+the synthetic display name; clients cannot write device rows or choose tenant identity. Before Queue
+publication, API atomically authorizes active ownership and updates only `last_seen_at`. Revocation is
+monotonic: revoked IDs cannot register again or authorize new ingestion. Ingress authorized before a
+revocation commit may complete Queue publication; authorization after that commit fails. Published
+work remains durable and carries only verified user identity plus canonical envelope.
+
 Related: [data flow](data-flow.md), [threat model](../security/threat-model.md),
 [ADR-0002](../decisions/0002-cloudflare-processing-boundary.md).
