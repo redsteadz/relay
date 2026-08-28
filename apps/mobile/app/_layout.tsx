@@ -3,20 +3,17 @@ import "react-native-gesture-handler";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { AppState, StyleSheet, Text, View } from "react-native";
+import { AppState } from "react-native";
 
-import { palette } from "@/components/Page";
+import { LoadingState } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { syncNotificationCaptures } from "@/lib/notification-capture-sync";
+import { RelayThemeProvider, useRelayTheme } from "@/theme";
 
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
   if (!initialized) {
-    return (
-      <View style={styles.loading}>
-        <Text style={styles.loadingText}>Restoring secure session...</Text>
-      </View>
-    );
+    return <LoadingState label="Restoring secure session..." />;
   }
 
   return (
@@ -48,22 +45,21 @@ function NotificationCaptureSync() {
   return null;
 }
 
-export default function RootLayout() {
+function ThemedRoot() {
+  const theme = useRelayTheme();
   return (
     <AuthProvider>
-      <StatusBar style="light" />
+      <StatusBar style={theme.dark ? "light" : "dark"} />
       <NotificationCaptureSync />
       <AuthenticatedStack />
     </AuthProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  loading: {
-    alignItems: "center",
-    backgroundColor: palette.background,
-    flex: 1,
-    justifyContent: "center",
-  },
-  loadingText: { color: palette.muted, fontSize: 14 },
-});
+export default function RootLayout() {
+  return (
+    <RelayThemeProvider>
+      <ThemedRoot />
+    </RelayThemeProvider>
+  );
+}
