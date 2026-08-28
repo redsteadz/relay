@@ -1,18 +1,61 @@
 import type { ExpoConfig } from "expo/config";
+import { AndroidConfig, withAndroidManifest, type ConfigPlugin } from "expo/config-plugins";
 
-const buildVariant = process.env.RELAY_BUILD_VARIANT ?? "development";
-if (buildVariant !== "development" && buildVariant !== "sideload") {
-  throw new Error("RELAY_BUILD_VARIANT must be development or sideload");
+import buildConstants from "./config/build.constants.json";
+
+const { app, buildVariants, sms } = buildConstants;
+type AndroidComponent = { $: { "android:name": string }; [key: string]: unknown };
+
+function withoutComponent(
+  components: AndroidComponent[] | undefined,
+  componentName: string,
+): AndroidComponent[] {
+  return (components ?? []).filter((component) => component.$["android:name"] !== componentName);
 }
 
-const smsPermissions = ["android.permission.READ_SMS", "android.permission.RECEIVE_SMS"];
-const isSideload = buildVariant === "sideload";
+const withRelaySms: ConfigPlugin<{ enabled: boolean }> = (config, { enabled }) =>
+  withAndroidManifest(config, (manifestConfig) => {
+    const application = AndroidConfig.Manifest.getMainApplicationOrThrow(manifestConfig.modResults);
+    application.receiver = withoutComponent(application.receiver, sms.receiverClass);
+    application.service = withoutComponent(application.service, sms.syncServiceClass);
+
+    if (enabled) {
+      application.receiver.push({
+        $: {
+          "android:enabled": "true",
+          "android:exported": "true",
+          "android:name": sms.receiverClass,
+          "android:permission": sms.broadcastPermission,
+        },
+        "intent-filter": [
+          {
+            action: [{ $: { "android:name": sms.receivedAction } }],
+          },
+        ],
+      } as unknown as (typeof application.receiver)[number]);
+      application.service.push({
+        $: {
+          "android:exported": "false",
+          "android:name": sms.syncServiceClass,
+          "android:permission": sms.jobServicePermission,
+        },
+      });
+    }
+    return manifestConfig;
+  });
+
+const buildVariant = process.env.RELAY_BUILD_VARIANT ?? buildVariants.development;
+if (!Object.values(buildVariants).includes(buildVariant)) {
+  throw new Error(`RELAY_BUILD_VARIANT must be ${Object.values(buildVariants).join(" or ")}`);
+}
+
+const isSideload = buildVariant === buildVariants.sideload;
 
 const config: ExpoConfig = {
-  name: "Relay",
-  slug: "relay",
-  owner: "harcoleis-team",
-  scheme: "com.redsteadz.relay",
+  name: app.name,
+  slug: app.slug,
+  owner: app.owner,
+  scheme: app.scheme,
   version: "0.1.0",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
@@ -21,8 +64,8 @@ const config: ExpoConfig = {
     typedRoutes: true,
   },
   android: {
-    package: "com.redsteadz.relay",
-    ...(isSideload ? { permissions: smsPermissions } : { blockedPermissions: smsPermissions }),
+    package: app.androidApplicationId,
+    ...(isSideload ? { permissions: sms.permissions } : { blockedPermissions: sms.permissions }),
     adaptiveIcon: {
       backgroundColor: "#111713",
     },
@@ -30,11 +73,11 @@ const config: ExpoConfig = {
   extra: {
     relayBuildVariant: buildVariant,
     eas: {
-      projectId: "abda47b3-6e3d-43db-94de-bea147723388",
+      projectId: app.projectId,
     },
   },
   ios: {
-    bundleIdentifier: "com.redsteadz.relay",
+    bundleIdentifier: app.iosBundleIdentifier,
     supportsTablet: true,
   },
   web: {
@@ -43,4 +86,4 @@ const config: ExpoConfig = {
   },
 };
 
-export default config;
+export default withRelaySms(config, { enabled: isSideload });
