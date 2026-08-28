@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   serverExternalPackages: [],
-  transpilePackages: ["@relay/contracts"],
+  transpilePackages: ["@relay/contracts", "@relay/crypto"],
 };
 
 export default nextConfig;

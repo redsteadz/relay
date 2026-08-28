@@ -7,6 +7,8 @@ import {
   filterPlanSchema,
   ingressEnvelopeSchema,
   ingressQueueMessageSchema,
+  openAiCredentialStatusSchema,
+  openAiCredentialSubmitRequestSchema,
 } from "../src/index.js";
 
 describe("device contracts", () => {
@@ -143,6 +145,53 @@ describe("ingressQueueMessageSchema", () => {
         rawExpiresAt: "2026-09-01T10:00:00Z",
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("openAiCredentialSubmitRequestSchema", () => {
+  it("accepts a bounded, whitespace-free key", () => {
+    expect(
+      openAiCredentialSubmitRequestSchema.safeParse({ apiKey: "sk-synthetic-0123456789" }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a key that is too short to be real", () => {
+    expect(openAiCredentialSubmitRequestSchema.safeParse({ apiKey: "sk-short" }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a key containing whitespace", () => {
+    expect(
+      openAiCredentialSubmitRequestSchema.safeParse({ apiKey: "sk-synthetic 0123456789" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects unknown fields alongside the key", () => {
+    expect(
+      openAiCredentialSubmitRequestSchema.safeParse({
+        apiKey: "sk-synthetic-0123456789",
+        userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("openAiCredentialStatusSchema", () => {
+  it("never allows credential material fields to be present", () => {
+    expect(
+      openAiCredentialStatusSchema.safeParse({
+        provider: "openai",
+        configured: true,
+        apiKey: "sk-leaked",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts unconfigured status without a validation timestamp", () => {
+    expect(
+      openAiCredentialStatusSchema.safeParse({ provider: "openai", configured: false }).success,
+    ).toBe(true);
   });
 });
 

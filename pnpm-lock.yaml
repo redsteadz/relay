@@ -41,6 +41,9 @@ importers:
       '@relay/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@relay/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@supabase/supabase-js':
         specifier: 2.112.3
         version: 2.112.3
