@@ -9,6 +9,19 @@ export type DeviceCapabilities = {
 type RelayDeviceIngressNativeModule = {
   getCapabilities(): Promise<DeviceCapabilities>;
   openNotificationAccessSettings(): Promise<void>;
+  enqueueCapture(
+    tenantId: string,
+    envelopeId: string,
+    capturedAt: number,
+    envelopeJson: string,
+  ): Promise<void>;
+  getReadyCaptures(
+    tenantId: string,
+    now: number,
+  ): Promise<Array<{ envelopeId: string; attempts: number; envelopeJson: string }>>;
+  acknowledgeCapture(tenantId: string, envelopeId: string): Promise<void>;
+  failCapture(tenantId: string, envelopeId: string, terminal: boolean): Promise<void>;
+  clearCaptureQueue(tenantId: string): Promise<void>;
 };
 
 export default requireOptionalNativeModule<RelayDeviceIngressNativeModule>("RelayDeviceIngress");

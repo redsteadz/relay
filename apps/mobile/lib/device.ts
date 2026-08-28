@@ -5,6 +5,7 @@ import {
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+import RelayDeviceIngress from "../modules/relay-device-ingress";
 
 const volatileWebIds = new Map<string, string>();
 
@@ -33,4 +34,19 @@ export async function registerInstallation(
   if (!response.ok)
     throw new Error(`Device registration failed with ${response.status.toString()}`);
   return deviceRegistrationResponseSchema.parse(await response.json());
+}
+
+export async function revokeInstallation(
+  userId: string,
+  accessToken: string,
+  deviceId: string,
+): Promise<void> {
+  const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/devices/revoke`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ id: deviceId }),
+  });
+  if (!response.ok) throw new Error(`Device revocation failed with ${response.status.toString()}`);
+  await RelayDeviceIngress.clearCaptureQueue(userId);
 }
