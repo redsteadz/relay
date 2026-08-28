@@ -27,11 +27,20 @@
   ],
   "vars": {
     "NEXTJS_ENV": "production",
+    "RELAY_ENVIRONMENT": "production",
   },
   "observability": {
     "enabled": true,
   },
   "secrets": {
-    "required": ["RELAY_INGEST_SHARED_SECRET", "RELAY_RECOVERY_SHARED_SECRET"],
+    "required": [
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "RELAY_CREDENTIAL_KEK_KEYRING",
+      "RELAY_INGEST_SHARED_SECRET",
+      "RELAY_RECOVERY_SHARED_SECRET",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_URL",
+    ],
   },
 }

@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-26
+last_verified: 2026-08-28
 ---
 
 # Secret Provisioning And KEK Rotation
@@ -13,10 +13,13 @@ recovery copy only in maintainers' password manager.
 
 | Secret                         | Runtime owners       | Purpose                                      |
 | ------------------------------ | -------------------- | -------------------------------------------- |
-| `RELAY_CREDENTIAL_KEK_KEYRING` | Pipeline Worker      | Wrap per-record data keys                    |
+| `GOOGLE_CLIENT_ID`             | API Worker           | Identify Google connector OAuth client       |
+| `GOOGLE_CLIENT_SECRET`         | API Worker           | Authenticate Google connector OAuth client   |
+| `RELAY_CREDENTIAL_KEK_KEYRING` | API, Pipeline Worker | Wrap per-record data keys                    |
 | `RELAY_INGEST_SHARED_SECRET`   | API, Pipeline Worker | Authenticate internal ingestion              |
 | `RELAY_RECOVERY_SHARED_SECRET` | API, Pipeline Worker | Authorize metadata inspection and replay     |
-| `SUPABASE_SERVICE_ROLE_KEY`    | Pipeline Worker      | Perform tenant-bound persistence and cleanup |
+| `SUPABASE_SERVICE_ROLE_KEY`    | API, Pipeline Worker | Perform tenant-bound persistence and cleanup |
+| `SUPABASE_URL`                 | API, Pipeline Worker | Select canonical hosted data plane           |
 
 `SUPABASE_SERVICE_ROLE_KEY` is retained as the binding name, but its value must be the dedicated
 modern `sb_secret_` backend key. Send it only as Supabase's `apikey` header; it is not a JWT and must
@@ -76,6 +79,7 @@ exposing it in shell history:
 
 ```bash
 <password-manager-read-command> | pnpm --filter @relay/pipeline exec wrangler secret put RELAY_CREDENTIAL_KEK_KEYRING
+<password-manager-read-command> | pnpm --filter @relay/api exec wrangler secret put RELAY_CREDENTIAL_KEK_KEYRING
 ```
 
 Record secret owner, creation time, hosted runtime, and active version in password manager. Do not
