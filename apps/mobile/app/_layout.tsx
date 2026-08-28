@@ -2,10 +2,12 @@ import "react-native-gesture-handler";
 
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect } from "react";
+import { AppState, StyleSheet, Text, View } from "react-native";
 
 import { palette } from "@/components/Page";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { syncNotificationCaptures } from "@/lib/notification-capture-sync";
 
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
@@ -30,10 +32,27 @@ function AuthenticatedStack() {
   );
 }
 
+function NotificationCaptureSync() {
+  const { session } = useAuth();
+
+  useEffect(() => {
+    if (session === null) return;
+    const sync = () => void syncNotificationCaptures(session).catch(() => undefined);
+    sync();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") sync();
+    });
+    return () => subscription.remove();
+  }, [session]);
+
+  return null;
+}
+
 export default function RootLayout() {
   return (
     <AuthProvider>
       <StatusBar style="light" />
+      <NotificationCaptureSync />
       <AuthenticatedStack />
     </AuthProvider>
   );

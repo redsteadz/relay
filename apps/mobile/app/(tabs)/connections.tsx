@@ -1,15 +1,23 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { AppState, StyleSheet, Text } from "react-native";
 
+import { NotificationCapturePanel } from "@/components/NotificationCapturePanel";
 import { Page, palette } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { useAuth } from "@/lib/auth-context";
 import RelayDeviceIngress, { type DeviceCapabilities } from "@/modules/relay-device-ingress";
 
 export default function ConnectionsScreen() {
+  const { session } = useAuth();
   const [capabilities, setCapabilities] = useState<DeviceCapabilities>();
 
   useEffect(() => {
-    void RelayDeviceIngress.getCapabilities().then(setCapabilities);
+    const refresh = () => RelayDeviceIngress.getCapabilities().then(setCapabilities);
+    void refresh();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refresh();
+    });
+    return () => subscription.remove();
   }, []);
 
   return (
@@ -24,21 +32,11 @@ export default function ConnectionsScreen() {
           bodies.
         </Text>
       </Panel>
-      <Panel
-        title="Android notifications"
-        meta={capabilities?.notificationListener ? "AVAILABLE" : "UNAVAILABLE"}
-      >
-        <Text style={styles.copy}>
-          Listener access is system-managed. Dismissal remains disabled until an explicit rule
-          passes dry run.
-        </Text>
-        <Pressable
-          onPress={() => void RelayDeviceIngress.openNotificationAccessSettings()}
-          style={styles.outlineButton}
-        >
-          <Text style={styles.outlineText}>Open access settings</Text>
-        </Pressable>
-      </Panel>
+      <NotificationCapturePanel
+        capabilities={capabilities}
+        onChanged={async () => setCapabilities(await RelayDeviceIngress.getCapabilities())}
+        tenantId={session?.user.id}
+      />
       <Panel title="SMS" meta={capabilities?.smsRead ? "PERMITTED" : "SIDELOAD ONLY"}>
         <Text style={styles.copy}>
           Sensitive permission path is isolated to internal APK distribution for initial testing.
@@ -50,13 +48,4 @@ export default function ConnectionsScreen() {
 
 const styles = StyleSheet.create({
   copy: { color: palette.muted, fontSize: 14, lineHeight: 21 },
-  outlineButton: {
-    alignSelf: "flex-start",
-    borderColor: palette.border,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 13,
-    paddingVertical: 10,
-  },
-  outlineText: { color: palette.text, fontSize: 13, fontWeight: "700" },
 });
