@@ -43,7 +43,7 @@ jobs:
       RELAY_AUTH_SITE_URL: http://localhost:3000
       RELAY_AUTH_WEB_REDIRECT_URL: http://localhost:8081/auth/callback
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: 11.23.0
