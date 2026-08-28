@@ -1,20 +1,49 @@
+import Constants from "expo-constants";
+import * as Crypto from "expo-crypto";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Page, palette } from "@/components/Page";
 import { Panel } from "@/components/Panel";
 import { useAuth } from "@/lib/auth-context";
-import { sendDemoIngress } from "@/lib/demo";
+import {
+  localDevelopmentAccessEnabled,
+  notificationCaptureTenantId,
+} from "@/lib/development-access";
+import { demoIngress, sendDemoIngress } from "@/lib/demo";
 import { registerInstallation } from "@/lib/device";
+import RelayDeviceIngress from "@/modules/relay-device-ingress";
 
 export default function InboxScreen() {
   const { session } = useAuth();
   const [status, setStatus] = useState("Ready for local simulation");
+  const localDevelopmentAccess = localDevelopmentAccessEnabled(
+    __DEV__,
+    Constants.expoConfig?.extra?.relayBuildVariant,
+  );
+  const localCaptureTenantId = notificationCaptureTenantId(
+    undefined,
+    localDevelopmentAccess,
+    Platform.OS,
+  );
 
   async function simulate() {
     setStatus("Sending...");
     try {
-      if (session === null) throw new Error("Authentication required");
+      if (session === null) {
+        if (localCaptureTenantId === undefined) throw new Error("Authentication required");
+        const id = Crypto.randomUUID();
+        const capturedAt = new Date().toISOString();
+        await RelayDeviceIngress.enqueueCapture(localCaptureTenantId, {
+          ...demoIngress,
+          id,
+          occurredAt: capturedAt,
+          capturedAt,
+          source: { ...demoIngress.source, externalId: `local-development-${id}` },
+        });
+        setStatus(`Stored locally ${id.slice(0, 8)}`);
+        return;
+      }
       const device = await registerInstallation(session.user.id, session.access_token);
       const result = await sendDemoIngress(session.access_token, device.id);
       setStatus(result.accepted ? `Queued ${result.id.slice(0, 8)}` : "Not accepted");
