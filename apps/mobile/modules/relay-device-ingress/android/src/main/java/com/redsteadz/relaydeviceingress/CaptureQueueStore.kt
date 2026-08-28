@@ -10,7 +10,7 @@ internal const val CAPTURE_MAX_BYTES = 2 * 1024 * 1024
 internal const val CAPTURE_MAX_ITEMS = 500
 
 internal class CaptureQueueStore(context: Context) :
-  SQLiteOpenHelper(context, "relay-capture.db", null, 1) {
+  SQLiteOpenHelper(context, "relay-capture.db", null, 2) {
   private val crypto = CaptureQueueCrypto()
 
   override fun onCreate(db: SQLiteDatabase) {
@@ -18,6 +18,7 @@ internal class CaptureQueueStore(context: Context) :
       CREATE TABLE capture_queue (
         tenant_id TEXT NOT NULL,
         envelope_id TEXT NOT NULL,
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('notification','sms')),
         captured_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL,
         byte_count INTEGER NOT NULL,
@@ -31,9 +32,21 @@ internal class CaptureQueueStore(context: Context) :
     db.execSQL("CREATE INDEX capture_ready ON capture_queue(tenant_id, state, captured_at)")
   }
 
-  override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+  override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+    if (oldVersion < 2) {
+      // Every v1 row was produced by the notification adapter.
+      db.execSQL("ALTER TABLE capture_queue ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'notification'")
+    }
+  }
 
-  fun enqueue(tenantId: String, envelopeId: String, capturedAt: Long, envelopeJson: String) {
+  fun enqueue(
+    tenantId: String,
+    envelopeId: String,
+    sourceKind: String,
+    capturedAt: Long,
+    envelopeJson: String
+  ) {
+    require(sourceKind == "notification" || sourceKind == "sms") { "capture_source_invalid" }
     val plaintext = envelopeJson.toByteArray(Charsets.UTF_8)
     require(plaintext.size <= CAPTURE_MAX_BYTES) { "capture_too_large" }
     val encrypted = crypto.encrypt(tenantId, envelopeId, plaintext)
@@ -51,6 +64,7 @@ internal class CaptureQueueStore(context: Context) :
       }
       val values = ContentValues().apply {
         put("tenant_id", tenantId); put("envelope_id", envelopeId)
+        put("source_kind", sourceKind)
         put("captured_at", capturedAt); put("expires_at", expiresAt)
         put("byte_count", plaintext.size); put("attempts", 0); put("state", "pending")
         put("nonce", encrypted.nonce); put("ciphertext", encrypted.ciphertext)
@@ -61,12 +75,17 @@ internal class CaptureQueueStore(context: Context) :
     } finally { writableDatabase.endTransaction() }
   }
 
-  fun ready(tenantId: String, now: Long): List<Map<String, Any>> {
+  fun ready(tenantId: String, now: Long, includeSms: Boolean): List<Map<String, Any>> {
     expire(writableDatabase, now)
     val result = mutableListOf<Map<String, Any>>()
+    val selection = if (includeSms) {
+      "tenant_id=? AND state='pending' AND expires_at>?"
+    } else {
+      "tenant_id=? AND state='pending' AND expires_at>? AND source_kind!='sms'"
+    }
     writableDatabase.query(
       "capture_queue", arrayOf("envelope_id", "attempts", "nonce", "ciphertext"),
-      "tenant_id=? AND state='pending' AND expires_at>?", arrayOf(tenantId, now.toString()),
+      selection, arrayOf(tenantId, now.toString()),
       null, null, "captured_at ASC", "50"
     ).use { cursor ->
       while (cursor.moveToNext()) {
@@ -104,6 +123,22 @@ internal class CaptureQueueStore(context: Context) :
 
   private fun expire(db: SQLiteDatabase, now: Long) {
     db.delete("capture_queue", "expires_at<=?", arrayOf(now.toString()))
+  }
+
+  fun count(tenantId: String, sourceKind: String, now: Long = System.currentTimeMillis()): Int {
+    expire(writableDatabase, now)
+    return readableDatabase.rawQuery(
+      "SELECT COUNT(*) FROM capture_queue WHERE tenant_id=? AND source_kind=?",
+      arrayOf(tenantId, sourceKind)
+    ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+  }
+
+  fun deleteBySource(tenantId: String, sourceKind: String) {
+    writableDatabase.delete(
+      "capture_queue",
+      "tenant_id=? AND source_kind=?",
+      arrayOf(tenantId, sourceKind)
+    )
   }
 
   fun clearTenant(tenantId: String) {
