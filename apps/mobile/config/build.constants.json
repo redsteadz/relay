@@ -1,0 +1,23 @@
+{
+  "app": {
+    "androidApplicationId": "com.redsteadz.relay",
+    "iosBundleIdentifier": "com.redsteadz.relay",
+    "name": "Relay",
+    "owner": "harcoleis-team",
+    "projectId": "abda47b3-6e3d-43db-94de-bea147723388",
+    "scheme": "com.redsteadz.relay",
+    "slug": "relay"
+  },
+  "buildVariants": {
+    "development": "development",
+    "sideload": "sideload"
+  },
+  "sms": {
+    "broadcastPermission": "android.permission.BROADCAST_SMS",
+    "jobServicePermission": "android.permission.BIND_JOB_SERVICE",
+    "permissions": ["android.permission.READ_SMS", "android.permission.RECEIVE_SMS"],
+    "receivedAction": "android.provider.Telephony.SMS_RECEIVED",
+    "receiverClass": "com.redsteadz.relaydeviceingress.RelaySmsReceiver",
+    "syncServiceClass": "com.redsteadz.relaydeviceingress.RelaySmsSyncJobService"
+  }
+}
