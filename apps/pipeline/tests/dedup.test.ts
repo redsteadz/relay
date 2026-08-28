@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { IngressEnvelope } from "@relay/contracts";
 import { encryptValue, generateKek, parseKekKeyring } from "@relay/crypto";
@@ -84,6 +84,16 @@ type StorageMocks = {
 };
 
 const userId = "638ce145-a77d-4c32-b798-cb398e881fc9";
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime("2026-08-24T10:00:02.000Z");
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 function envelope(overrides: Partial<IngressEnvelope> = {}): IngressEnvelope {
   return {
@@ -300,7 +310,21 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     const stored = await storage.get<E2EResult>(`${E2E_RESULT_PREFIX}${message.envelopeId}`);
     expect(stored).toMatchObject({ status: "duplicate-source" });
-    vi.unstubAllGlobals();
+
+    const fingerprintMessage = await buildMessage(keyring, {
+      id: "06f96f7d-3e1a-4a66-b98e-58be9766b96e",
+      source: { kind: "notification", externalId: "different-external-id" },
+    });
+    const fingerprintDuplicate = await processIngressMessage(storage, env, fingerprintMessage);
+    expect(await fingerprintDuplicate.json()).toEqual({
+      accepted: false,
+      reason: "duplicate",
+    });
+
+    const fingerprintStored = await storage.get<E2EResult>(
+      `${E2E_RESULT_PREFIX}${fingerprintMessage.envelopeId}`,
+    );
+    expect(fingerprintStored).toMatchObject({ status: "duplicate-fingerprint" });
   });
 });
 
