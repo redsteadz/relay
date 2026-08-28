@@ -8,14 +8,14 @@ last_verified: 2026-08-26
 
 ## Components
 
-| Component             | Owns                                                                  | Must not own                                  |
-| --------------------- | --------------------------------------------------------------------- | --------------------------------------------- |
-| Expo mobile           | Consent, source settings, local capture queue, inbox UI               | Service credentials, classification authority |
-| Next API              | User auth, callback verification, schema validation, connector setup  | Long processing, provider effects             |
-| Pipeline Worker       | Queue consumption, orchestration, filter execution, provider dispatch | Primary user identity UI                      |
-| Tenant Durable Object | Per-user/source ordering and short-lived coordination                 | Sole permanent idempotency record             |
-| Cloudflare Workflow   | Approval waits, retry-safe provider steps                             | Undocumented arbitrary actions                |
-| Supabase              | Auth, RLS, encrypted durable data, audit and action ledger            | Plaintext credentials or raw payloads         |
+| Component             | Owns                                                            | Must not own                                  |
+| --------------------- | --------------------------------------------------------------- | --------------------------------------------- |
+| Expo mobile           | Consent, source settings, local capture queue, inbox UI         | Service credentials, classification authority |
+| Next API              | User auth, recovery auth, validation, connector setup           | Long processing, provider effects             |
+| Pipeline Worker       | Queue/DLQ processing, orchestration, filters, provider dispatch | Primary user identity UI                      |
+| Tenant Durable Object | Per-user/source ordering and short-lived coordination           | Sole permanent idempotency record             |
+| Cloudflare Workflow   | Approval waits, retry-safe provider steps                       | Undocumented arbitrary actions                |
+| Supabase              | Auth, RLS, encrypted durable data, audit and action ledger      | Plaintext credentials or raw payloads         |
 
 Shared wire shapes live in `packages/contracts`. Pure domain rules live in `packages/domain`.
 Envelope encryption lives in `packages/crypto`.
@@ -39,9 +39,9 @@ sessions remain explicit user-controlled state.
 The API does not decode unverified token claims. It asks the environment's configured Supabase Auth
 service for the user, validates the returned user ID as a Relay UUID, then forwards only that ID to
 the pipeline. Missing, malformed, expired, and wrong-project credentials receive stable `401`
-responses. The synthetic development identity header is accepted only outside production runtime.
-Automatic account creation remains disabled in both Supabase Auth and mobile until issue
-[#63](https://github.com/redsteadz/relay/issues/63) restores isolated production Supabase.
+responses. Synthetic development identity header is accepted only in local non-production runtime.
+Automatic account creation remains disabled as operator-controlled enrollment policy, not an
+infrastructure-isolation gate.
 
 Each mobile user installation generates a random UUID and stores it in SecureStore under a
 user-specific key. An authenticated registration RPC derives ownership from `auth.uid()` and creates

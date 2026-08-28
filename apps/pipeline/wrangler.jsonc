@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "relay-pipeline",
+  "name": "relay-pipeline-production",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-24",
   "compatibility_flags": ["nodejs_compat"],
@@ -12,20 +12,37 @@
   "triggers": {
     "crons": ["17 * * * *"],
   },
+  "analytics_engine_datasets": [
+    {
+      "binding": "PIPELINE_METRICS",
+      "dataset": "relay_pipeline_production",
+    },
+  ],
   "queues": {
     "producers": [
       {
         "binding": "INGRESS_QUEUE",
-        "queue": "relay-ingress",
+        "queue": "relay-ingress-production",
+      },
+      {
+        "binding": "DEAD_LETTER_QUEUE",
+        "queue": "relay-ingress-dead-letter-production",
       },
     ],
     "consumers": [
       {
-        "queue": "relay-ingress",
+        "queue": "relay-ingress-production",
         "max_batch_size": 10,
         "max_batch_timeout": 5,
         "max_retries": 5,
-        "dead_letter_queue": "relay-ingress-dead-letter",
+        "dead_letter_queue": "relay-ingress-dead-letter-production",
+      },
+      {
+        "queue": "relay-ingress-dead-letter-production",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 100,
+        "retry_delay": 600,
       },
     ],
   },
@@ -43,175 +60,17 @@
       "storage": "sqlite",
     },
   },
-  "workflows": [
-    {
-      "name": "relay-action-workflow",
-      "binding": "ACTION_WORKFLOW",
-      "class_name": "ActionWorkflow",
-    },
-  ],
   "vars": {
-    "RELAY_ENVIRONMENT": "development",
+    "RELAY_DEAD_LETTER_QUEUE": "relay-ingress-dead-letter-production",
+    "RELAY_ENVIRONMENT": "production",
   },
-  "env": {
-    "development": {
-      "workers_dev": false,
-      "preview_urls": false,
-      "triggers": {
-        "crons": ["17 * * * *"],
-      },
-      "queues": {
-        "producers": [
-          {
-            "binding": "INGRESS_QUEUE",
-            "queue": "relay-ingress-development",
-          },
-        ],
-        "consumers": [
-          {
-            "queue": "relay-ingress-development",
-            "max_batch_size": 10,
-            "max_batch_timeout": 5,
-            "max_retries": 5,
-            "dead_letter_queue": "relay-ingress-dead-letter-development",
-          },
-        ],
-      },
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "TENANT_COORDINATOR",
-            "class_name": "TenantCoordinator",
-          },
-        ],
-      },
-      "workflows": [
-        {
-          "name": "relay-action-workflow-development",
-          "binding": "ACTION_WORKFLOW",
-          "class_name": "ActionWorkflow",
-        },
-      ],
-      "vars": {
-        "RELAY_ENVIRONMENT": "development",
-      },
-      "secrets": {
-        "required": [
-          "RELAY_CREDENTIAL_KEK_KEYRING",
-          "RELAY_INGEST_SHARED_SECRET",
-          "SUPABASE_URL",
-          "SUPABASE_SERVICE_ROLE_KEY",
-        ],
-      },
-    },
-    "production": {
-      "workers_dev": false,
-      "preview_urls": false,
-      "triggers": {
-        "crons": ["17 * * * *"],
-      },
-      "queues": {
-        "producers": [
-          {
-            "binding": "INGRESS_QUEUE",
-            "queue": "relay-ingress-production",
-          },
-        ],
-        "consumers": [
-          {
-            "queue": "relay-ingress-production",
-            "max_batch_size": 10,
-            "max_batch_timeout": 5,
-            "max_retries": 5,
-            "dead_letter_queue": "relay-ingress-dead-letter-production",
-          },
-        ],
-      },
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "TENANT_COORDINATOR",
-            "class_name": "TenantCoordinator",
-          },
-        ],
-      },
-      "workflows": [
-        {
-          "name": "relay-action-workflow-production",
-          "binding": "ACTION_WORKFLOW",
-          "class_name": "ActionWorkflow",
-        },
-      ],
-      "vars": {
-        "RELAY_ENVIRONMENT": "production",
-      },
-      "secrets": {
-        "required": [
-          "RELAY_CREDENTIAL_KEK_KEYRING",
-          "RELAY_INGEST_SHARED_SECRET",
-          "SUPABASE_URL",
-          "SUPABASE_SERVICE_ROLE_KEY",
-        ],
-      },
-    },
-    "e2e": {
-      "workers_dev": false,
-      "preview_urls": false,
-      "triggers": {
-        "crons": ["17 * * * *"],
-      },
-      "queues": {
-        "producers": [
-          {
-            "binding": "INGRESS_QUEUE",
-            "queue": "relay-ingress-e2e-local",
-          },
-        ],
-        "consumers": [
-          {
-            "queue": "relay-ingress-e2e-local",
-            "max_batch_size": 1,
-            "max_batch_timeout": 1,
-            "max_retries": 1,
-            "dead_letter_queue": "relay-ingress-dead-letter-e2e-local",
-          },
-          {
-            "queue": "relay-ingress-dead-letter-e2e-local",
-            "max_batch_size": 1,
-            "max_batch_timeout": 1,
-            "max_retries": 1,
-          },
-        ],
-      },
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "TENANT_COORDINATOR",
-            "class_name": "TenantCoordinator",
-          },
-        ],
-      },
-      "workflows": [
-        {
-          "name": "relay-action-workflow-e2e-local",
-          "binding": "ACTION_WORKFLOW",
-          "class_name": "ActionWorkflow",
-        },
-      ],
-      "vars": {
-        "RELAY_E2E_DEAD_LETTER_QUEUE": "relay-ingress-dead-letter-e2e-local",
-        "RELAY_E2E_MODE": "true",
-        "RELAY_E2E_RETENTION_NOW": "2030-01-01T00:00:00.000Z",
-        "RELAY_ENVIRONMENT": "development",
-      },
-      "secrets": {
-        "required": [
-          "RELAY_CREDENTIAL_KEK_KEYRING",
-          "RELAY_INGEST_SHARED_SECRET",
-          "SUPABASE_URL",
-          "SUPABASE_SERVICE_ROLE_KEY",
-        ],
-      },
-    },
+  "secrets": {
+    "required": [
+      "RELAY_CREDENTIAL_KEK_KEYRING",
+      "RELAY_INGEST_SHARED_SECRET",
+      "RELAY_RECOVERY_SHARED_SECRET",
+      "SUPABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY",
+    ],
   },
 }

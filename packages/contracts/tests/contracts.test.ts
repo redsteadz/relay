@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   deviceIngressRequestSchema,
   deviceRegistrationRequestSchema,
+  encryptedIngressPayloadSchema,
   filterPlanSchema,
   ingressEnvelopeSchema,
   ingressQueueMessageSchema,
@@ -76,8 +77,13 @@ describe("filterPlanSchema", () => {
 
 describe("ingressQueueMessageSchema", () => {
   const message = {
+    schemaVersion: 1,
     userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
     envelopeId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+    acceptedAt: "2026-08-24T10:00:00Z",
+    rawExpiresAt: "2026-08-31T10:00:00Z",
+    encryptionEnvironment: "production",
+    recoveryId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
     encrypted: {
       algorithm: "AES-GCM-256",
       ciphertext: "AAAAAAAAAAAAAAAAAAAAAA==",
@@ -90,6 +96,13 @@ describe("ingressQueueMessageSchema", () => {
 
   it("accepts bounded encrypted queue metadata", () => {
     expect(ingressQueueMessageSchema.safeParse(message).success).toBe(true);
+  });
+
+  it.each(["body", "sender", "envelope"])("rejects plaintext field %s", (field) => {
+    expect(
+      ingressQueueMessageSchema.safeParse({ ...message, [field]: "synthetic-sensitive-value" })
+        .success,
+    ).toBe(false);
   });
 
   it("rejects key versions outside PostgreSQL integer range", () => {
@@ -121,5 +134,34 @@ describe("ingressQueueMessageSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("rejects an expiry that restarts raw retention", () => {
+    expect(
+      ingressQueueMessageSchema.safeParse({
+        ...message,
+        rawExpiresAt: "2026-09-01T10:00:00Z",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("encryptedIngressPayloadSchema", () => {
+  it("authenticates the original acceptance and expiry beside the envelope", () => {
+    expect(
+      encryptedIngressPayloadSchema.safeParse({
+        schemaVersion: 1,
+        acceptedAt: "2026-08-24T10:00:00Z",
+        rawExpiresAt: "2026-08-31T10:00:00Z",
+        envelope: {
+          schemaVersion: 1,
+          id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+          occurredAt: "2026-08-24T10:00:00Z",
+          capturedAt: "2026-08-24T10:00:01Z",
+          source: { kind: "notification", externalId: "synthetic" },
+          attributes: {},
+        },
+      }).success,
+    ).toBe(true);
   });
 });

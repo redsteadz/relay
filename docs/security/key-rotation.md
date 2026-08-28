@@ -1,31 +1,37 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Secret Provisioning And KEK Rotation
 
 ## Secret Inventory
 
-Development and production use independent values. Store runtime values only in platform secret
-stores and the recovery copy only in the maintainers' password manager.
+Shared hosted runtime uses one secret set. Store runtime values only in platform secret stores and
+recovery copy only in maintainers' password manager.
 
 | Secret                         | Runtime owners       | Purpose                                      |
 | ------------------------------ | -------------------- | -------------------------------------------- |
 | `RELAY_CREDENTIAL_KEK_KEYRING` | Pipeline Worker      | Wrap per-record data keys                    |
 | `RELAY_INGEST_SHARED_SECRET`   | API, Pipeline Worker | Authenticate internal ingestion              |
+| `RELAY_RECOVERY_SHARED_SECRET` | API, Pipeline Worker | Authorize metadata inspection and replay     |
 | `SUPABASE_SERVICE_ROLE_KEY`    | Pipeline Worker      | Perform tenant-bound persistence and cleanup |
 
+`SUPABASE_SERVICE_ROLE_KEY` is retained as the binding name, but its value must be the dedicated
+modern `sb_secret_` backend key. Send it only as Supabase's `apikey` header; it is not a JWT and must
+not appear in an `Authorization` header. Publishable keys fail Pipeline startup validation.
+
 Never place these values in Wrangler configuration, Supabase metadata, EAS public variables,
-command arguments, issue comments, CI output, or application logs. Stream values from the password
-manager into platform secret commands through standard input. Issue #7 owns exact Worker environment
-names and deployment bindings; issue #9 owns Supabase project access and key lifecycle.
+command arguments, issue comments, CI output, or application logs. Stream values from password
+manager into platform secret commands through standard input. Issue #63 owns shared Worker topology;
+issue #9 owns Supabase project access and key lifecycle.
 
 ## Keyring Contract
 
 `RELAY_CREDENTIAL_KEK_KEYRING` is a JSON secret with one active positive integer version and one or
-more base64-encoded 32-byte AES keys:
+more base64-encoded 32-byte AES keys. Generate ingress and recovery secrets independently with at
+least 32 random bytes; neither credential substitutes for other:
 
 ```json
 {
@@ -38,20 +44,20 @@ more base64-encoded 32-byte AES keys:
 ```
 
 Versions increase monotonically and are never reused. New records use `activeVersion`; decryption
-selects the key recorded on each ciphertext bundle. Generate each environment's initial KEK from a
-cryptographically secure 32-byte source. Generate ingress secrets independently with at least 32
-random bytes.
+selects key recorded on each ciphertext bundle. Generate hosted KEK from cryptographically secure
+32-byte source.
 
 When each version activates, create a known-plaintext synthetic canary bundle with fixed context and
 store that non-user ciphertext beside the version metadata. Retain the canary until the KEK and every
 backup requiring it are destroyed. A restored key must decrypt the historical canary; generating new
 ciphertext with a candidate key proves nothing about old records.
 
-Encrypted database rows record `encryption_environment` so independent Cloudflare keyrings cannot
-cross into another environment while ADR-0006 shares one Supabase project. Connection credentials use
-`connection:<user-id>:<connection-id>:credential` as encryption context. Source items retain their
-ingress context `ingress:<user-id>:<source-item-id>`. Context formats are immutable for existing
-ciphertext.
+Encrypted database rows retain `encryption_environment='production'` as stable hosted keyring and
+inventory scope under ADR-0007. It does not identify separate deployment. Connection credentials use
+`connection:<user-id>:<connection-id>:credential` as encryption context. Source items retain ingress
+context `ingress:<user-id>:<source-item-id>`. Context formats are immutable for existing ciphertext.
+Dead-letter rows preserve same ingress context with envelope ID, even though recovery row ID is stored
+separately.
 
 When migrating from `RELAY_CREDENTIAL_KEK`, keyring entry `"1"` must contain those exact existing
 bytes. Do not generate a replacement version `1`. Before deployment, inventory Supabase rows,
@@ -65,15 +71,21 @@ Before provisioning, verify locally with synthetic values:
 npx pnpm@11.23.0 --filter @relay/crypto test
 ```
 
-Provision each value separately for development and production. A platform command must read the
-secret from standard input rather than exposing it in shell history:
+Provision each hosted value once. Platform command must read secret from standard input rather than
+exposing it in shell history:
 
 ```bash
-<password-manager-read-command> | pnpm --filter @relay/pipeline exec wrangler secret put RELAY_CREDENTIAL_KEK_KEYRING --env <environment>
+<password-manager-read-command> | pnpm --filter @relay/pipeline exec wrangler secret put RELAY_CREDENTIAL_KEK_KEYRING
 ```
 
-Record secret owner, creation time, environment, and active version in the password manager. Do not
+Record secret owner, creation time, hosted runtime, and active version in password manager. Do not
 record secret values in project documentation.
+
+Before decommissioning historical development Worker, inventory
+`public.kek_encryption_inventory('development')`, development Queue and DLQ backlogs, Durable Object
+state, Workflow instances, and backups. Development keyring or recovery copy cannot be retired until
+every inventory is zero and Queue retention gate has elapsed. Never substitute hosted production KEK
+for development-labeled ciphertext.
 
 ## Rotation
 
@@ -82,9 +94,9 @@ record secret values in project documentation.
 2. Change `activeVersion` to `N+1`, replace the Worker secret, and verify synthetic ingress. New
    writes now use `N+1`; old records remain readable through lookup.
 3. The private Pipeline Worker's hourly schedule purges expired raw payloads, inventories its own
-   environment, and rewraps at most five `connections` plus five `source_items` per invocation. It
-   aborts before writes when storage contains a future version or an old version absent from the
-   keyring.
+   hosted scope, and rewraps at most five rows from each of `connections`, `source_items`, and
+   `dead_letter_items` per invocation. It aborts before writes when storage contains a future version
+   or an old version absent from the keyring.
 4. The executor calls `rewrapValue` with the canonical row context. Service-role-only Supabase RPCs
    compare row ID, tenant ID, environment, previous key version, wrapped key, wrap nonce, ciphertext,
    and payload nonce, then update only `wrapped_data_key`, `wrap_nonce`, and `key_version`. RPC bodies,
@@ -92,10 +104,9 @@ record secret values in project documentation.
 5. On a compare-and-set mismatch, reread the row. A deleted, expired, or already-active row is a
    no-op. Rewrap the refreshed tuple and retry once; defer a second conflict to the next hourly batch.
    Never pair a rewrap result from the stale read with refreshed ciphertext.
-6. Count remaining live rows by environment and key version:
+6. Count remaining hosted live rows by key version:
 
    ```sql
-   select * from public.kek_encryption_inventory('development');
    select * from public.kek_encryption_inventory('production');
    ```
 
@@ -129,7 +140,7 @@ rewrapping to prove the operation does not inspect payload plaintext.
 
 1. Determine whether the attacker could access ciphertext, Queue messages, backups, or provider
    credentials in addition to the KEK. Preserve metadata-only incident evidence.
-2. Generate and activate a higher version in the affected environment.
+2. Generate and activate a higher version in hosted runtime.
 3. Rewrap live data keys using the compare-and-set process, prioritizing long-lived credentials.
 4. Revoke and replace provider and OpenAI credentials exposed with the old KEK. Rewrapping does not
    revoke copied ciphertext or credentials; it only prevents future use of the old KEK against
@@ -143,10 +154,11 @@ rewrapping to prove the operation does not inspect payload plaintext.
 
 Never roll `activeVersion` backward during an application rollback. Roll code back while retaining
 the highest activated keyring version. If old code cannot use that version, pause writes and restore
-compatible code instead of resuming under an old or compromised KEK. Deployment records must track
-the highest version activated in each environment.
+compatible code instead of resuming under old or compromised KEK. Deployment records must track
+highest hosted version.
 
-Related: [privacy lifecycle](privacy.md), [threat model](threat-model.md), and
+Related: [privacy lifecycle](privacy.md), [threat model](threat-model.md),
+[ADR-0007](../decisions/0007-shared-hosted-runtime.md), and
 [ADR-0005](../decisions/0005-versioned-wrapping-keys.md).
 
 ## Sources

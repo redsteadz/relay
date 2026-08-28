@@ -76,7 +76,7 @@ export function evaluateFilter(plan: FilterPlan, item: Record<string, unknown>):
 }
 
 export function sourceIdentity(item: IngressEnvelope): string {
-  return [item.source.kind, item.source.accountId ?? "device", item.source.externalId].join(":");
+  return JSON.stringify([item.source.kind, item.source.accountId ?? null, item.source.externalId]);
 }
 
 export async function contentFingerprint(item: IngressEnvelope): Promise<string> {

@@ -12,8 +12,12 @@ vi.mock("expo-secure-store", () => ({
   }),
 }));
 vi.mock("react-native", () => ({ Platform: { OS: "android" } }));
+const clearCaptureQueue = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+vi.mock("../modules/relay-device-ingress", () => ({
+  default: { clearCaptureQueue },
+}));
 
-import { registerInstallation } from "./device";
+import { registerInstallation, revokeInstallation } from "./device";
 
 describe("registerInstallation", () => {
   beforeEach(() => {
@@ -40,5 +44,18 @@ describe("registerInstallation", () => {
       headers: { authorization: "Bearer synthetic-token", "content-type": "application/json" },
       body: JSON.stringify({ id: installationId, platform: "android" }),
     });
+  });
+
+  it("clears encrypted tenant data after device revocation", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({}, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await revokeInstallation(
+      "638ce145-a77d-4c32-b798-cb398e881fc9",
+      "synthetic-token",
+      installationId,
+    );
+
+    expect(clearCaptureQueue).toHaveBeenCalledWith("638ce145-a77d-4c32-b798-cb398e881fc9");
   });
 });

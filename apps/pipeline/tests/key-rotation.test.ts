@@ -33,7 +33,7 @@ function environment(serializedKeyring: string): Env {
   return {
     RELAY_CREDENTIAL_KEK_KEYRING: serializedKeyring,
     RELAY_ENVIRONMENT: "development",
-    SUPABASE_SERVICE_ROLE_KEY: "synthetic-service-role-key",
+    SUPABASE_SERVICE_ROLE_KEY: "sb_secret_synthetic_backend_key_12345",
     SUPABASE_URL: "https://supabase.example.test",
   } as unknown as Env;
 }
@@ -50,15 +50,20 @@ function keyrings() {
 
 function databaseRow(
   encrypted: EncryptedValue,
-  store: "connections" | "source_items",
+  store: "connections" | "dead_letter_items" | "source_items",
 ): Record<string, unknown> {
+  const ciphertextField =
+    store === "connections"
+      ? "credential_ciphertext"
+      : store === "source_items"
+        ? "raw_ciphertext"
+        : "ciphertext";
+  const nonceField =
+    store === "connections" ? "credential_nonce" : store === "source_items" ? "raw_nonce" : "nonce";
   return {
-    [store === "connections" ? "credential_ciphertext" : "raw_ciphertext"]: base64ToPostgresBytea(
-      encrypted.ciphertext,
-    ),
-    [store === "connections" ? "credential_nonce" : "raw_nonce"]: base64ToPostgresBytea(
-      encrypted.nonce,
-    ),
+    [ciphertextField]: base64ToPostgresBytea(encrypted.ciphertext),
+    [nonceField]: base64ToPostgresBytea(encrypted.nonce),
+    ...(store === "dead_letter_items" ? { envelope_id: recordId } : {}),
     id: recordId,
     key_version: encrypted.keyVersion,
     user_id: userId,
@@ -78,6 +83,11 @@ describe("executeKekRotationBatch", () => {
       context: connectionCredentialEncryptionContext,
       rpc: "cas_rewrap_connection_data_key",
       store: "connections" as const,
+    },
+    {
+      context: sourceItemEncryptionContext,
+      rpc: "cas_rewrap_dead_letter_data_key",
+      store: "dead_letter_items" as const,
     },
   ])("rewraps only data-key fields for $store", async ({ context, rpc, store }) => {
     const keys = keyrings();
@@ -107,9 +117,22 @@ describe("executeKekRotationBatch", () => {
     expect(casBody).toMatchObject({
       p_environment: "development",
       p_expected_ciphertext:
-        row[store === "connections" ? "credential_ciphertext" : "raw_ciphertext"],
+        row[
+          store === "connections"
+            ? "credential_ciphertext"
+            : store === "source_items"
+              ? "raw_ciphertext"
+              : "ciphertext"
+        ],
       p_expected_key_version: 1,
-      p_expected_payload_nonce: row[store === "connections" ? "credential_nonce" : "raw_nonce"],
+      p_expected_payload_nonce:
+        row[
+          store === "connections"
+            ? "credential_nonce"
+            : store === "source_items"
+              ? "raw_nonce"
+              : "nonce"
+        ],
       p_expected_wrapped_data_key: row.wrapped_data_key,
       p_expected_wrap_nonce: row.wrap_nonce,
       p_id: recordId,

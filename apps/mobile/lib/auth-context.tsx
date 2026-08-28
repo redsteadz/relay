@@ -16,6 +16,7 @@ import {
   requestMagicLink,
 } from "./auth";
 import { createRelaySupabaseClient } from "./supabase";
+import RelayDeviceIngress from "../modules/relay-device-ingress";
 
 type AuthContextValue = {
   completeMagicLink: (code: string) => Promise<void>;
@@ -101,6 +102,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   async function signOut() {
     if (client === undefined) throw new Error("Auth configuration is unavailable");
+    const tenantId = session?.user.id;
+    if (tenantId !== undefined) await RelayDeviceIngress.clearCaptureQueue(tenantId);
     await clearRelaySession(client);
     startTransition(() => setSession(null));
   }

@@ -51,5 +51,10 @@ export async function POST(request: Request) {
     );
   }
 
-  return Response.json({ accepted: true, id: parsed.data.envelope.id }, { status: 202 });
+  // Queue publication is the durability boundary for device acknowledgement. The explicit flag
+  // prevents clients from treating an unrelated or intermediary 202 as permission to delete.
+  return Response.json(
+    { accepted: true, durable: true, id: parsed.data.envelope.id },
+    { status: 202 },
+  );
 }

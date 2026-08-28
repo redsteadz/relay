@@ -1,23 +1,47 @@
-type PostgresError = { code?: unknown };
+import {
+  encryptedIngressPayloadSchema,
+  type IngressEnvelope,
+  type IngressQueueMessage,
+} from "@relay/contracts";
 
-async function postgresErrorCode(response: Response): Promise<string | undefined> {
+export class SourcePersistenceError extends Error {
+  constructor(
+    readonly reason:
+      "persistence_response_invalid" | "persistence_unavailable" | "tenant_id_conflict",
+  ) {
+    super("Source persistence failed");
+  }
+}
+
+export function parseDecryptedIngressEnvelope(
+  plaintext: string,
+  message: Pick<IngressQueueMessage, "acceptedAt" | "envelopeId" | "rawExpiresAt">,
+): IngressEnvelope | undefined {
   let value: unknown;
   try {
-    value = await response.json();
+    value = JSON.parse(plaintext) as unknown;
   } catch {
     return undefined;
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const code = (value as PostgresError).code;
-  return typeof code === "string" ? code : undefined;
+  const parsed = encryptedIngressPayloadSchema.safeParse(value);
+  return parsed.success &&
+    parsed.data.envelope.id === message.envelopeId &&
+    Date.parse(parsed.data.acceptedAt) === Date.parse(message.acceptedAt) &&
+    Date.parse(parsed.data.rawExpiresAt) === Date.parse(message.rawExpiresAt)
+    ? parsed.data.envelope
+    : undefined;
 }
 
-export async function classifySourcePersistenceResponse(
+export async function parseSourcePersistenceResponse(
   response: Response,
 ): Promise<"duplicate" | "stored"> {
-  if (response.ok) return "stored";
-  if (response.status === 409 && (await postgresErrorCode(response)) === "23505") {
-    return "duplicate";
+  if (!response.ok) {
+    throw new SourcePersistenceError(
+      response.status === 409 ? "tenant_id_conflict" : "persistence_unavailable",
+    );
   }
-  throw new Error(`Source persistence failed with ${response.status.toString()}`);
+  const stored = await response.json<unknown>().catch(() => undefined);
+  if (stored === true) return "stored";
+  if (stored === false) return "duplicate";
+  throw new SourcePersistenceError("persistence_response_invalid");
 }

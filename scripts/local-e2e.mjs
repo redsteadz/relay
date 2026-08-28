@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { Buffer } from "node:buffer";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -15,8 +15,12 @@ const userId = "00000000-0000-4000-8000-000000000001";
 const failedUserId = "00000000-0000-4000-8000-000000000099";
 const fingerprintDuplicateId = "cf4c3c89-0a15-4edb-94df-77786bcdddb5";
 const deadLetterId = "cf4c3c89-0a15-4edb-94df-77786bcdddb6";
+const databaseConflictSeedId = "cf4c3c89-0a15-4edb-94df-77786bcdddb7";
+const databaseConflictFirstId = "cf4c3c89-0a15-4edb-94df-77786bcdddb8";
+const databaseConflictSecondId = "cf4c3c89-0a15-4edb-94df-77786bcdddb9";
 const deadLetterSubject = "Synthetic persistence failure";
 const deadLetterBody = "SYNTHETIC FAILURE BODY MUST NOT APPEAR";
+const databaseConflictBody = "SYNTHETIC DATABASE CONFLICT BODY MUST NOT APPEAR";
 const pipelineUrl = "http://127.0.0.1:8787";
 const apiUrl = "http://127.0.0.1:3300";
 const maxLogBytes = 64_000;
@@ -175,19 +179,39 @@ async function readSupabaseStatus(environment) {
 function serviceHeaders(status) {
   return {
     apikey: status.SECRET_KEY,
-    authorization: `Bearer ${status.SECRET_KEY}`,
     "content-type": "application/json",
   };
 }
 
 async function sourceRows(status, query) {
-  const response = await globalThis.fetch(`${status.API_URL}/rest/v1/source_items?${query}`, {
+  return tableRows(status, "source_items", query);
+}
+
+async function tableRows(status, table, query) {
+  const response = await globalThis.fetch(`${status.API_URL}/rest/v1/${table}?${query}`, {
     headers: serviceHeaders(status),
   });
-  if (!response.ok) throw new Error("Local source metadata query failed");
+  if (!response.ok) throw new Error("Local metadata query failed");
   const rows = await response.json();
-  if (!Array.isArray(rows)) throw new Error("Local source metadata response is invalid");
+  if (!Array.isArray(rows)) throw new Error("Local metadata response is invalid");
   return rows;
+}
+
+async function insertSourceMetadata(status, row) {
+  const response = await globalThis.fetch(`${status.API_URL}/rest/v1/source_items`, {
+    method: "POST",
+    headers: { ...serviceHeaders(status), prefer: "return=minimal" },
+    body: JSON.stringify(row),
+  });
+  if (!response.ok) throw new Error("Local source metadata seed failed");
+}
+
+async function deleteSourceMetadata(status, id) {
+  const response = await globalThis.fetch(
+    `${status.API_URL}/rest/v1/source_items?id=eq.${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: serviceHeaders(status) },
+  );
+  if (!response.ok) throw new Error("Local source metadata deletion failed");
 }
 
 async function sendIngress(envelope, relayUserId) {
@@ -240,7 +264,10 @@ function assertEncryptedRow(row, fixture) {
     );
   }
   const lifetime = Date.parse(row.raw_expires_at) - Date.parse(row.created_at);
-  requireCondition(lifetime === 7 * 24 * 60 * 60 * 1000, "Raw retention is not seven days");
+  requireCondition(
+    lifetime > 6 * 24 * 60 * 60 * 1000 && lifetime <= 7 * 24 * 60 * 60 * 1000,
+    "Raw retention is not anchored to original seven-day acceptance window",
+  );
 }
 
 function assertLogsContainNoSensitiveData() {
@@ -289,15 +316,18 @@ async function main() {
     keys: { 1: kek },
   });
   const ingressSecret = randomBytes(32).toString("base64url");
+  const recoverySecret = randomBytes(32).toString("base64url");
   const forbiddenProcessOutput = [
     fixture.sender,
     fixture.subject,
     fixture.body,
     deadLetterSubject,
     deadLetterBody,
+    databaseConflictBody,
     kek,
     keyring,
     ingressSecret,
+    recoverySecret,
     status.PUBLISHABLE_KEY,
     status.SECRET_KEY,
   ];
@@ -307,6 +337,7 @@ async function main() {
     [
       `RELAY_CREDENTIAL_KEK_KEYRING=${keyring}`,
       `RELAY_INGEST_SHARED_SECRET=${ingressSecret}`,
+      `RELAY_RECOVERY_SHARED_SECRET=${recoverySecret}`,
       `SUPABASE_URL=${status.API_URL}`,
       `SUPABASE_SERVICE_ROLE_KEY=${status.SECRET_KEY}`,
       "",
@@ -323,8 +354,8 @@ async function main() {
       "exec",
       "wrangler",
       "dev",
-      "--env",
-      "e2e",
+      "--config",
+      "wrangler.e2e.jsonc",
       "--env-file",
       envFile,
       "--local",
@@ -354,6 +385,7 @@ async function main() {
       NEXT_PUBLIC_SUPABASE_URL: status.API_URL,
       RELAY_INGEST_SHARED_SECRET: ingressSecret,
       RELAY_PIPELINE_URL: pipelineUrl,
+      RELAY_RECOVERY_SHARED_SECRET: recoverySecret,
     },
     forbiddenProcessOutput,
   );
@@ -398,6 +430,43 @@ async function main() {
   const userRows = await sourceRows(status, `user_id=eq.${encodeURIComponent(userId)}&select=id`);
   requireCondition(userRows.length === 1, "Duplicate ingress created another source row");
 
+  stage = "database source identity conflict";
+  await insertSourceMetadata(status, {
+    application_id: fixture.source.applicationId,
+    captured_at: fixture.capturedAt,
+    content_fingerprint: "b".repeat(64),
+    external_id: "database-conflict",
+    id: databaseConflictSeedId,
+    occurred_at: fixture.occurredAt,
+    source: fixture.source.kind,
+    user_id: userId,
+  });
+  for (const [id, body] of [
+    [databaseConflictFirstId, databaseConflictBody],
+    [databaseConflictSecondId, `${databaseConflictBody} SECOND`],
+  ]) {
+    const databaseConflict = {
+      ...fixture,
+      body,
+      id,
+      source: { ...fixture.source, externalId: "database-conflict" },
+    };
+    await sendIngress(databaseConflict, userId);
+    await poll(
+      "database duplicate result",
+      () => e2eResult(ingressSecret, userId, databaseConflict.id),
+      (value) => value?.status === "duplicate-database",
+    );
+  }
+  const conflictRows = await sourceRows(
+    status,
+    `id=in.(${databaseConflictSeedId},${databaseConflictFirstId},${databaseConflictSecondId})&select=id`,
+  );
+  requireCondition(
+    conflictRows.length === 1 && conflictRows[0].id === databaseConflictSeedId,
+    "Database duplicate outcome polluted source identity cache",
+  );
+
   stage = "dead-letter delivery";
   const deadLetterFixture = {
     ...fixture,
@@ -406,19 +475,123 @@ async function main() {
     source: { ...fixture.source, externalId: "demo-dead-letter" },
     subject: deadLetterSubject,
   };
-  await sendIngress(deadLetterFixture, failedUserId);
+  await insertSourceMetadata(status, {
+    captured_at: fixture.capturedAt,
+    content_fingerprint: "c".repeat(64),
+    external_id: "dead-letter-conflict-owner",
+    id: deadLetterId,
+    occurred_at: fixture.occurredAt,
+    source: fixture.source.kind,
+    user_id: failedUserId,
+  });
+  await sendIngress(deadLetterFixture, userId);
   const deadLetter = await poll(
     "dead-letter result",
-    () => e2eResult(ingressSecret, failedUserId, deadLetterFixture.id),
+    () => e2eResult(ingressSecret, userId, deadLetterFixture.id),
     (value) => value?.status === "dead-letter",
     45_000,
   );
   requireCondition(deadLetter.keyVersion === 1, "Dead-letter metadata KEK version mismatch");
-  const failedRows = await sourceRows(
+  const recoveryRows = await tableRows(
     status,
-    `id=eq.${encodeURIComponent(deadLetterFixture.id)}&select=id`,
+    "dead_letter_items",
+    `id=eq.${encodeURIComponent(deadLetterFixture.id)}&select=id,envelope_id,failure_code,status,accepted_at,raw_expires_at,ciphertext,nonce,wrapped_data_key,wrap_nonce,key_version,replay_count`,
   );
-  requireCondition(failedRows.length === 0, "Failed persistence unexpectedly created a row");
+  requireCondition(recoveryRows.length === 1, "Dead-letter record was not durable");
+  requireCondition(recoveryRows[0].status === "available", "Dead-letter record is not recoverable");
+  requireCondition(
+    recoveryRows[0].failure_code === "tenant_id_conflict",
+    "Dead-letter failure code mismatch",
+  );
+  for (const field of ["ciphertext", "nonce", "wrapped_data_key", "wrap_nonce"]) {
+    requireCondition(
+      typeof recoveryRows[0][field] === "string" && recoveryRows[0][field].startsWith("\\x"),
+      "Encrypted dead-letter field is missing",
+    );
+  }
+  requireCondition(
+    !JSON.stringify(recoveryRows).includes(deadLetterBody) &&
+      !JSON.stringify(recoveryRows).includes(deadLetterSubject),
+    "Dead-letter persistence exposed source plaintext",
+  );
+
+  stage = "metadata-only dead-letter inspection";
+  const inventoryResponse = await globalThis.fetch(
+    `${apiUrl}/api/recovery/dead-letters?limit=100`,
+    {
+      headers: { authorization: `Bearer ${recoverySecret}` },
+    },
+  );
+  requireCondition(inventoryResponse.ok, "Recovery inventory request failed");
+  const inventory = await inventoryResponse.json();
+  const inventoryJson = JSON.stringify(inventory);
+  requireCondition(
+    inventory.items?.some((item) => item.id === deadLetterId),
+    "Recovery inventory omitted dead-letter item",
+  );
+  for (const forbidden of [
+    "ciphertext",
+    "nonce",
+    "wrappedKey",
+    deadLetterBody,
+    deadLetterSubject,
+  ]) {
+    requireCondition(!inventoryJson.includes(forbidden), "Recovery inventory exposed payload data");
+  }
+
+  stage = "idempotent dead-letter replay";
+  await deleteSourceMetadata(status, deadLetterId);
+  const replayRequestId = randomUUID();
+  const replayResponse = await globalThis.fetch(`${apiUrl}/api/recovery/dead-letters`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${recoverySecret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id: deadLetterId, requestId: replayRequestId }),
+  });
+  requireCondition(replayResponse.status === 202, "Recovery replay was not accepted");
+  const completedRecovery = await poll(
+    "dead-letter replay completion",
+    () =>
+      tableRows(
+        status,
+        "dead_letter_items",
+        `id=eq.${encodeURIComponent(deadLetterId)}&select=status,ciphertext,nonce,wrapped_data_key,wrap_nonce,key_version,replay_count`,
+      ),
+    (value) => value.length === 1 && value[0].status === "succeeded",
+  );
+  requireCondition(
+    completedRecovery[0].ciphertext === null &&
+      completedRecovery[0].nonce === null &&
+      completedRecovery[0].wrapped_data_key === null &&
+      completedRecovery[0].wrap_nonce === null &&
+      completedRecovery[0].key_version === null,
+    "Completed replay retained recoverable ciphertext",
+  );
+  const replayedSources = await sourceRows(
+    status,
+    `id=eq.${encodeURIComponent(deadLetterId)}&select=id`,
+  );
+  requireCondition(replayedSources.length === 1, "Replay did not create exactly one source row");
+  const repeatedReplay = await globalThis.fetch(`${apiUrl}/api/recovery/dead-letters`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${recoverySecret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id: deadLetterId, requestId: replayRequestId }),
+  });
+  requireCondition(
+    repeatedReplay.status === 409,
+    "Completed replay was unexpectedly accepted again",
+  );
+  const actionRows = await tableRows(
+    status,
+    "action_runs",
+    `user_id=eq.${encodeURIComponent(userId)}&select=id`,
+  );
+  requireCondition(actionRows.length === 0, "Replay created an action side effect");
 
   stage = "controlled retention cleanup";
   const scheduled = await globalThis.fetch(`${pipelineUrl}/__scheduled?cron=17%20*%20*%20*%20*`);
@@ -484,6 +657,6 @@ try {
 
 if (completed && process.exitCode !== 1) {
   globalThis.console.log(
-    "Local E2E passed: encrypted persistence, deduplication, DLQ, and retention cleanup",
+    "Local E2E passed: encrypted persistence, deduplication, DLQ recovery, replay, and retention cleanup",
   );
 }

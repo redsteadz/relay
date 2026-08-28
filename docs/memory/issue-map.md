@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Issue Dependency Map
@@ -16,11 +16,11 @@ entry points and cross-milestone flow without copying issue prose.
 - [#9 Supabase projects](https://github.com/redsteadz/relay/issues/9)
 - [#10 Expo and EAS builds](https://github.com/redsteadz/relay/issues/10)
 - [#11 Local end-to-end harness](https://github.com/redsteadz/relay/issues/11)
-- [#44 Graphify semantic memory CI](https://github.com/redsteadz/relay/issues/44)
+- [#65 Retire Graphify CI](https://github.com/redsteadz/relay/issues/65)
 
 ## M1 Ingestion
 
-- [#63 Split shared Supabase project before beta data](https://github.com/redsteadz/relay/issues/63)
+- [#63 Consolidate hosted runtime for current stage](https://github.com/redsteadz/relay/issues/63)
 - [#12 Supabase magic-link auth](https://github.com/redsteadz/relay/issues/12)
 - [#13 Gmail OAuth](https://github.com/redsteadz/relay/issues/13)
 - [#14 Device registration](https://github.com/redsteadz/relay/issues/14)

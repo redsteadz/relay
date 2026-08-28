@@ -22,6 +22,8 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Wrapping-key loss or compromise     | Required: versioned keyring, data-key rewrap, recovery/incident runbooks |
 | Prompt injection from source        | Strict data boundary, schema output, fixed provider/rule allowlist       |
 | Queue replay                        | Source IDs, fingerprints, unique DB constraints, stable action IDs       |
+| Dead-letter operator overreach      | Dedicated secret, metadata-only API, backend-only RPCs, no decrypt route |
+| Retention resurrection by replay    | Authenticated original expiry, atomic claim, terminal ciphertext purge   |
 | Ambiguous provider timeout          | Provider idempotency or reconciliation before retry                      |
 | Malicious callback                  | Google Pub/Sub JWT audience verification, signed webhook authentication  |
 | Credential leakage in observability | Structured metadata-only logs, header/body redaction                     |
@@ -35,9 +37,9 @@ Gmail restricted-scope verification, Google API Limited Use review, SMS distribu
 provider reconciliation details, abuse/rate limits, and account deletion completion need tracked
 implementation and release issues.
 
-Mobile sign-in requests do not create accounts while development and demo-production share one
-synthetic-only Supabase project. Issue [#63](https://github.com/redsteadz/relay/issues/63) must restore
-environment isolation before beta identity enrollment or real source access.
+One hosted runtime creates shared quota, deployment, backup, and operator blast radius. ADR-0007
+accepts that topology for current stage; tenant controls remain mandatory. Account enrollment remains
+operator controlled until dedicated registration and abuse controls exist.
 
 Related: [key rotation](key-rotation.md), [system boundaries](../architecture/system.md), and
 [MVP scope](../product/scope.md).

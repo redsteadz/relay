@@ -1,5 +1,6 @@
 # Dependencies and build output
 node_modules/
+.pnpm-store/
 .turbo/
 .wrangler/
 *.tsbuildinfo
@@ -26,7 +27,7 @@ apps/mobile/modules/**/android/build/
 supabase/.branches/
 supabase/.temp/
 
-# Graphify output is generated locally and in CI
+# Optional local Graphify output
 graphify-out/
 
 # OpenCode installs project-local SDK support when inspecting config

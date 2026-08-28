@@ -12,7 +12,7 @@ function environment(): Env {
       keys: { 1: generateKek() },
     }),
     RELAY_ENVIRONMENT: "development",
-    SUPABASE_SERVICE_ROLE_KEY: "synthetic-service-role-key",
+    SUPABASE_SERVICE_ROLE_KEY: "sb_secret_synthetic_backend_key_12345",
     SUPABASE_URL: "https://supabase.example.test",
   } as unknown as Env;
 }
