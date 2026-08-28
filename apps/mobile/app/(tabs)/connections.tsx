@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AppState } from "react-native";
 
 import { NotificationCapturePanel } from "@/components/NotificationCapturePanel";
+import { SmsCapturePanel } from "@/components/SmsCapturePanel";
 import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
 import { AppText } from "@/components/ui";
@@ -38,11 +39,11 @@ export default function ConnectionsScreen() {
         onChanged={async () => setCapabilities(await RelayDeviceIngress.getCapabilities())}
         tenantId={session?.user.id}
       />
-      <Panel title="SMS" meta={capabilities?.smsRead ? "PERMITTED" : "SIDELOAD ONLY"}>
-        <AppText tone="muted">
-          Sensitive permission path is isolated to internal APK distribution for initial testing.
-        </AppText>
-      </Panel>
+      <SmsCapturePanel
+        capabilities={capabilities}
+        onChanged={async () => setCapabilities(await RelayDeviceIngress.getCapabilities())}
+        tenantId={session?.user.id}
+      />
     </Page>
   );
 }
