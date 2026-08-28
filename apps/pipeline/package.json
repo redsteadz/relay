@@ -19,7 +19,7 @@
     "@relay/domain": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260823.1",
+    "@cloudflare/workers-types": "5.20260825.1",
     "@relay/config": "workspace:*",
     "wrangler": "4.125.0"
   }
