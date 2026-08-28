@@ -65,4 +65,21 @@ describe("POST /api/ingest", () => {
     expect(response.status).toBe(403);
     expect(publishIngress).not.toHaveBeenCalled();
   });
+
+  it("returns an explicit durable acknowledgement after Queue publication", async () => {
+    vi.mocked(publishIngress).mockResolvedValue(Response.json({ accepted: true }, { status: 202 }));
+    const response = await POST(
+      new Request("https://relay.test/api/ingest", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      accepted: true,
+      durable: true,
+      id: envelope.id,
+    });
+  });
 });
