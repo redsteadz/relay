@@ -4,6 +4,8 @@ owner: mobile
 last_verified: 2026-08-28
 sources:
   - https://docs.expo.dev/modules/overview/
+  - https://developer.android.com/training/package-visibility/declaring
+  - https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_SECURE
   - https://support.google.com/googleplay/android-developer/answer/10208820
 ---
 
@@ -48,6 +50,35 @@ with project ID `abda47b3-6e3d-43db-94de-bea147723388`.
 | ------------- | ------------------------------- | --------------- | ---------------------------------- |
 | `development` | Custom client for Metro and IDE | Included        | Explicitly removed during prebuild |
 | `sideload`    | Internal permission-bearing APK | Excluded        | `READ_SMS` and `RECEIVE_SMS`       |
+
+Only a JavaScript development runtime in the `development` build variant may enter the app without
+authentication. On Android, this local path uses a stable synthetic tenant with separate native
+notification configuration and encrypted queue. It never invokes capture sync or uploads without a
+real session. An unauthenticated development-local startup preserves that queue for diagnostics. A
+real session, or any startup where development-local access is unavailable (including a sideload or
+release-profile transition that retains app data), deletes the synthetic key, queue, and capture
+configuration before refreshing capabilities or starting authenticated sync. Authenticated controls
+therefore require a fresh disclosure and configuration. Native tenant preparation also clears a
+different previously configured tenant before local or authenticated capture begins, including after
+unexpected session loss. Navigation and authenticated sync remain blocked until native tenant
+preparation succeeds. Generation ordering prevents superseded authentication transitions from
+mutating current capture keys, queues, or configuration. Native queue and configuration methods also
+reject tenant IDs and preparation generations that do not match the latest prepared auth epoch.
+
+Notification source selection queries only activities declaring the launcher intent through an
+explicit package-visibility `<queries>` entry. Relay does not request `QUERY_ALL_PACKAGES`. Installed
+app labels and the complete launchable-app list remain on device and are never logged or uploaded.
+For authenticated captures, the selected package ID becomes `source.applicationId` provenance and is
+uploaded only with a captured envelope.
+
+Development-local diagnostics decrypt ready queue entries inside the Kotlin module, parse them
+natively, discard non-notification envelopes, and bridge only sender, subject, body, application ID,
+and capture time to the focused viewer. Full decrypted envelopes remain available only to the
+authenticated sync path. Polls are serialized, stale results are ignored, and preview state is
+cleared on screen blur, app backgrounding, and unmount. While the viewer is focused, Android
+`FLAG_SECURE` blocks screenshots and recent-task previews; cleanup removes the flag. No preview or
+enumerated app-list data is logged or persisted by the viewer. Decryption never creates a missing
+tenant key, and queue reads are serialized against tenant cleanup.
 
 Run the checked-in configuration gate before any build:
 

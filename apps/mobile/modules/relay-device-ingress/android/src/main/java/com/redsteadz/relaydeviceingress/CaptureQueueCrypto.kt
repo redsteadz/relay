@@ -23,7 +23,7 @@ internal class CaptureQueueCrypto {
 
   private fun key(tenantId: String): SecretKey {
     val alias = alias(tenantId)
-    (keyStore.getKey(alias, null) as? SecretKey)?.let { return it }
+    existingKey(tenantId)?.let { return it }
     val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
     generator.init(
       KeyGenParameterSpec.Builder(
@@ -37,6 +37,9 @@ internal class CaptureQueueCrypto {
     return generator.generateKey()
   }
 
+  private fun existingKey(tenantId: String): SecretKey? =
+    keyStore.getKey(alias(tenantId), null) as? SecretKey
+
   fun encrypt(tenantId: String, envelopeId: String, plaintext: ByteArray): EncryptedCapture {
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, key(tenantId))
@@ -46,7 +49,8 @@ internal class CaptureQueueCrypto {
 
   fun decrypt(tenantId: String, envelopeId: String, value: EncryptedCapture): ByteArray {
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.DECRYPT_MODE, key(tenantId), GCMParameterSpec(128, value.nonce))
+    val key = checkNotNull(existingKey(tenantId)) { "capture_key_missing" }
+    cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, value.nonce))
     cipher.updateAAD("$tenantId:$envelopeId".toByteArray())
     return cipher.doFinal(value.ciphertext)
   }
