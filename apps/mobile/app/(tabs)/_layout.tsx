@@ -1,5 +1,7 @@
 import { Tabs } from "expo-router";
-import { Text } from "react-native";
+
+import { AppText } from "@/components/ui";
+import { useRelayTheme } from "@/theme";
 
 const symbols: Record<string, string> = {
   index: "IN",
@@ -10,23 +12,24 @@ const symbols: Record<string, string> = {
 };
 
 export default function TabsLayout() {
+  const theme = useRelayTheme();
   return (
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: "#b9f6cf",
-        tabBarInactiveTintColor: "#76837a",
+        tabBarActiveTintColor: theme.relay.colors.accent,
+        tabBarInactiveTintColor: theme.relay.colors.textMuted,
         tabBarStyle: {
-          backgroundColor: "#0d120f",
-          borderTopColor: "#26332a",
-          height: 66,
-          paddingBottom: 8,
-          paddingTop: 7,
+          backgroundColor: theme.relay.colors.surface,
+          borderTopColor: theme.relay.colors.border,
+          height: 68,
+          paddingBottom: theme.relay.spacing.sm,
+          paddingTop: theme.relay.spacing.sm,
         },
         tabBarIcon: ({ color }) => (
-          <Text style={{ color, fontSize: 10, fontWeight: "800", letterSpacing: 1 }}>
+          <AppText style={{ color }} variant="eyebrow">
             {symbols[route.name] ?? "--"}
-          </Text>
+          </AppText>
         ),
       })}
     >

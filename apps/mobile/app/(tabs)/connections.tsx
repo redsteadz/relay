@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { AppState, StyleSheet, Text } from "react-native";
+import { AppState } from "react-native";
 
 import { NotificationCapturePanel } from "@/components/NotificationCapturePanel";
-import { Page, palette } from "@/components/Page";
+import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { AppText } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import RelayDeviceIngress, { type DeviceCapabilities } from "@/modules/relay-device-ingress";
 
@@ -27,10 +28,10 @@ export default function ConnectionsScreen() {
       detail="Every source is independently authorized, minimized, and revocable."
     >
       <Panel title="Gmail" meta="NOT CONNECTED">
-        <Text style={styles.copy}>
+        <AppText tone="muted">
           Restricted-scope testing flow. Google Pub/Sub delivers mailbox cursors, not message
           bodies.
-        </Text>
+        </AppText>
       </Panel>
       <NotificationCapturePanel
         capabilities={capabilities}
@@ -38,14 +39,10 @@ export default function ConnectionsScreen() {
         tenantId={session?.user.id}
       />
       <Panel title="SMS" meta={capabilities?.smsRead ? "PERMITTED" : "SIDELOAD ONLY"}>
-        <Text style={styles.copy}>
+        <AppText tone="muted">
           Sensitive permission path is isolated to internal APK distribution for initial testing.
-        </Text>
+        </AppText>
       </Panel>
     </Page>
   );
 }
-
-const styles = StyleSheet.create({
-  copy: { color: palette.muted, fontSize: 14, lineHeight: 21 },
-});

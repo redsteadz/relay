@@ -1,9 +1,9 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
-import { StyleSheet, Text } from "react-native";
 
-import { Page, palette } from "@/components/Page";
+import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { AppText } from "@/components/ui";
 import { validCallbackCode } from "@/lib/auth";
 import { useAuth } from "@/lib/auth-context";
 
@@ -33,12 +33,10 @@ export default function AuthCallbackScreen() {
       detail="Relay exchanges this one-time callback without logging or retaining its code."
     >
       <Panel title="Magic-link exchange" meta="ONE TIME">
-        <Text style={styles.status}>Completing secure sign-in...</Text>
+        <AppText accessibilityLiveRegion="polite" tone="muted">
+          Completing secure sign-in...
+        </AppText>
       </Panel>
     </Page>
   );
 }
-
-const styles = StyleSheet.create({
-  status: { color: palette.muted, fontSize: 14, lineHeight: 21 },
-});

@@ -1,32 +1,53 @@
 import type { PropsWithChildren } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Surface } from "react-native-paper";
 
-import { palette } from "./Page";
+import { useRelayTheme } from "@/theme";
+
+import { AppText } from "./ui";
 
 type PanelProps = PropsWithChildren<{ title: string; meta?: string }>;
 
 export function Panel({ children, meta, title }: PanelProps) {
+  const theme = useRelayTheme();
   return (
-    <View style={styles.panel}>
-      <View style={styles.heading}>
-        <Text style={styles.title}>{title}</Text>
-        {meta === undefined ? null : <Text style={styles.meta}>{meta}</Text>}
+    <Surface
+      elevation={theme.relay.elevation.flat}
+      style={[
+        styles.panel,
+        {
+          backgroundColor: theme.relay.colors.surface,
+          borderColor: theme.relay.colors.border,
+          borderRadius: theme.relay.radii.lg,
+          gap: theme.relay.spacing.md,
+          padding: theme.relay.spacing.lg,
+        },
+      ]}
+    >
+      <View style={[styles.heading, { gap: theme.relay.spacing.sm }]}>
+        <AppText style={styles.title} variant="title">
+          {title}
+        </AppText>
+        {meta === undefined ? null : (
+          <AppText tone="muted" variant="caption">
+            {meta}
+          </AppText>
+        )}
       </View>
       {children}
-    </View>
+    </Surface>
   );
 }
 
 const styles = StyleSheet.create({
   panel: {
-    backgroundColor: palette.panel,
-    borderColor: palette.border,
-    borderRadius: 16,
     borderWidth: 1,
-    gap: 14,
-    padding: 16,
   },
-  heading: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
-  title: { color: palette.text, fontSize: 17, fontWeight: "700" },
-  meta: { color: palette.muted, fontSize: 12, fontWeight: "600" },
+  heading: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  title: { flexShrink: 1 },
 });
