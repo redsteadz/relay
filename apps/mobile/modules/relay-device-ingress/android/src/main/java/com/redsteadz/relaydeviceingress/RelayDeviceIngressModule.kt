@@ -1,10 +1,7 @@
 package com.redsteadz.relaydeviceingress
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.provider.Settings
-import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -20,17 +17,23 @@ class RelayDeviceIngressModule : Module() {
       val context = requireNotNull(appContext.reactContext)
       val captureSettings = NotificationCaptureSettings(context.applicationContext)
       val listenerEnabled = captureSettings.listenerAccessGranted()
-      val smsGranted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.READ_SMS
-      ) == PackageManager.PERMISSION_GRANTED
       val capture = captureSettings.read()
+      val smsSettings = SmsCaptureSettings(context.applicationContext)
+      val smsAvailable = SmsPermissions.areDeclared(context)
+      val smsGranted = smsAvailable && SmsPermissions.areGranted(context)
+      if (!smsGranted) smsSettings.pauseForPermissionLoss()
+      val smsCapture = smsSettings.read()
+      val smsQueuedCount = smsCapture?.let { queue.count(it.tenantId, "sms") } ?: 0
 
       mapOf(
         "notificationListener" to listenerEnabled,
         "notificationCapturePaused" to (capture?.paused ?: true),
         "notificationAllowedPackages" to (capture?.allowedPackages?.sorted() ?: emptyList<String>()),
-        "smsRead" to smsGranted,
+        "smsAvailable" to smsAvailable,
+        "smsPermissionGranted" to smsGranted,
+        "smsCapturePaused" to (smsCapture?.paused ?: true),
+        "smsAllowedSenders" to (smsCapture?.allowedSenders?.sorted() ?: emptyList<String>()),
+        "smsQueuedCount" to smsQueuedCount,
         "platform" to "android"
       )
     }
@@ -47,12 +50,30 @@ class RelayDeviceIngressModule : Module() {
       NotificationCaptureSettings(context).write(tenantId, normalized, paused)
     }
 
-    AsyncFunction("enqueueCapture") { tenantId: String, envelopeId: String, capturedAt: Double, envelopeJson: String ->
-      queue.enqueue(tenantId, envelopeId, capturedAt.toLong(), envelopeJson)
+    AsyncFunction("configureSmsCapture") { tenantId: String, allowedSenders: List<String>, paused: Boolean ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      require(SmsPermissions.areDeclared(context)) { "sms_not_available" }
+      SmsCaptureSettings(context).write(tenantId, allowedSenders.toSet(), paused)
+    }
+
+    AsyncFunction("syncSmsInbox") { tenantId: String ->
+      SmsInboxSynchronizer.sync(
+        requireNotNull(appContext.reactContext).applicationContext,
+        tenantId
+      )
+    }
+
+    AsyncFunction("deleteQueuedSms") { tenantId: String ->
+      queue.deleteBySource(tenantId, "sms")
+    }
+
+    AsyncFunction("enqueueCapture") { tenantId: String, envelopeId: String, sourceKind: String, capturedAt: Double, envelopeJson: String ->
+      queue.enqueue(tenantId, envelopeId, sourceKind, capturedAt.toLong(), envelopeJson)
     }
 
     AsyncFunction("getReadyCaptures") { tenantId: String, now: Double ->
-      queue.ready(tenantId, now.toLong())
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      queue.ready(tenantId, now.toLong(), SmsPermissions.areDeclared(context))
     }
 
     AsyncFunction("acknowledgeCapture") { tenantId: String, envelopeId: String ->
@@ -65,7 +86,9 @@ class RelayDeviceIngressModule : Module() {
 
     AsyncFunction("clearCaptureQueue") { tenantId: String ->
       queue.clearTenant(tenantId)
-      NotificationCaptureSettings(requireNotNull(appContext.reactContext).applicationContext).clear(tenantId)
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      NotificationCaptureSettings(context).clear(tenantId)
+      SmsCaptureSettings(context).clear(tenantId)
     }
   }
 }

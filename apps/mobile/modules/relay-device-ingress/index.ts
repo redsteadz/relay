@@ -1,15 +1,31 @@
-import { Platform } from "react-native";
+import Constants from "expo-constants";
 import { ingressEnvelopeSchema, type IngressEnvelope } from "@relay/contracts";
+import { PermissionsAndroid, Platform } from "react-native";
 
-import NativeRelayDeviceIngress, { type DeviceCapabilities } from "./src/RelayDeviceIngressModule";
+import buildConstants from "../../config/build.constants.json";
+import NativeRelayDeviceIngress, {
+  type NativeDeviceCapabilities,
+} from "./src/RelayDeviceIngressModule";
 
-export type { DeviceCapabilities };
+export type RelayBuildVariant = keyof typeof buildConstants.buildVariants;
+export type DeviceCapabilities = NativeDeviceCapabilities & { buildVariant: RelayBuildVariant };
+
+const buildVariants = buildConstants.buildVariants as Record<RelayBuildVariant, RelayBuildVariant>;
+const buildVariant: RelayBuildVariant =
+  Constants.expoConfig?.extra?.relayBuildVariant === buildVariants.sideload
+    ? buildVariants.sideload
+    : buildVariants.development;
 
 const unsupported: DeviceCapabilities = {
+  buildVariant,
   notificationAllowedPackages: [],
   notificationCapturePaused: true,
   notificationListener: false,
-  smsRead: false,
+  smsAllowedSenders: [],
+  smsAvailable: false,
+  smsCapturePaused: true,
+  smsPermissionGranted: false,
+  smsQueuedCount: 0,
   platform: Platform.OS,
 };
 
@@ -19,7 +35,12 @@ const RelayDeviceIngress = {
       return unsupported;
     }
 
-    return NativeRelayDeviceIngress.getCapabilities();
+    const native = await NativeRelayDeviceIngress.getCapabilities();
+    return {
+      ...native,
+      buildVariant,
+      smsAvailable: buildVariant === buildVariants.sideload && native.smsAvailable,
+    };
   },
   async openNotificationAccessSettings(): Promise<void> {
     if (Platform.OS === "android" && NativeRelayDeviceIngress !== null) {
@@ -34,12 +55,45 @@ const RelayDeviceIngress = {
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
     await NativeRelayDeviceIngress.configureNotificationCapture(tenantId, allowedPackages, paused);
   },
+  async requestSmsPermissions(): Promise<boolean> {
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return false;
+    const capabilities = await this.getCapabilities();
+    if (!capabilities.smsAvailable) return false;
+    const results = await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.READ_SMS,
+      PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
+    ]);
+    return (
+      results[PermissionsAndroid.PERMISSIONS.READ_SMS] === PermissionsAndroid.RESULTS.GRANTED &&
+      results[PermissionsAndroid.PERMISSIONS.RECEIVE_SMS] === PermissionsAndroid.RESULTS.GRANTED
+    );
+  },
+  async configureSmsCapture(
+    tenantId: string,
+    allowedSenders: string[],
+    paused: boolean,
+  ): Promise<void> {
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
+    await NativeRelayDeviceIngress.configureSmsCapture(tenantId, allowedSenders, paused);
+  },
+  async syncSmsInbox(tenantId: string): Promise<number> {
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return 0;
+    return NativeRelayDeviceIngress.syncSmsInbox(tenantId);
+  },
+  async deleteQueuedSms(tenantId: string): Promise<void> {
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
+    await NativeRelayDeviceIngress.deleteQueuedSms(tenantId);
+  },
   async enqueueCapture(tenantId: string, envelope: IngressEnvelope): Promise<void> {
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
     const parsed = ingressEnvelopeSchema.parse(envelope);
+    if (parsed.source.kind !== "notification" && parsed.source.kind !== "sms") {
+      throw new Error("device_capture_source_invalid");
+    }
     await NativeRelayDeviceIngress.enqueueCapture(
       tenantId,
       parsed.id,
+      parsed.source.kind,
       Date.parse(parsed.capturedAt),
       JSON.stringify(parsed),
     );
