@@ -10,6 +10,11 @@ internal data class NotificationCaptureConfiguration(
   val paused: Boolean
 )
 
+internal object NotificationCaptureStateLock {
+  var latestPreparationGeneration = 0L
+  var preparedTenantId: String? = null
+}
+
 internal class NotificationCaptureSettings(context: Context) {
   private val applicationContext = context.applicationContext
   private val preferences = applicationContext.getSharedPreferences("relay-notification-capture", Context.MODE_PRIVATE)
@@ -39,6 +44,8 @@ internal class NotificationCaptureSettings(context: Context) {
   }
 
   fun clear(tenantId: String) {
-    if (preferences.getString("tenant_id", null) == tenantId) preferences.edit().clear().commit()
+    if (preferences.getString("tenant_id", null) == tenantId) {
+      check(preferences.edit().clear().commit()) { "capture_settings_clear_failed" }
+    }
   }
 }

@@ -1,0 +1,59 @@
+name: Database
+
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - ".github/workflows/database.yml"
+      - "apps/api/**"
+      - "apps/pipeline/**"
+      - "packages/contracts/**"
+      - "packages/crypto/**"
+      - "scripts/local-e2e.mjs"
+      - "supabase/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/database.yml"
+      - "apps/api/**"
+      - "apps/pipeline/**"
+      - "packages/contracts/**"
+      - "packages/crypto/**"
+      - "scripts/local-e2e.mjs"
+      - "supabase/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Database
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RELAY_AUTH_SITE_URL: http://localhost:3000
+      RELAY_AUTH_WEB_REDIRECT_URL: http://localhost:8081/auth/callback
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.23.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec supabase start
+      - run: pnpm exec supabase test db
+      - run: pnpm supabase:types:check
+      - if: github.event_name == 'workflow_dispatch'
+        run: pnpm e2e:local

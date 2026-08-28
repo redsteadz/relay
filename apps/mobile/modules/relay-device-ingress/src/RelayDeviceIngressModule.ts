@@ -12,31 +12,69 @@ export type NativeDeviceCapabilities = {
   platform: string;
 };
 
+export type SelectableNotificationApp = {
+  label: string;
+  packageName: string;
+};
+
+export type NotificationCapturePreview = {
+  applicationId?: string;
+  body?: string;
+  capturedAt: string;
+  sender?: string;
+  subject?: string;
+};
+
 type RelayDeviceIngressNativeModule = {
   getCapabilities(): Promise<NativeDeviceCapabilities>;
+  getSelectableNotificationApps(): Promise<SelectableNotificationApp[]>;
   openNotificationAccessSettings(): Promise<void>;
   configureNotificationCapture(
     tenantId: string,
     allowedPackages: string[],
     paused: boolean,
+    generation: number,
   ): Promise<void>;
-  configureSmsCapture(tenantId: string, allowedSenders: string[], paused: boolean): Promise<void>;
-  syncSmsInbox(tenantId: string): Promise<number>;
-  deleteQueuedSms(tenantId: string): Promise<void>;
+  prepareNotificationCaptureState(
+    tenantId: string | null,
+    cleanupTenantId: string | null,
+    generation: number,
+  ): Promise<void>;
+  configureSmsCapture(
+    tenantId: string,
+    allowedSenders: string[],
+    paused: boolean,
+    generation: number,
+  ): Promise<void>;
+  syncSmsInbox(tenantId: string, generation: number): Promise<number>;
+  deleteQueuedSms(tenantId: string, generation: number): Promise<void>;
   enqueueCapture(
     tenantId: string,
     envelopeId: string,
     sourceKind: "notification" | "sms",
     capturedAt: number,
     envelopeJson: string,
+    generation: number,
   ): Promise<void>;
   getReadyCaptures(
     tenantId: string,
     now: number,
+    generation: number,
   ): Promise<Array<{ envelopeId: string; attempts: number; envelopeJson: string }>>;
-  acknowledgeCapture(tenantId: string, envelopeId: string): Promise<void>;
-  failCapture(tenantId: string, envelopeId: string, terminal: boolean): Promise<void>;
-  clearCaptureQueue(tenantId: string): Promise<void>;
+  getNotificationCapturePreviews(
+    tenantId: string,
+    now: number,
+    generation: number,
+  ): Promise<NotificationCapturePreview[]>;
+  setNotificationCapturePreviewSecure(enabled: boolean): Promise<void>;
+  acknowledgeCapture(tenantId: string, envelopeId: string, generation: number): Promise<void>;
+  failCapture(
+    tenantId: string,
+    envelopeId: string,
+    terminal: boolean,
+    generation: number,
+  ): Promise<void>;
+  clearCaptureQueue(tenantId: string, generation: number): Promise<void>;
 };
 
 export default requireOptionalNativeModule<RelayDeviceIngressNativeModule>("RelayDeviceIngress");

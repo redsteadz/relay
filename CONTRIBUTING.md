@@ -20,6 +20,10 @@ Run `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm b
 a gate to make a change pass. Add a narrowly documented exception only when a platform tool cannot
 participate in the shared gate.
 
+Pull-request CI runs formatting, lint, type checks, and unit tests. Database CI runs only for API,
+Pipeline, contract, crypto, script, or Supabase changes and skips redundant reset and full E2E steps.
+Use manual workflow dispatch for full builds and local E2E before releases or high-risk changes.
+
 ## Sensitive Data
 
 Fixtures must be synthetic. Logs must not contain message bodies, SMS content, access tokens,

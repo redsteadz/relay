@@ -12,7 +12,11 @@ internal object SmsInboxSynchronizer {
     Telephony.Sms.DATE
   )
 
-  fun sync(context: Context, tenantId: String): Int {
+  fun sync(context: Context, tenantId: String): Int = synchronized(NotificationCaptureStateLock) {
+    syncLocked(context, tenantId)
+  }
+
+  private fun syncLocked(context: Context, tenantId: String): Int {
     val applicationContext = context.applicationContext
     val settings = SmsCaptureSettings(applicationContext)
     if (!SmsPermissions.areDeclared(applicationContext) || !SmsPermissions.areGranted(applicationContext)) {

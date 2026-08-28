@@ -2,10 +2,55 @@ package com.redsteadz.relaydeviceingress
 
 import android.content.Intent
 import android.provider.Settings
+import android.view.WindowManager
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import java.util.Locale
+import org.json.JSONException
+import org.json.JSONObject
+
+private fun JSONObject.stringValue(name: String): String? = opt(name) as? String
+
+private fun notificationCapturePreview(row: Map<String, Any>): Map<String, Any>? {
+  val envelopeJson = row["envelopeJson"] as? String ?: return null
+
+  return try {
+    val envelope = JSONObject(envelopeJson)
+    val source = envelope.optJSONObject("source") ?: return null
+    if (source.stringValue("kind") != "notification") return null
+    val capturedAt = envelope.stringValue("capturedAt") ?: return null
+    val preview = mutableMapOf<String, Any>("capturedAt" to capturedAt)
+
+    envelope.stringValue("sender")?.let { preview["sender"] = it }
+    envelope.stringValue("subject")?.let { preview["subject"] = it }
+    envelope.stringValue("body")?.let { preview["body"] = it }
+    source.stringValue("applicationId")?.let { preview["applicationId"] = it }
+    preview
+  } catch (_: JSONException) {
+    null
+  }
+}
+
+private fun requirePreparedCaptureTenant(tenantId: String, generation: Double) {
+  check(
+    NotificationCaptureStateLock.preparedTenantId == tenantId &&
+      NotificationCaptureStateLock.latestPreparationGeneration == generation.toLong()
+  ) { "capture_tenant_not_prepared" }
+}
 
 class RelayDeviceIngressModule : Module() {
+  private fun setNotificationCapturePreviewSecure(enabled: Boolean) {
+    val activity = appContext.currentActivity
+    require(activity != null || !enabled) { "activity_unavailable" }
+    val window = activity?.window ?: return
+    if (enabled) {
+      window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    } else {
+      window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
+  }
+
   override fun definition() = ModuleDefinition {
     Name("RelayDeviceIngress")
 
@@ -38,57 +83,166 @@ class RelayDeviceIngressModule : Module() {
       )
     }
 
+    AsyncFunction("getSelectableNotificationApps") {
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      val packageManager = context.packageManager
+      val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+      val appsByPackage = mutableMapOf<String, String>()
+
+      packageManager.queryIntentActivities(launcherIntent, 0).forEach { resolvedActivity ->
+        val applicationInfo = resolvedActivity.activityInfo?.applicationInfo ?: return@forEach
+        val packageName = applicationInfo.packageName
+        if (packageName == context.packageName || appsByPackage.containsKey(packageName)) {
+          return@forEach
+        }
+        val label = packageManager.getApplicationLabel(applicationInfo).toString().trim()
+        appsByPackage[packageName] = label.ifBlank { packageName }
+      }
+
+      appsByPackage.map { (packageName, label) ->
+        mapOf("label" to label, "packageName" to packageName)
+      }.sortedWith(
+        compareBy<Map<String, String>>(
+          { it.getValue("label").lowercase(Locale.ROOT) },
+          { it.getValue("packageName").lowercase(Locale.ROOT) },
+          { it.getValue("packageName") }
+        )
+      )
+    }
+
     AsyncFunction("openNotificationAccessSettings") {
       val activity = requireNotNull(appContext.currentActivity)
       activity.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 
-    AsyncFunction("configureNotificationCapture") { tenantId: String, allowedPackages: List<String>, paused: Boolean ->
+    AsyncFunction("configureNotificationCapture") {
+      tenantId: String, allowedPackages: List<String>, paused: Boolean, generation: Double ->
       val context = requireNotNull(appContext.reactContext).applicationContext
       val normalized = allowedPackages.map { it.trim() }.filter { it.isNotBlank() }.toSet()
       require(context.packageName !in normalized) { "relay_package_not_allowed" }
-      NotificationCaptureSettings(context).write(tenantId, normalized, paused)
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        NotificationCaptureSettings(context).write(tenantId, normalized, paused)
+      }
     }
 
-    AsyncFunction("configureSmsCapture") { tenantId: String, allowedSenders: List<String>, paused: Boolean ->
+    AsyncFunction("prepareNotificationCaptureState") {
+      tenantId: String?, cleanupTenantId: String?, generation: Double ->
+      require(tenantId == null || tenantId.isNotBlank()) { "tenant_required" }
+      require(cleanupTenantId == null || cleanupTenantId.isNotBlank()) { "cleanup_tenant_required" }
+      require(generation.isFinite() && generation >= 0) { "generation_invalid" }
+      synchronized(NotificationCaptureStateLock) {
+        val preparationGeneration = generation.toLong()
+        if (preparationGeneration < NotificationCaptureStateLock.latestPreparationGeneration) {
+          return@synchronized
+        }
+        NotificationCaptureStateLock.latestPreparationGeneration = preparationGeneration
+        val context = requireNotNull(appContext.reactContext).applicationContext
+        val notificationSettings = NotificationCaptureSettings(context)
+        val smsSettings = SmsCaptureSettings(context)
+        val staleTenantIds = linkedSetOf<String>()
+        cleanupTenantId?.let(staleTenantIds::add)
+        notificationSettings.read()?.tenantId?.takeIf { it != tenantId }?.let(staleTenantIds::add)
+        smsSettings.read()?.tenantId?.takeIf { it != tenantId }?.let(staleTenantIds::add)
+
+        staleTenantIds.forEach { staleTenantId ->
+          queue.clearTenant(staleTenantId)
+          notificationSettings.clear(staleTenantId)
+          smsSettings.clear(staleTenantId)
+        }
+        NotificationCaptureStateLock.preparedTenantId = tenantId
+      }
+    }
+
+    AsyncFunction("configureSmsCapture") {
+      tenantId: String, allowedSenders: List<String>, paused: Boolean, generation: Double ->
       val context = requireNotNull(appContext.reactContext).applicationContext
       require(SmsPermissions.areDeclared(context)) { "sms_not_available" }
-      SmsCaptureSettings(context).write(tenantId, allowedSenders.toSet(), paused)
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        SmsCaptureSettings(context).write(tenantId, allowedSenders.toSet(), paused)
+      }
     }
 
-    AsyncFunction("syncSmsInbox") { tenantId: String ->
-      SmsInboxSynchronizer.sync(
-        requireNotNull(appContext.reactContext).applicationContext,
-        tenantId
-      )
+    AsyncFunction("syncSmsInbox") { tenantId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        SmsInboxSynchronizer.sync(
+          requireNotNull(appContext.reactContext).applicationContext,
+          tenantId
+        )
+      }
     }
 
-    AsyncFunction("deleteQueuedSms") { tenantId: String ->
-      queue.deleteBySource(tenantId, "sms")
+    AsyncFunction("deleteQueuedSms") { tenantId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.deleteBySource(tenantId, "sms")
+      }
     }
 
-    AsyncFunction("enqueueCapture") { tenantId: String, envelopeId: String, sourceKind: String, capturedAt: Double, envelopeJson: String ->
-      queue.enqueue(tenantId, envelopeId, sourceKind, capturedAt.toLong(), envelopeJson)
+    AsyncFunction("enqueueCapture") {
+      tenantId: String, envelopeId: String, sourceKind: String, capturedAt: Double,
+        envelopeJson: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.enqueue(tenantId, envelopeId, sourceKind, capturedAt.toLong(), envelopeJson)
+      }
     }
 
-    AsyncFunction("getReadyCaptures") { tenantId: String, now: Double ->
-      val context = requireNotNull(appContext.reactContext).applicationContext
-      queue.ready(tenantId, now.toLong(), SmsPermissions.areDeclared(context))
+    AsyncFunction("getReadyCaptures") { tenantId: String, now: Double, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        val context = requireNotNull(appContext.reactContext).applicationContext
+        queue.ready(tenantId, now.toLong(), SmsPermissions.areDeclared(context))
+      }
     }
 
-    AsyncFunction("acknowledgeCapture") { tenantId: String, envelopeId: String ->
-      queue.acknowledge(tenantId, envelopeId)
+    AsyncFunction("getNotificationCapturePreviews") {
+      tenantId: String, now: Double, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.ready(tenantId, now.toLong(), false).mapNotNull(::notificationCapturePreview)
+      }
     }
 
-    AsyncFunction("failCapture") { tenantId: String, envelopeId: String, terminal: Boolean ->
-      queue.fail(tenantId, envelopeId, terminal)
+    AsyncFunction("setNotificationCapturePreviewSecure") { enabled: Boolean ->
+      setNotificationCapturePreviewSecure(enabled)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("acknowledgeCapture") {
+      tenantId: String, envelopeId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.acknowledge(tenantId, envelopeId)
+      }
     }
 
-    AsyncFunction("clearCaptureQueue") { tenantId: String ->
-      queue.clearTenant(tenantId)
-      val context = requireNotNull(appContext.reactContext).applicationContext
-      NotificationCaptureSettings(context).clear(tenantId)
-      SmsCaptureSettings(context).clear(tenantId)
+    AsyncFunction("failCapture") {
+      tenantId: String, envelopeId: String, terminal: Boolean, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.fail(tenantId, envelopeId, terminal)
+      }
+    }
+
+    AsyncFunction("clearCaptureQueue") { tenantId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.clearTenant(tenantId)
+        val context = requireNotNull(appContext.reactContext).applicationContext
+        NotificationCaptureSettings(context).clear(tenantId)
+        SmsCaptureSettings(context).clear(tenantId)
+        if (NotificationCaptureStateLock.preparedTenantId == tenantId) {
+          NotificationCaptureStateLock.preparedTenantId = null
+        }
+      }
+    }
+
+    OnDestroy {
+      appContext.currentActivity?.runOnUiThread {
+        setNotificationCapturePreviewSecure(false)
+      }
     }
   }
 }

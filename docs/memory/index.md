@@ -30,6 +30,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 
 - [Android notifications and SMS](../integrations/android.md)
 - [Gmail](../integrations/gmail.md)
+- [OpenAI (BYOK)](../integrations/openai.md)
 - [Google Tasks](../integrations/google-tasks.md)
 - [Nextcloud Budget](../integrations/nextcloud-budget.md)
 - [Signed webhooks](../integrations/webhook.md)
