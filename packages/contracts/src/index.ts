@@ -56,6 +56,15 @@ export const deviceIngressRequestSchema = z
   .object({ deviceId: deviceIdSchema, envelope: ingressEnvelopeSchema })
   .strict();
 
+export const deviceIngressAcknowledgementSchema = z
+  .object({
+    accepted: z.literal(true),
+    durable: z.literal(true),
+    id: z.uuid(),
+  })
+  .strict();
+export type DeviceIngressAcknowledgement = z.infer<typeof deviceIngressAcknowledgementSchema>;
+
 const postgresIntegerSchema = z.int().min(1).max(2_147_483_647);
 
 function decodedBase64ByteLength(value: string): number {
@@ -235,6 +244,25 @@ export const actionIntentSchema = z.object({
   createdAt: z.iso.datetime({ offset: true }),
 });
 export type ActionIntent = z.infer<typeof actionIntentSchema>;
+
+export const openAiApiKeySchema = z
+  .string()
+  .min(20)
+  .max(256)
+  .regex(/^\S+$/, "Key must not contain whitespace");
+
+export const openAiCredentialSubmitRequestSchema = z
+  .object({ apiKey: openAiApiKeySchema })
+  .strict();
+
+export const openAiCredentialStatusSchema = z
+  .object({
+    provider: z.literal("openai"),
+    configured: z.boolean(),
+    lastValidatedAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .strict();
+export type OpenAiCredentialStatus = z.infer<typeof openAiCredentialStatusSchema>;
 
 export const apiErrorSchema = z.object({
   error: z.object({
