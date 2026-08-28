@@ -7,7 +7,7 @@ import { AppState } from "react-native";
 
 import { LoadingState } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
-import { syncNotificationCaptures } from "@/lib/notification-capture-sync";
+import { syncDeviceCaptures } from "@/lib/device-capture-sync";
 import { RelayThemeProvider, useRelayTheme } from "@/theme";
 
 function AuthenticatedStack() {
@@ -29,12 +29,12 @@ function AuthenticatedStack() {
   );
 }
 
-function NotificationCaptureSync() {
+function DeviceCaptureSync() {
   const { session } = useAuth();
 
   useEffect(() => {
     if (session === null) return;
-    const sync = () => void syncNotificationCaptures(session).catch(() => undefined);
+    const sync = () => void syncDeviceCaptures(session).catch(() => undefined);
     sync();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") sync();
@@ -50,7 +50,7 @@ function ThemedRoot() {
   return (
     <AuthProvider>
       <StatusBar style={theme.dark ? "light" : "dark"} />
-      <NotificationCaptureSync />
+      <DeviceCaptureSync />
       <AuthenticatedStack />
     </AuthProvider>
   );
