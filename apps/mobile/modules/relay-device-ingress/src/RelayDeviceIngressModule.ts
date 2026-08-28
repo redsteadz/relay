@@ -1,6 +1,8 @@
 import { requireOptionalNativeModule } from "expo";
 
 export type DeviceCapabilities = {
+  notificationAllowedPackages: string[];
+  notificationCapturePaused: boolean;
   notificationListener: boolean;
   smsRead: boolean;
   platform: string;
@@ -9,6 +11,11 @@ export type DeviceCapabilities = {
 type RelayDeviceIngressNativeModule = {
   getCapabilities(): Promise<DeviceCapabilities>;
   openNotificationAccessSettings(): Promise<void>;
+  configureNotificationCapture(
+    tenantId: string,
+    allowedPackages: string[],
+    paused: boolean,
+  ): Promise<void>;
   enqueueCapture(
     tenantId: string,
     envelopeId: string,

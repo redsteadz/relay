@@ -6,6 +6,8 @@ import NativeRelayDeviceIngress, { type DeviceCapabilities } from "./src/RelayDe
 export type { DeviceCapabilities };
 
 const unsupported: DeviceCapabilities = {
+  notificationAllowedPackages: [],
+  notificationCapturePaused: true,
   notificationListener: false,
   smsRead: false,
   platform: Platform.OS,
@@ -23,6 +25,14 @@ const RelayDeviceIngress = {
     if (Platform.OS === "android" && NativeRelayDeviceIngress !== null) {
       await NativeRelayDeviceIngress.openNotificationAccessSettings();
     }
+  },
+  async configureNotificationCapture(
+    tenantId: string,
+    allowedPackages: string[],
+    paused: boolean,
+  ): Promise<void> {
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
+    await NativeRelayDeviceIngress.configureNotificationCapture(tenantId, allowedPackages, paused);
   },
   async enqueueCapture(tenantId: string, envelope: IngressEnvelope): Promise<void> {
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;

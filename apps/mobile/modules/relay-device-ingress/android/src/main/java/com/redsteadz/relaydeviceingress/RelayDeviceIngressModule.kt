@@ -18,17 +18,18 @@ class RelayDeviceIngressModule : Module() {
 
     AsyncFunction("getCapabilities") {
       val context = requireNotNull(appContext.reactContext)
-      val listeners = Settings.Secure.getString(
-        context.contentResolver,
-        "enabled_notification_listeners"
-      ).orEmpty()
+      val captureSettings = NotificationCaptureSettings(context.applicationContext)
+      val listenerEnabled = captureSettings.listenerAccessGranted()
       val smsGranted = ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.READ_SMS
       ) == PackageManager.PERMISSION_GRANTED
+      val capture = captureSettings.read()
 
       mapOf(
-        "notificationListener" to listeners.contains(context.packageName),
+        "notificationListener" to listenerEnabled,
+        "notificationCapturePaused" to (capture?.paused ?: true),
+        "notificationAllowedPackages" to (capture?.allowedPackages?.sorted() ?: emptyList<String>()),
         "smsRead" to smsGranted,
         "platform" to "android"
       )
@@ -37,6 +38,13 @@ class RelayDeviceIngressModule : Module() {
     AsyncFunction("openNotificationAccessSettings") {
       val activity = requireNotNull(appContext.currentActivity)
       activity.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    }
+
+    AsyncFunction("configureNotificationCapture") { tenantId: String, allowedPackages: List<String>, paused: Boolean ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      val normalized = allowedPackages.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+      require(context.packageName !in normalized) { "relay_package_not_allowed" }
+      NotificationCaptureSettings(context).write(tenantId, normalized, paused)
     }
 
     AsyncFunction("enqueueCapture") { tenantId: String, envelopeId: String, capturedAt: Double, envelopeJson: String ->
@@ -57,6 +65,7 @@ class RelayDeviceIngressModule : Module() {
 
     AsyncFunction("clearCaptureQueue") { tenantId: String ->
       queue.clearTenant(tenantId)
+      NotificationCaptureSettings(requireNotNull(appContext.reactContext).applicationContext).clear(tenantId)
     }
   }
 }
