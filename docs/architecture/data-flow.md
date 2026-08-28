@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-25
+last_verified: 2026-08-28
 ---
 
 # Data Flow
@@ -24,9 +24,46 @@ Cloudflare Queues are at-least-once. Every stage can repeat after timeout or dep
 identity uses provider kind, source account, and external ID. Content fingerprints catch equivalent
 payloads with different delivery IDs. One Durable Object instance per tenant explicitly serializes
 decryption, deduplication, and persistence. Supabase unique constraints remain final durable
-arbitration through `persist_encrypted_source_item`; its atomic boolean result reports insert or
+arbitration through `persist_encrypted_source_item_v2`; its atomic boolean result reports insert or
 idempotent conflict without reflecting database details. Database conflicts do not populate candidate
 Durable Object identity or fingerprint markers.
+
+## Deduplication
+
+Two independent layers guard against Cloudflare Queue's at-least-once redelivery, and either alone is
+sufficient for correctness — the second exists because the first is fast, not because it is required:
+
+- **Durable Object local cache** (`source:<identity>` / `fingerprint:<fingerprint>` keys in
+  `DurableObjectStorage`). This is a fast path only. It is durable across a Durable Object eviction and
+  restart, since `DurableObjectStorage`, unlike in-memory JS state, survives that; but a message that
+  reaches the Supabase RPC and gets a `duplicate` result back deliberately does not populate it (see
+  above), so it cannot be assumed complete after any retried or concurrent delivery.
+- **`source_items` unique constraints** (`(user_id, id)`, `(user_id, source, source_account_id,
+external_id)` with `nulls not distinct`, and `(user_id, content_fingerprint)`), enforced by Postgres
+  through `persist_encrypted_source_item_v2`'s `insert ... on conflict do nothing`. This is final
+  arbitration: even two deliveries that both miss the Durable Object local cache (a genuine race, or a
+  cold cache right after a restart) still converge on exactly one row, because Postgres — not the
+  Durable Object process — serializes the conflicting inserts. This is also what makes a lost HTTP
+  response safe after a commit: the coordinator cannot tell "committed, response lost" apart from
+  "never reached the database," so it always retries as if persistence failed; the retry reaches the
+  same unique constraint and gets `duplicate` back instead of creating a second row.
+
+Content fingerprint canonicalization (source kind, application ID, then normalized sender/subject/body
+joined with the ASCII unit-separator control character `U+001F`, SHA-256 hex-encoded — `contentFingerprint` in
+`packages/domain/src/index.ts`) is algorithm version 1
+(`CONTENT_FINGERPRINT_ALGORITHM_VERSION` in `apps/pipeline/src/dedup.ts`). The persisted column is a
+bare 64-character lowercase hex digest (`content_fingerprint text ... check (content_fingerprint ~
+'^[0-9a-f]{64}$')`-equivalent validation lives in the RPC), so the version cannot be embedded in the
+value itself; the constant is the canonical record of which rule produced it. Changing the
+canonicalization is an algorithm version bump, not a formatting tweak, and needs an explicit migration
+plan for already-persisted fingerprints (recompute-and-compare, or an accepted dedupe gap across the
+boundary) rather than a silent behavior change.
+
+Neither layer ever deletes a `source_items` row on a fingerprint or identity match — a conflict only
+suppresses a _new_ insert. Cross-source content similarity is not a deletion trigger anywhere in this
+codebase; the only automated deletion is the unrelated seven-day raw-payload retention purge
+(`purge_expired_raw_payloads`, see [privacy lifecycle](../security/privacy.md)), which is time-based
+and has no fingerprint or similarity input.
 
 Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
 envelope ID, recovery ID, original acceptance time, and original expiry, never raw source bodies.
