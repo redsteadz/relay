@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-08-24
+last_verified: 2026-08-28
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://support.google.com/googleplay/android-developer/answer/10208820
@@ -16,6 +16,16 @@ sideload APK and Continuous Native Generation.
 access. Capture must support app allowlists, field minimization, encrypted offline queue, server
 acknowledgement, and explicit revocation. Source cancellation is irreversible from Relay's point of
 view and follows the stronger gates in [action model](../architecture/action-model.md).
+
+The native capture queue stores only AES-256-GCM ciphertext in SQLite. Its per-tenant key is
+non-exportable Android Keystore material, and tenant/envelope identity is authenticated as associated
+data. Capture adapters assign the envelope UUID once before enqueueing. The queue retains that UUID
+across process restarts and retries, expires items seven days after capture, and enters an explicit
+failed state for terminal responses or exhausted retries. It is bounded to 500 items and 2 MiB per
+tenant. A device item is deleted only when `/api/ingest` returns `202` with a validated
+`{ accepted: true, durable: true, id }` acknowledgement for the same envelope. Sign-out and device
+revocation delete the Keystore key before deleting tenant rows, so an interrupted clear cannot leave
+decryptable source data.
 
 `READ_SMS` and `RECEIVE_SMS` are sensitive Google Play permissions. Google documents possible
 exceptions for device automation and SMS-based money management, subject to review. MVP therefore
