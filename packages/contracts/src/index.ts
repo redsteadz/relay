@@ -245,6 +245,25 @@ export const actionIntentSchema = z.object({
 });
 export type ActionIntent = z.infer<typeof actionIntentSchema>;
 
+export const openAiApiKeySchema = z
+  .string()
+  .min(20)
+  .max(256)
+  .regex(/^\S+$/, "Key must not contain whitespace");
+
+export const openAiCredentialSubmitRequestSchema = z
+  .object({ apiKey: openAiApiKeySchema })
+  .strict();
+
+export const openAiCredentialStatusSchema = z
+  .object({
+    provider: z.literal("openai"),
+    configured: z.boolean(),
+    lastValidatedAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .strict();
+export type OpenAiCredentialStatus = z.infer<typeof openAiCredentialStatusSchema>;
+
 export const apiErrorSchema = z.object({
   error: z.object({
     code: z.string(),
