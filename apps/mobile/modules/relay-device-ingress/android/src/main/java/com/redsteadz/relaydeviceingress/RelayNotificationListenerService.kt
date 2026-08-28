@@ -5,7 +5,18 @@ import android.service.notification.StatusBarNotification
 
 class RelayNotificationListenerService : NotificationListenerService() {
   override fun onNotificationPosted(notification: StatusBarNotification) {
-    // Capture and upload are intentionally deferred until consent, local encryption,
-    // offline retry, and explicit dismissal safeguards are implemented together.
+    synchronized(NotificationCaptureStateLock) {
+      val settings = NotificationCaptureSettings(applicationContext)
+      if (!settings.listenerAccessGranted()) return
+      val configuration = settings.read() ?: return
+      if (configuration.paused) return
+      if (notification.packageName == packageName) return
+      if (notification.packageName !in configuration.allowedPackages) return
+
+      val capture = NotificationEnvelopeFactory.create(notification, System.currentTimeMillis())
+      CaptureQueueStore(applicationContext).use { queue ->
+        queue.enqueue(configuration.tenantId, capture.envelopeId, capture.capturedAt, capture.json)
+      }
+    }
   }
 }
