@@ -56,6 +56,15 @@ export const deviceIngressRequestSchema = z
   .object({ deviceId: deviceIdSchema, envelope: ingressEnvelopeSchema })
   .strict();
 
+export const deviceIngressAcknowledgementSchema = z
+  .object({
+    accepted: z.literal(true),
+    durable: z.literal(true),
+    id: z.uuid(),
+  })
+  .strict();
+export type DeviceIngressAcknowledgement = z.infer<typeof deviceIngressAcknowledgementSchema>;
+
 const postgresIntegerSchema = z.int().min(1).max(2_147_483_647);
 
 function decodedBase64ByteLength(value: string): number {
