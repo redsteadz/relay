@@ -9,6 +9,7 @@ import smsFixture from "./fixtures/sms.json" with { type: "json" };
 import {
   contentFingerprint,
   evaluateFilter,
+  normalizeCategoryName,
   normalizeSourceFacts,
   sourceFactSetFingerprint,
   sourceIdentity,
@@ -216,5 +217,22 @@ describe("normalizeSourceFacts", () => {
         provenance: [{ field: "attributes.amount" }],
       }),
     );
+  });
+});
+
+describe("normalizeCategoryName", () => {
+  // These expectations are duplicated verbatim by `categories.test.sql`, which asserts the same
+  // rule against the `normalized_name` generated column. If one side changes, the other must too.
+  it.each([
+    ["  Wörk   Notes ", "wörk notes"],
+    ["WÖRK NOTES", "wörk notes"],
+    ["A   B", "a b"],
+    ["Ｆｕｌｌｗｉｄｔｈ", "fullwidth"],
+  ])("normalizes %j to %j", (input, expected) => {
+    expect(normalizeCategoryName(input)).toBe(expected);
+  });
+
+  it("collapses names that differ only by case and whitespace onto one key", () => {
+    expect(normalizeCategoryName("  Work   Notes ")).toBe(normalizeCategoryName("WORK NOTES"));
   });
 });

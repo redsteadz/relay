@@ -224,35 +224,44 @@ export type Database = {
       };
       categories: {
         Row: {
+          archived_at: string | null;
           created_at: string;
           description: string | null;
           id: string;
           is_system: boolean;
           name: string;
+          normalized_name: string | null;
           quiet_by_default: boolean;
           slug: string;
+          sort_order: number;
           updated_at: string;
           user_id: string;
         };
         Insert: {
+          archived_at?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
           is_system?: boolean;
           name: string;
+          normalized_name?: string | null;
           quiet_by_default?: boolean;
           slug: string;
+          sort_order?: number;
           updated_at?: string;
           user_id: string;
         };
         Update: {
+          archived_at?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
           is_system?: boolean;
           name?: string;
+          normalized_name?: string | null;
           quiet_by_default?: boolean;
           slug?: string;
+          sort_order?: number;
           updated_at?: string;
           user_id?: string;
         };
