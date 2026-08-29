@@ -44,6 +44,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0005: Versioned wrapping keys](../decisions/0005-versioned-wrapping-keys.md)
 - [ADR-0006: Shared Supabase hackathon backend](../decisions/0006-shared-supabase-hackathon-backend.md)
 - [ADR-0007: Shared hosted runtime](../decisions/0007-shared-hosted-runtime.md)
+- [ADR-0008: Mobile styling and components](../decisions/0008-mobile-styling-and-components.md)
 
 ## Delivery
 

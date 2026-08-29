@@ -15,7 +15,13 @@ class RelayNotificationListenerService : NotificationListenerService() {
 
       val capture = NotificationEnvelopeFactory.create(notification, System.currentTimeMillis())
       CaptureQueueStore(applicationContext).use { queue ->
-        queue.enqueue(configuration.tenantId, capture.envelopeId, capture.capturedAt, capture.json)
+        queue.enqueue(
+          configuration.tenantId,
+          capture.envelopeId,
+          "notification",
+          capture.capturedAt,
+          capture.json
+        )
       }
     }
   }

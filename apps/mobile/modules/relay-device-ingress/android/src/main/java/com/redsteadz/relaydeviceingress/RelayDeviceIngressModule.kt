@@ -1,11 +1,8 @@
 package com.redsteadz.relaydeviceingress
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.provider.Settings
 import android.view.WindowManager
-import androidx.core.content.ContextCompat
 import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -65,17 +62,23 @@ class RelayDeviceIngressModule : Module() {
       val context = requireNotNull(appContext.reactContext)
       val captureSettings = NotificationCaptureSettings(context.applicationContext)
       val listenerEnabled = captureSettings.listenerAccessGranted()
-      val smsGranted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.READ_SMS
-      ) == PackageManager.PERMISSION_GRANTED
       val capture = captureSettings.read()
+      val smsSettings = SmsCaptureSettings(context.applicationContext)
+      val smsAvailable = SmsPermissions.areDeclared(context)
+      val smsGranted = smsAvailable && SmsPermissions.areGranted(context)
+      if (!smsGranted) smsSettings.pauseForPermissionLoss()
+      val smsCapture = smsSettings.read()
+      val smsQueuedCount = smsCapture?.let { queue.count(it.tenantId, "sms") } ?: 0
 
       mapOf(
         "notificationListener" to listenerEnabled,
         "notificationCapturePaused" to (capture?.paused ?: true),
         "notificationAllowedPackages" to (capture?.allowedPackages?.sorted() ?: emptyList<String>()),
-        "smsRead" to smsGranted,
+        "smsAvailable" to smsAvailable,
+        "smsPermissionGranted" to smsGranted,
+        "smsCapturePaused" to (smsCapture?.paused ?: true),
+        "smsAllowedSenders" to (smsCapture?.allowedSenders?.sorted() ?: emptyList<String>()),
+        "smsQueuedCount" to smsQueuedCount,
         "platform" to "android"
       )
     }
@@ -134,35 +137,64 @@ class RelayDeviceIngressModule : Module() {
           return@synchronized
         }
         NotificationCaptureStateLock.latestPreparationGeneration = preparationGeneration
-        val settings = NotificationCaptureSettings(
-          requireNotNull(appContext.reactContext).applicationContext
-        )
+        val context = requireNotNull(appContext.reactContext).applicationContext
+        val notificationSettings = NotificationCaptureSettings(context)
+        val smsSettings = SmsCaptureSettings(context)
+        val staleTenantIds = linkedSetOf<String>()
+        cleanupTenantId?.let(staleTenantIds::add)
+        notificationSettings.read()?.tenantId?.takeIf { it != tenantId }?.let(staleTenantIds::add)
+        smsSettings.read()?.tenantId?.takeIf { it != tenantId }?.let(staleTenantIds::add)
 
-        if (cleanupTenantId != null) {
-          queue.clearTenant(cleanupTenantId)
-          settings.clear(cleanupTenantId)
-        }
-        val currentTenantId = settings.read()?.tenantId
-        if (currentTenantId != null && currentTenantId != tenantId) {
-          queue.clearTenant(currentTenantId)
-          settings.clear(currentTenantId)
+        staleTenantIds.forEach { staleTenantId ->
+          queue.clearTenant(staleTenantId)
+          notificationSettings.clear(staleTenantId)
+          smsSettings.clear(staleTenantId)
         }
         NotificationCaptureStateLock.preparedTenantId = tenantId
       }
     }
 
-    AsyncFunction("enqueueCapture") {
-      tenantId: String, envelopeId: String, capturedAt: Double, envelopeJson: String, generation: Double ->
+    AsyncFunction("configureSmsCapture") {
+      tenantId: String, allowedSenders: List<String>, paused: Boolean, generation: Double ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      require(SmsPermissions.areDeclared(context)) { "sms_not_available" }
       synchronized(NotificationCaptureStateLock) {
         requirePreparedCaptureTenant(tenantId, generation)
-        queue.enqueue(tenantId, envelopeId, capturedAt.toLong(), envelopeJson)
+        SmsCaptureSettings(context).write(tenantId, allowedSenders.toSet(), paused)
+      }
+    }
+
+    AsyncFunction("syncSmsInbox") { tenantId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        SmsInboxSynchronizer.sync(
+          requireNotNull(appContext.reactContext).applicationContext,
+          tenantId
+        )
+      }
+    }
+
+    AsyncFunction("deleteQueuedSms") { tenantId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.deleteBySource(tenantId, "sms")
+      }
+    }
+
+    AsyncFunction("enqueueCapture") {
+      tenantId: String, envelopeId: String, sourceKind: String, capturedAt: Double,
+        envelopeJson: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.enqueue(tenantId, envelopeId, sourceKind, capturedAt.toLong(), envelopeJson)
       }
     }
 
     AsyncFunction("getReadyCaptures") { tenantId: String, now: Double, generation: Double ->
       synchronized(NotificationCaptureStateLock) {
         requirePreparedCaptureTenant(tenantId, generation)
-        queue.ready(tenantId, now.toLong())
+        val context = requireNotNull(appContext.reactContext).applicationContext
+        queue.ready(tenantId, now.toLong(), SmsPermissions.areDeclared(context))
       }
     }
 
@@ -170,7 +202,7 @@ class RelayDeviceIngressModule : Module() {
       tenantId: String, now: Double, generation: Double ->
       synchronized(NotificationCaptureStateLock) {
         requirePreparedCaptureTenant(tenantId, generation)
-        queue.ready(tenantId, now.toLong()).mapNotNull(::notificationCapturePreview)
+        queue.ready(tenantId, now.toLong(), false).mapNotNull(::notificationCapturePreview)
       }
     }
 
@@ -198,7 +230,9 @@ class RelayDeviceIngressModule : Module() {
       synchronized(NotificationCaptureStateLock) {
         requirePreparedCaptureTenant(tenantId, generation)
         queue.clearTenant(tenantId)
-        NotificationCaptureSettings(requireNotNull(appContext.reactContext).applicationContext).clear(tenantId)
+        val context = requireNotNull(appContext.reactContext).applicationContext
+        NotificationCaptureSettings(context).clear(tenantId)
+        SmsCaptureSettings(context).clear(tenantId)
         if (NotificationCaptureStateLock.preparedTenantId == tenantId) {
           NotificationCaptureStateLock.preparedTenantId = null
         }

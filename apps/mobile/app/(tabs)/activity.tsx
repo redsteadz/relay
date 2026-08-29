@@ -1,7 +1,6 @@
-import { StyleSheet, Text } from "react-native";
-
-import { Page, palette } from "@/components/Page";
+import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { AppText } from "@/components/ui";
 
 export default function ActivityScreen() {
   return (
@@ -11,22 +10,20 @@ export default function ActivityScreen() {
       detail="Provenance, approvals, retries, and disclosures share one immutable timeline."
     >
       <Panel title="Action proposed" meta="12:41">
-        <Text style={styles.copy}>
+        <AppText tone="muted">
           Google Tasks · Create “Review North Station charge” · approval required
-        </Text>
+        </AppText>
       </Panel>
       <Panel title="Semantic fallback" meta="12:41">
-        <Text style={styles.copy}>
+        <AppText tone="muted">
           Sent redacted merchant, amount, and subject fields. Body excluded.
-        </Text>
+        </AppText>
       </Panel>
       <Panel title="Source accepted" meta="12:41">
-        <Text style={styles.copy}>
+        <AppText tone="muted">
           Notification identity was new; encrypted raw copy expires in seven days.
-        </Text>
+        </AppText>
       </Panel>
     </Page>
   );
 }
-
-const styles = StyleSheet.create({ copy: { color: palette.muted, fontSize: 14, lineHeight: 21 } });

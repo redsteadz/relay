@@ -34,6 +34,41 @@ exceptions for device automation and SMS-based money management, subject to revi
 uses sideload distribution and prominent consent. Non-SMS builds remain an architectural
 requirement for later Play distribution.
 
+## Sideload SMS Capture
+
+SMS capture is capability-driven and inbox-only. The Sources screen reports the build variant,
+whether the APK actually declares both SMS permissions, whether Android currently grants both, the
+capture pause state, exact sender allowlist, and encrypted SMS queue count. Relay shows a persistent
+disclosure before its consent checkbox and permission action. It configures capture as paused before
+opening Android's runtime prompt, and enables it only if both permissions are granted.
+
+Relay queries only `Telephony.Sms.Inbox.CONTENT_URI` and allowlists the `_ID`, `ADDRESS`, `BODY`, and
+`DATE` columns. It does not query contacts, sent messages, or the general SMS collection. Phone-like
+senders are compared after removing visual separators; alphanumeric sender IDs are compared
+case-insensitively. At least one exact sender is required. The first consented sync considers matching
+inbox rows until the encrypted queue's existing 500-item/2-MiB bound is reached. Later syncs use the
+highest observed provider `_ID` as a cursor.
+
+Provider `_ID` is the source `externalId`. The envelope UUID is deterministic over `sms`, a random
+installation-local source account UUID, and that provider ID. This prevents retries or a broadcast
+follow-up from changing identity and prevents equal row numbers on two phones from colliding. The
+`SMS_RECEIVED` receiver never treats broadcast PDU content as a durable record; it schedules a short
+provider follow-up, which creates envelopes only after the message has a provider ID. Foreground and
+app-resume sync uses the same reader and identity path.
+
+Every provider query and cursor iteration rechecks both permissions. A missing or revoked permission
+persistently pauses capture before returning, so restoring permission does not silently resume reads.
+The receiver and scheduled job also exit before access when capture is paused, configuration is
+absent, or permission is missing. Users can pause before new reads and can delete only queued SMS;
+notification queue rows and the shared Keystore key remain intact.
+
+The reusable local module manifest contains no SMS permission, receiver, or job-service declaration.
+`app.config.ts` is the sole flavor boundary: the `sideload` variant adds `READ_SMS`, `RECEIVE_SMS`,
+the protected SMS receiver, and its non-exported job service; `development` blocks both permissions
+and adds neither component. A later Play-safe profile must extend the permission-free branch rather
+than modifying the module manifest. The checked-in build gate verifies both public configs and fails
+if SMS permissions return to the reusable manifest.
+
 iOS does not expose equivalent arbitrary notification or SMS ingestion. iOS scope is Gmail and
 Relay's own inbox.
 
@@ -118,4 +153,7 @@ and tester owner in issue #10; never record credentials or source content.
 Sources: [EAS profiles](https://docs.expo.dev/build/eas-json/),
 [APK builds](https://docs.expo.dev/build-reference/apk/),
 [monorepo builds](https://docs.expo.dev/build-reference/build-with-monorepos/), and
-[build lifecycle hooks](https://docs.expo.dev/build-reference/npm-hooks/).
+[build lifecycle hooks](https://docs.expo.dev/build-reference/npm-hooks/). SMS implementation follows
+Android's [`Telephony.Sms` provider contract](https://developer.android.com/reference/android/provider/Telephony.Sms),
+[`SMS_RECEIVED_ACTION` contract](https://developer.android.com/reference/android/provider/Telephony.Sms.Intents#SMS_RECEIVED_ACTION),
+and [runtime permission workflow](https://developer.android.com/training/permissions/requesting).

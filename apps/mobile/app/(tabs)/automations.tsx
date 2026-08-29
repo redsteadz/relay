@@ -1,7 +1,9 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
-import { Page, palette } from "@/components/Page";
+import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { AppText } from "@/components/ui";
+import { useRelayTheme } from "@/theme";
 
 const rules = [
   ["Transit purchases", "Bank sources · semantic fallback allowed", "APPROVAL"],
@@ -10,6 +12,7 @@ const rules = [
 ];
 
 export default function AutomationsScreen() {
+  const theme = useRelayTheme();
   return (
     <Page
       eyebrow="Versioned filters"
@@ -19,8 +22,10 @@ export default function AutomationsScreen() {
       {rules.map(([title, description, mode]) => (
         <Panel key={title} title={title ?? "Rule"} meta={mode}>
           <View style={styles.row}>
-            <View style={styles.indicator} />
-            <Text style={styles.description}>{description}</Text>
+            <View style={[styles.indicator, { backgroundColor: theme.relay.colors.accent }]} />
+            <AppText style={styles.description} tone="muted">
+              {description}
+            </AppText>
           </View>
         </Panel>
       ))}
@@ -29,7 +34,7 @@ export default function AutomationsScreen() {
 }
 
 const styles = StyleSheet.create({
+  description: { flex: 1 },
+  indicator: { borderRadius: 4, height: 8, width: 8 },
   row: { alignItems: "center", flexDirection: "row", gap: 10 },
-  indicator: { backgroundColor: palette.accent, borderRadius: 4, height: 8, width: 8 },
-  description: { color: palette.muted, flex: 1, fontSize: 14 },
 });

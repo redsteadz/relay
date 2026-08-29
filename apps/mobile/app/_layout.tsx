@@ -4,17 +4,18 @@ import Constants from "expo-constants";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
-import { AppState, Platform, StyleSheet, Text, View } from "react-native";
+import { AppState, Platform, StyleSheet, View } from "react-native";
 
-import { palette } from "@/components/Page";
+import { AppText, LoadingState } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import {
   canEnterApp,
   localDevelopmentAccessEnabled,
   notificationCaptureMode,
 } from "@/lib/development-access";
-import { syncNotificationCaptures } from "@/lib/notification-capture-sync";
+import { syncDeviceCaptures } from "@/lib/device-capture-sync";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
+import { RelayThemeProvider, useRelayTheme } from "@/theme";
 
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
@@ -54,15 +55,18 @@ function AuthenticatedStack() {
   }, [captureMode.cleanupTenantId, captureMode.stateKey, captureMode.tenantId, initialized]);
 
   if (!initialized || preparedStateKey !== captureMode.stateKey) {
+    if (!preparationFailed) {
+      return (
+        <LoadingState
+          label={initialized ? "Preparing secure device capture..." : "Restoring secure session..."}
+        />
+      );
+    }
     return (
       <View style={styles.loading}>
-        <Text style={preparationFailed ? styles.loadingError : styles.loadingText}>
-          {preparationFailed
-            ? "Could not prepare secure notification capture. Restart Relay to retry."
-            : initialized
-              ? "Preparing secure notification capture..."
-              : "Restoring secure session..."}
-        </Text>
+        <AppText style={styles.loadingError} tone="danger">
+          Could not prepare secure device capture. Restart Relay to retry.
+        </AppText>
       </View>
     );
   }
@@ -71,7 +75,7 @@ function AuthenticatedStack() {
 
   return (
     <>
-      <NotificationCaptureSync />
+      <DeviceCaptureSync />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Protected guard={appAccessAllowed}>
           <Stack.Screen name="(tabs)" />
@@ -87,12 +91,12 @@ function AuthenticatedStack() {
   );
 }
 
-function NotificationCaptureSync() {
+function DeviceCaptureSync() {
   const { session } = useAuth();
 
   useEffect(() => {
     if (session === null) return;
-    const sync = () => void syncNotificationCaptures(session).catch(() => undefined);
+    const sync = () => void syncDeviceCaptures(session).catch(() => undefined);
     sync();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") sync();
@@ -103,22 +107,30 @@ function NotificationCaptureSync() {
   return null;
 }
 
-export default function RootLayout() {
+function ThemedRoot() {
+  const theme = useRelayTheme();
   return (
     <AuthProvider>
-      <StatusBar style="light" />
+      <StatusBar style={theme.dark ? "light" : "dark"} />
       <AuthenticatedStack />
     </AuthProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <RelayThemeProvider>
+      <ThemedRoot />
+    </RelayThemeProvider>
   );
 }
 
 const styles = StyleSheet.create({
   loading: {
     alignItems: "center",
-    backgroundColor: palette.background,
     flex: 1,
     justifyContent: "center",
+    padding: 24,
   },
-  loadingError: { color: palette.amber, fontSize: 14, maxWidth: 320, textAlign: "center" },
-  loadingText: { color: palette.muted, fontSize: 14 },
+  loadingError: { maxWidth: 320, textAlign: "center" },
 });

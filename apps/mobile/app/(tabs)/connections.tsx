@@ -1,10 +1,12 @@
 import Constants from "expo-constants";
 import { useCallback, useEffect, useState } from "react";
-import { AppState, Platform, StyleSheet, Text } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { NotificationCapturePanel } from "@/components/NotificationCapturePanel";
-import { Page, palette } from "@/components/Page";
+import { SmsCapturePanel } from "@/components/SmsCapturePanel";
+import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { AppText } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { localDevelopmentAccessEnabled, notificationCaptureMode } from "@/lib/development-access";
 import RelayDeviceIngress, { type DeviceCapabilities } from "@/modules/relay-device-ingress";
@@ -67,10 +69,10 @@ export default function ConnectionsScreen() {
       detail="Every source is independently authorized, minimized, and revocable."
     >
       <Panel title="Gmail" meta="NOT CONNECTED">
-        <Text style={styles.copy}>
+        <AppText tone="muted">
           Restricted-scope testing flow. Google Pub/Sub delivers mailbox cursors, not message
           bodies.
-        </Text>
+        </AppText>
       </Panel>
       <NotificationCapturePanel
         capabilities={capabilities}
@@ -85,15 +87,17 @@ export default function ConnectionsScreen() {
         }}
         tenantId={captureMode.tenantId}
       />
-      <Panel title="SMS" meta={capabilities?.smsRead ? "PERMITTED" : "SIDELOAD ONLY"}>
-        <Text style={styles.copy}>
-          Sensitive permission path is isolated to internal APK distribution for initial testing.
-        </Text>
-      </Panel>
+      <SmsCapturePanel
+        capabilities={capabilities}
+        onChanged={async () => {
+          const nextCapabilities = await loadCapabilities();
+          setScopedCapabilities({
+            capabilities: nextCapabilities,
+            stateKey: captureMode.stateKey,
+          });
+        }}
+        tenantId={session?.user.id}
+      />
     </Page>
   );
 }
-
-const styles = StyleSheet.create({
-  copy: { color: palette.muted, fontSize: 14, lineHeight: 21 },
-});

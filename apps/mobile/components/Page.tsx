@@ -1,5 +1,11 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { useRelayTheme } from "@/theme";
+
+import { getPageLayout } from "./page-layout";
+import { AppText } from "./ui";
 
 type PageProps = PropsWithChildren<{
   eyebrow: string;
@@ -9,14 +15,43 @@ type PageProps = PropsWithChildren<{
 }>;
 
 export function Page({ action, children, detail, eyebrow, title }: PageProps) {
+  const theme = useRelayTheme();
+  const { width } = useWindowDimensions();
+  const layout = getPageLayout(width);
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <View style={styles.copy}>
-            <Text style={styles.eyebrow}>{eyebrow}</Text>
-            <Text style={styles.title}>{title}</Text>
-            <Text style={styles.detail}>{detail}</Text>
+    <SafeAreaView
+      edges={["top", "left", "right"]}
+      style={[styles.safeArea, { backgroundColor: theme.relay.colors.background }]}
+    >
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          {
+            gap: theme.relay.spacing.xl,
+            padding: layout.pagePadding,
+            paddingBottom: theme.relay.spacing.pageBottom,
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View
+          style={[
+            styles.header,
+            {
+              flexDirection: layout.headerDirection,
+              gap: theme.relay.spacing.lg,
+            },
+          ]}
+        >
+          <View style={[styles.copy, { gap: theme.relay.spacing.sm }]}>
+            <AppText tone="accent" variant="eyebrow">
+              {eyebrow.toUpperCase()}
+            </AppText>
+            <AppText variant="hero">{title}</AppText>
+            <AppText style={styles.detail} tone="muted">
+              {detail}
+            </AppText>
           </View>
           {action}
         </View>
@@ -26,34 +61,13 @@ export function Page({ action, children, detail, eyebrow, title }: PageProps) {
   );
 }
 
-export const palette = {
-  background: "#111713",
-  panel: "#18201b",
-  panelStrong: "#202b24",
-  border: "#304037",
-  text: "#edf5ef",
-  muted: "#93a198",
-  accent: "#b9f6cf",
-  amber: "#ffd08a",
-};
-
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: palette.background, flex: 1 },
-  content: { gap: 18, padding: 20, paddingBottom: 48 },
+  safeArea: { flex: 1 },
+  content: { width: "100%" },
   header: {
     alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 16,
     justifyContent: "space-between",
   },
-  copy: { flex: 1, gap: 7 },
-  eyebrow: {
-    color: palette.accent,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-  },
-  title: { color: palette.text, fontSize: 34, fontWeight: "700", letterSpacing: -1.3 },
-  detail: { color: palette.muted, fontSize: 15, lineHeight: 22, maxWidth: 560 },
+  copy: { flexShrink: 1 },
+  detail: { maxWidth: 560 },
 });

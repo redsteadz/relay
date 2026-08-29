@@ -1,10 +1,11 @@
 import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import { useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 
-import { Page, palette } from "@/components/Page";
+import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { AppButton, AppText } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import {
   localDevelopmentAccessEnabled,
@@ -13,10 +14,13 @@ import {
 import { demoIngress, sendDemoIngress } from "@/lib/demo";
 import { registerInstallation } from "@/lib/device";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
+import { useRelayTheme } from "@/theme";
 
 export default function InboxScreen() {
   const { session } = useAuth();
+  const theme = useRelayTheme();
   const [status, setStatus] = useState("Ready for local simulation");
+  const [sending, setSending] = useState(false);
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
@@ -28,6 +32,7 @@ export default function InboxScreen() {
   );
 
   async function simulate() {
+    setSending(true);
     setStatus("Sending...");
     try {
       if (session === null) {
@@ -49,6 +54,8 @@ export default function InboxScreen() {
       setStatus(result.accepted ? `Queued ${result.id.slice(0, 8)}` : "Not accepted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unknown ingestion error");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -59,57 +66,61 @@ export default function InboxScreen() {
       detail="Important facts remain visible. Everything else stays searchable without demanding attention."
       action={
         <View style={styles.score}>
-          <Text style={styles.scoreValue}>3</Text>
-          <Text style={styles.scoreLabel}>ACTIONABLE</Text>
+          <AppText tone="accent" variant="hero">
+            3
+          </AppText>
+          <AppText tone="muted" variant="eyebrow">
+            ACTIONABLE
+          </AppText>
         </View>
       }
     >
       <Panel title="Card purchase approved" meta="NOW · TRANSACTION">
-        <Text style={styles.primary}>$14.20 at North Station</Text>
-        <Text style={styles.secondary}>
+        <AppText variant="heading">$14.20 at North Station</AppText>
+        <AppText tone="muted">
           Possible transit expense · awaiting Google Tasks action approval
-        </Text>
+        </AppText>
         <View style={styles.tags}>
-          <Text style={styles.tag}>Example Bank</Text>
-          <Text style={styles.tag}>92% confidence</Text>
+          {["Example Bank", "92% confidence"].map((tag) => (
+            <AppText
+              key={tag}
+              style={[
+                styles.tag,
+                {
+                  backgroundColor: theme.relay.colors.surfaceRaised,
+                  borderRadius: theme.relay.radii.pill,
+                  paddingHorizontal: theme.relay.spacing.md,
+                  paddingVertical: theme.relay.spacing.sm,
+                },
+              ]}
+              tone="accent"
+              variant="caption"
+            >
+              {tag}
+            </AppText>
+          ))}
         </View>
       </Panel>
 
       <Panel title="Local walking skeleton" meta="DEVELOPMENT">
-        <Text style={styles.secondary}>{status}</Text>
-        <Pressable accessibilityRole="button" onPress={() => void simulate()} style={styles.button}>
-          <Text style={styles.buttonText}>Send simulated notification</Text>
-        </Pressable>
+        <AppText tone="muted">{status}</AppText>
+        <AppButton
+          label="Send simulated notification"
+          loading={sending}
+          onPress={() => void simulate()}
+        />
       </Panel>
 
-      <Text style={styles.quiet}>18 low-value notifications filed quietly today</Text>
+      <AppText style={styles.quiet} tone="muted" variant="caption">
+        18 low-value notifications filed quietly today
+      </AppText>
     </Page>
   );
 }
 
 const styles = StyleSheet.create({
+  quiet: { textAlign: "center" },
   score: { alignItems: "flex-end", paddingTop: 5 },
-  scoreValue: { color: palette.accent, fontSize: 31, fontWeight: "800" },
-  scoreLabel: { color: palette.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.2 },
-  primary: { color: palette.text, fontSize: 21, fontWeight: "700" },
-  secondary: { color: palette.muted, fontSize: 14, lineHeight: 21 },
+  tag: { overflow: "hidden" },
   tags: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  tag: {
-    backgroundColor: palette.panelStrong,
-    borderRadius: 999,
-    color: palette.accent,
-    fontSize: 12,
-    overflow: "hidden",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  button: {
-    alignSelf: "flex-start",
-    backgroundColor: palette.accent,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  buttonText: { color: palette.background, fontSize: 13, fontWeight: "800" },
-  quiet: { color: palette.muted, fontSize: 13, textAlign: "center" },
 });

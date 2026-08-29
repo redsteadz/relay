@@ -1,9 +1,10 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput } from "react-native";
+import { StyleSheet } from "react-native";
 
-import { Page, palette } from "@/components/Page";
+import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
+import { AppButton, AppText, AppTextInput, StatusMessage } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 
 export default function SignInScreen() {
@@ -11,6 +12,7 @@ export default function SignInScreen() {
   const { configurationError, requestMagicLink } = useAuth();
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
+  const [statusTone, setStatusTone] = useState<"error" | "success">("error");
   const [status, setStatus] = useState(
     reason === "invalid-link"
       ? "This sign-in link is invalid or expired. Request a new link."
@@ -22,6 +24,7 @@ export default function SignInScreen() {
   async function submit() {
     const candidate = email.trim();
     if (!candidate.includes("@")) {
+      setStatusTone("error");
       setStatus("Enter a valid email address.");
       return;
     }
@@ -29,8 +32,10 @@ export default function SignInScreen() {
     setStatus("");
     try {
       await requestMagicLink(candidate);
+      setStatusTone("success");
       setStatus("Check your email. The link returns only to Relay.");
     } catch {
+      setStatusTone("error");
       setStatus("Could not request a sign-in link.");
     } finally {
       setPending(false);
@@ -44,7 +49,7 @@ export default function SignInScreen() {
       detail="Use an approved Relay account. Relay stores the refreshable session in device-secure storage."
     >
       <Panel title="Email magic link" meta="NO PASSWORD">
-        <TextInput
+        <AppTextInput
           accessibilityLabel="Email address"
           autoCapitalize="none"
           autoComplete="email"
@@ -54,52 +59,25 @@ export default function SignInScreen() {
           onChangeText={setEmail}
           onSubmitEditing={() => void submit()}
           placeholder="tester@example.com"
-          placeholderTextColor={palette.muted}
-          style={styles.input}
+          label="Email address"
           textContentType="emailAddress"
           value={email}
         />
-        <Pressable
-          accessibilityRole="button"
+        <AppButton
           disabled={pending || configurationError}
+          label={pending ? "Requesting..." : "Send sign-in link"}
+          loading={pending}
           onPress={() => void submit()}
-          style={({ pressed }) => [
-            styles.button,
-            (pending || configurationError) && styles.buttonDisabled,
-            pressed && styles.buttonPressed,
-          ]}
-        >
-          <Text style={styles.buttonText}>{pending ? "Requesting..." : "Send sign-in link"}</Text>
-        </Pressable>
-        {status.length === 0 ? null : <Text style={styles.status}>{status}</Text>}
+        />
+        {status.length === 0 ? null : <StatusMessage tone={statusTone}>{status}</StatusMessage>}
       </Panel>
-      <Text style={styles.note}>Account enrollment remains operator controlled.</Text>
+      <AppText style={styles.note} tone="muted" variant="caption">
+        Account enrollment remains operator controlled.
+      </AppText>
     </Page>
   );
 }
 
 const styles = StyleSheet.create({
-  button: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: palette.accent,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  buttonDisabled: { opacity: 0.45 },
-  buttonPressed: { opacity: 0.75 },
-  buttonText: { color: palette.background, fontSize: 14, fontWeight: "800" },
-  input: {
-    backgroundColor: palette.panelStrong,
-    borderColor: palette.border,
-    borderRadius: 10,
-    borderWidth: 1,
-    color: palette.text,
-    fontSize: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  note: { color: palette.muted, fontSize: 12, lineHeight: 18, textAlign: "center" },
-  status: { color: palette.amber, fontSize: 13, lineHeight: 19 },
+  note: { textAlign: "center" },
 });
