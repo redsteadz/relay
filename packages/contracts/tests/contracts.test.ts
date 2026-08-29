@@ -1,15 +1,37 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  amountFactSchema,
+  canonicalFactInstantSchema,
+  canonicalUuidSchema,
+  categoryCreateRequestSchema,
+  categoryCustomSlugSchema,
+  categoryNameSchema,
+  categorySchema,
+  categoryUpdateRequestSchema,
+  deadLetterFailureCodeSchema,
   deviceIngressRequestSchema,
   deviceRegistrationRequestSchema,
   encryptedIngressPayloadSchema,
+  exactDecimalStringSchema,
   filterPlanSchema,
   ingressEnvelopeSchema,
   ingressQueueMessageSchema,
   openAiCredentialStatusSchema,
   openAiCredentialSubmitRequestSchema,
+  normalizationDateCandidateSchema,
+  sourceFactSchema,
+  sourceFactSetSchema,
+  uncertainFactSchema,
 } from "../src/index.js";
+
+describe("canonicalUuidSchema", () => {
+  it("parses uppercase UUID input to lowercase string output", () => {
+    expect(canonicalUuidSchema.parse("5E106D7A-85AA-4A08-9A1F-CB13B42DF1F8")).toBe(
+      "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+    );
+  });
+});
 
 describe("device contracts", () => {
   it("accepts only client-owned registration fields", () => {
@@ -97,7 +119,19 @@ describe("ingressQueueMessageSchema", () => {
   };
 
   it("accepts bounded encrypted queue metadata", () => {
-    expect(ingressQueueMessageSchema.safeParse(message).success).toBe(true);
+    expect(ingressQueueMessageSchema.parse(message)).toEqual(message);
+  });
+
+  it("validates Queue UUIDs without changing authenticated wire casing", () => {
+    const uppercaseMessage = {
+      ...message,
+      userId: message.userId.toUpperCase(),
+      envelopeId: message.envelopeId.toUpperCase(),
+      recoveryId: message.recoveryId.toUpperCase(),
+      replayRequestId: "06F96F7D-3E1A-4A66-B98E-58BE9766B96E",
+    };
+
+    expect(ingressQueueMessageSchema.parse(uppercaseMessage)).toEqual(uppercaseMessage);
   });
 
   it.each(["body", "sender", "envelope"])("rejects plaintext field %s", (field) => {
@@ -143,6 +177,178 @@ describe("ingressQueueMessageSchema", () => {
       ingressQueueMessageSchema.safeParse({
         ...message,
         rawExpiresAt: "2026-09-01T10:00:00Z",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("source fact contracts", () => {
+  const identity = {
+    sourceItemId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+    normalizerVersion: 1,
+    ordinal: 0,
+    provenance: [{ field: "attributes.amount" }],
+  };
+
+  it("preserves a large decimal string without numeric coercion", () => {
+    const decimal = "123456789012345678901234567890.001200";
+    const parsed = amountFactSchema.parse({
+      ...identity,
+      kind: "amount",
+      certainty: "certain",
+      value: decimal,
+    });
+
+    expect(parsed.value).toBe(decimal);
+    expect(exactDecimalStringSchema.safeParse("1e3").success).toBe(false);
+    expect(exactDecimalStringSchema.safeParse(12.5).success).toBe(false);
+  });
+
+  it("represents invalid extraction without a guessed value", () => {
+    expect(
+      uncertainFactSchema.safeParse({
+        ...identity,
+        kind: "currency",
+        certainty: "uncertain",
+        uncertaintyReason: "invalid",
+      }).success,
+    ).toBe(true);
+    expect(
+      uncertainFactSchema.safeParse({
+        ...identity,
+        kind: "currency",
+        certainty: "uncertain",
+        uncertaintyReason: "invalid",
+        value: "USD",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("runtime-validates every certain fact value shape", () => {
+    const facts = [
+      { kind: "sender", value: "sender@example.test", provenance: [{ field: "sender" }] },
+      {
+        kind: "date",
+        value: { role: "transaction", instant: "2026-08-29T09:14:30.000000000Z" },
+        provenance: [{ field: "attributes.dates" }],
+      },
+      { kind: "amount", value: "14.20", provenance: [{ field: "attributes.amount" }] },
+      { kind: "currency", value: "USD", provenance: [{ field: "attributes.currency" }] },
+      { kind: "merchant", value: "Example Shop", provenance: [{ field: "attributes.merchant" }] },
+      {
+        kind: "location",
+        value: { label: "Example City", role: "other" },
+        provenance: [{ field: "attributes.location" }],
+      },
+      {
+        kind: "reference",
+        value: { kind: "order", value: "ORDER-SYNTHETIC-21" },
+        provenance: [{ field: "attributes.reference" }],
+      },
+    ];
+
+    expect(
+      facts.every(
+        (fact) =>
+          sourceFactSchema.safeParse({
+            ...identity,
+            ...fact,
+            certainty: "certain",
+          }).success,
+      ),
+    ).toBe(true);
+    expect(
+      sourceFactSchema.safeParse({
+        ...identity,
+        kind: "reference",
+        certainty: "certain",
+        value: { kind: "provider-specific", value: "not allowed" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("separates offset extraction input from canonical persisted UTC dates", () => {
+    expect(
+      normalizationDateCandidateSchema.safeParse({
+        role: "transaction",
+        instant: "2026-08-29T10:14:30+01:00",
+      }).success,
+    ).toBe(true);
+    expect(
+      normalizationDateCandidateSchema.safeParse({
+        role: "transaction",
+        instant: "2026-08-29T09:14:30.123456789Z",
+      }).success,
+    ).toBe(true);
+    expect(
+      normalizationDateCandidateSchema.safeParse({
+        role: "transaction",
+        instant: "2026-08-29T09:14:30.1234567890Z",
+      }).success,
+    ).toBe(false);
+    expect(canonicalFactInstantSchema.safeParse("2026-08-29T09:14:30.000000000Z").success).toBe(
+      true,
+    );
+    expect(canonicalFactInstantSchema.safeParse("2026-08-29T09:14:30.000100000Z").success).toBe(
+      true,
+    );
+    expect(canonicalFactInstantSchema.safeParse("2026-08-29T09:14:30.000900000Z").success).toBe(
+      true,
+    );
+    expect(
+      canonicalFactInstantSchema.safeParse("2026-08-29T10:14:30.000000000+01:00").success,
+    ).toBe(false);
+    expect(canonicalFactInstantSchema.safeParse("2026-02-30T09:14:30.000000000Z").success).toBe(
+      false,
+    );
+  });
+
+  it("accepts dedicated fact integrity dead-letter metadata", () => {
+    expect(deadLetterFailureCodeSchema.safeParse("fact_integrity_conflict").success).toBe(true);
+  });
+
+  it("requires every ordered fact to link to its source item", () => {
+    const fact = {
+      ...identity,
+      kind: "amount",
+      certainty: "certain",
+      value: "14.20",
+    } as const;
+    expect(
+      sourceFactSetSchema.safeParse({
+        schemaVersion: 1,
+        sourceItemId: identity.sourceItemId,
+        normalizerVersion: 1,
+        facts: [fact],
+      }).success,
+    ).toBe(true);
+    expect(
+      sourceFactSetSchema.safeParse({
+        schemaVersion: 1,
+        sourceItemId: "06f96f7d-3e1a-4a66-b98e-58be9766b96e",
+        normalizerVersion: 1,
+        facts: [fact],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects provenance snippets and unsupported source paths", () => {
+    expect(
+      amountFactSchema.safeParse({
+        ...identity,
+        provenance: [{ field: "attributes.amount", snippet: "plaintext must not persist" }],
+        kind: "amount",
+        certainty: "certain",
+        value: "14.20",
+      }).success,
+    ).toBe(false);
+    expect(
+      amountFactSchema.safeParse({
+        ...identity,
+        provenance: [{ field: "attributes.providerSpecificAmount" }],
+        kind: "amount",
+        certainty: "certain",
+        value: "14.20",
       }).success,
     ).toBe(false);
   });
@@ -210,6 +416,67 @@ describe("encryptedIngressPayloadSchema", () => {
           source: { kind: "notification", externalId: "synthetic" },
           attributes: {},
         },
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("category contracts", () => {
+  it("accepts a well-formed create request", () => {
+    expect(
+      categoryCreateRequestSchema.safeParse({
+        slug: "work-notes",
+        name: "Work Notes",
+        quietByDefault: true,
+        sortOrder: 3,
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each(["Work", "work_notes", "-work", "work-", "wörk"])(
+    "rejects non-kebab custom slug %j",
+    (slug) => {
+      expect(categoryCustomSlugSchema.safeParse(slug).success).toBe(false);
+    },
+  );
+
+  it("rejects a whitespace-only name the way the database does", () => {
+    expect(categoryNameSchema.safeParse("   ").success).toBe(false);
+  });
+
+  it("rejects a name longer than the database column constraint", () => {
+    expect(categoryNameSchema.safeParse("a".repeat(61)).success).toBe(false);
+    expect(categoryNameSchema.safeParse("a".repeat(60)).success).toBe(true);
+  });
+
+  it("rejects unknown fields on create", () => {
+    expect(
+      categoryCreateRequestSchema.safeParse({
+        slug: "work",
+        name: "Work",
+        isSystem: true,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires at least one field on update", () => {
+    expect(categoryUpdateRequestSchema.safeParse({}).success).toBe(false);
+    expect(categoryUpdateRequestSchema.safeParse({ archived: true }).success).toBe(true);
+  });
+
+  it("rejects a negative sort order", () => {
+    expect(categoryUpdateRequestSchema.safeParse({ sortOrder: -1 }).success).toBe(false);
+  });
+
+  it("parses a category row shape", () => {
+    expect(
+      categorySchema.safeParse({
+        id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        slug: "transaction",
+        name: "Transactions",
+        isSystem: true,
+        quietByDefault: false,
+        sortOrder: 0,
       }).success,
     ).toBe(true);
   });

@@ -1,4 +1,5 @@
 import {
+  canonicalUuidSchema,
   deadLetterMetadataSchema,
   ingressQueueMessageSchema,
   type DeadLetterFailureCode,
@@ -54,6 +55,8 @@ export async function recordDeadLetterItem(
     {
       p_accepted_at: message.acceptedAt,
       p_ciphertext: base64ToPostgresBytea(message.encrypted.ciphertext),
+      p_encryption_aad_envelope_id: message.envelopeId,
+      p_encryption_aad_user_id: message.userId,
       p_encryption_environment: message.encryptionEnvironment,
       p_envelope_id: message.envelopeId,
       p_failure_code: failureCode,
@@ -121,6 +124,22 @@ function parseClaimedMessage(value: unknown, requestId: string): IngressQueueMes
     throw new Error("Dead-letter claim response is invalid");
   }
   const row = entry as Record<string, unknown>;
+  const aadUserId = row.encryption_aad_user_id ?? row.user_id;
+  const aadEnvelopeId = row.encryption_aad_envelope_id ?? row.envelope_id;
+  const canonicalUserId = canonicalUuidSchema.safeParse(row.user_id);
+  const canonicalEnvelopeId = canonicalUuidSchema.safeParse(row.envelope_id);
+  const canonicalAadUserId = canonicalUuidSchema.safeParse(aadUserId);
+  const canonicalAadEnvelopeId = canonicalUuidSchema.safeParse(aadEnvelopeId);
+  if (
+    !canonicalUserId.success ||
+    !canonicalEnvelopeId.success ||
+    !canonicalAadUserId.success ||
+    !canonicalAadEnvelopeId.success ||
+    canonicalAadUserId.data !== canonicalUserId.data ||
+    canonicalAadEnvelopeId.data !== canonicalEnvelopeId.data
+  ) {
+    throw new Error("Dead-letter claim response is invalid");
+  }
   let encrypted;
   try {
     encrypted = {
@@ -136,8 +155,8 @@ function parseClaimedMessage(value: unknown, requestId: string): IngressQueueMes
   }
   const parsed = ingressQueueMessageSchema.safeParse({
     schemaVersion: 1,
-    userId: row.user_id,
-    envelopeId: row.envelope_id,
+    userId: aadUserId,
+    envelopeId: aadEnvelopeId,
     acceptedAt: row.accepted_at,
     rawExpiresAt: row.raw_expires_at,
     encryptionEnvironment: row.encryption_environment,

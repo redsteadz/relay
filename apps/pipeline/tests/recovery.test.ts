@@ -44,6 +44,8 @@ function claimedRow() {
     id: message.recoveryId,
     user_id: message.userId,
     envelope_id: message.envelopeId,
+    encryption_aad_user_id: null,
+    encryption_aad_envelope_id: null,
     accepted_at: message.acceptedAt,
     raw_expires_at: message.rawExpiresAt,
     encryption_environment: message.encryptionEnvironment,
@@ -72,6 +74,8 @@ describe("dead-letter recovery", () => {
     await recordDeadLetterItem(environment(), message, "retry_exhausted_unknown", fetcher);
 
     expect(body).toMatchObject({
+      p_encryption_aad_envelope_id: message.envelopeId,
+      p_encryption_aad_user_id: message.userId,
       p_envelope_id: message.envelopeId,
       p_failure_code: "retry_exhausted_unknown",
       p_id: message.recoveryId,
@@ -79,6 +83,53 @@ describe("dead-letter recovery", () => {
     });
     expect(Object.keys(body ?? {})).not.toContain("envelope");
     expect(JSON.stringify(body)).not.toContain("rawPayload");
+  });
+
+  it("records and replays uppercase AAD IDs with exact ciphertext", async () => {
+    const uppercaseMessage = {
+      ...message,
+      userId: message.userId.toUpperCase(),
+      envelopeId: message.envelopeId.toUpperCase(),
+    };
+    let recorded: Record<string, unknown> | undefined;
+    const recordFetcher = vi.fn((_input: string, init?: RequestInit) => {
+      recorded = requestBody(init);
+      return Promise.resolve(Response.json(true));
+    });
+
+    await recordDeadLetterItem(
+      environment(),
+      uppercaseMessage,
+      "retry_exhausted_unknown",
+      recordFetcher,
+    );
+
+    expect(recorded).toMatchObject({
+      p_encryption_aad_envelope_id: uppercaseMessage.envelopeId,
+      p_encryption_aad_user_id: uppercaseMessage.userId,
+      p_ciphertext: `\\x${"00".repeat(16)}`,
+    });
+    const send = vi.fn(() => Promise.resolve());
+    const claimFetcher = vi.fn(() =>
+      Promise.resolve(
+        Response.json([
+          {
+            ...claimedRow(),
+            encryption_aad_user_id: uppercaseMessage.userId,
+            encryption_aad_envelope_id: uppercaseMessage.envelopeId,
+          },
+        ]),
+      ),
+    );
+    const requestId = "06f96f7d-3e1a-4a66-b98e-58be9766b96e";
+
+    await expect(
+      replayDeadLetterItem(environment(send), message.recoveryId, requestId, claimFetcher),
+    ).resolves.toBe(true);
+    expect(send).toHaveBeenCalledWith({
+      ...uppercaseMessage,
+      replayRequestId: requestId,
+    });
   });
 
   it("maps metadata-only operator inventory", async () => {

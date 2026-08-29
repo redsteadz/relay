@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "10000000-0000-4000-8000-000000000021",
+  "occurredAt": "2026-08-29T09:15:00Z",
+  "capturedAt": "2026-08-29T09:15:03Z",
+  "source": {
+    "kind": "gmail",
+    "externalId": "synthetic-gmail-message-21",
+    "accountId": "synthetic-account"
+  },
+  "sender": "receipts@example.test",
+  "subject": "Synthetic invoice",
+  "body": "Synthetic fixture body is never persisted as a fact.",
+  "attributes": {
+    "dates": {
+      "role": "transaction",
+      "instant": "2026-08-29T09:14:30Z"
+    },
+    "amount": "12345678901234567890.001200",
+    "currency": "USD",
+    "merchant": "Example Books",
+    "location": {
+      "label": "21 Example Street",
+      "role": "merchant"
+    },
+    "reference": {
+      "kind": "invoice",
+      "value": "INV-SYNTHETIC-21"
+    }
+  }
+}
