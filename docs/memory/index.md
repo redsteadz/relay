@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-26
+last_verified: 2026-08-29
 ---
 
 # Relay Memory Index
@@ -45,6 +45,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0006: Shared Supabase hackathon backend](../decisions/0006-shared-supabase-hackathon-backend.md)
 - [ADR-0007: Shared hosted runtime](../decisions/0007-shared-hosted-runtime.md)
 - [ADR-0008: Mobile styling and components](../decisions/0008-mobile-styling-and-components.md)
+- [ADR-0009: Local Android capture diagnostics](../decisions/0009-local-android-capture-diagnostics.md)
 
 ## Delivery
 
@@ -52,6 +53,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [Contributor workflow](../../CONTRIBUTING.md)
 - [Cloudflare environments and operations](../operations/cloudflare.md)
 - [Supabase environments and operations](../operations/supabase.md)
+- [Mobile wireless ADB](../operations/mobile-wireless-adb.md)
 
 When generated locally, Graphify output indexes these documents and code for discovery. It is not CI
 evidence or an authority over contracts, migrations, or accepted ADRs.

@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-08-28
+last_verified: 2026-08-29
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -40,14 +40,26 @@ SMS capture is capability-driven and inbox-only. The Sources screen reports the 
 whether the APK actually declares both SMS permissions, whether Android currently grants both, the
 capture pause state, exact sender allowlist, and encrypted SMS queue count. Relay shows a persistent
 disclosure before its consent checkbox and permission action. It configures capture as paused before
-opening Android's runtime prompt, and enables it only if both permissions are granted.
+opening Android's runtime prompt without flipping the visible user control, and enables it only if
+both permissions are granted. Capability refreshes are ordered so a stale pre-permission snapshot
+cannot turn the pause control back on after a successful enable.
 
 Relay queries only `Telephony.Sms.Inbox.CONTENT_URI` and allowlists the `_ID`, `ADDRESS`, `BODY`, and
-`DATE` columns. It does not query contacts, sent messages, or the general SMS collection. Phone-like
-senders are compared after removing visual separators; alphanumeric sender IDs are compared
-case-insensitively. At least one exact sender is required. The first consented sync considers matching
+`DATE` columns. It does not query sent messages or the general SMS collection. Sender entry can open
+Android's system phone-number picker, which grants Relay temporary access to only the selected phone
+row; Relay does not request `READ_CONTACTS` or enumerate the contacts database. The selected number
+remains a draft in the review dialog until it is saved paused or enabled and synced successfully;
+only then does it appear in the Sources screen's configured-contact list. Canceling the dialog
+discards the draft. There is no manual sender text field. Phone-like senders are compared after
+removing visual separators. On devices whose SIM, network, or locale country is Pakistan, known
+equivalent mobile forms such as `+923001234567`, `03001234567`, and `923001234567` canonicalize to
+the same `+92` value before exact comparison; unrelated short/nonnumeric senders are not fuzzily
+matched. Alphanumeric sender IDs are compared case-insensitively. At least one exact sender is
+required. The first consented sync reads inbox rows oldest-first and considers matching
 inbox rows until the encrypted queue's existing 500-item/2-MiB bound is reached. Later syncs use the
-highest observed provider `_ID` as a cursor.
+highest observed provider `_ID` as a cursor. Changing the normalized sender set resets that cursor so
+previously skipped rows can be reconsidered under the new explicit allowlist; stable envelope IDs and
+queue deduplication prevent duplicate captures.
 
 Provider `_ID` is the source `externalId`. The envelope UUID is deterministic over `sms`, a random
 installation-local source account UUID, and that provider ID. This prevents retries or a broadcast
@@ -61,6 +73,12 @@ persistently pauses capture before returning, so restoring permission does not s
 The receiver and scheduled job also exit before access when capture is paused, configuration is
 absent, or permission is missing. Users can pause before new reads and can delete only queued SMS;
 notification queue rows and the shared Keystore key remain intact.
+
+Debug sideload builds emit content-free diagnostics for receiver entry, declaration/grant state,
+configuration presence, pause state, scheduling result, and job failures. These diagnostics never
+include sender, body, broadcast PDU data, or decrypted queue content. The receiver ignores PDU
+content and only schedules the protected, non-exported `JobService`; the service always calls
+`jobFinished` in `finally` once asynchronous work begins.
 
 The reusable local module manifest contains no SMS permission, receiver, or job-service declaration.
 `app.config.ts` is the sole flavor boundary: the `sideload` variant adds `READ_SMS`, `RECEIVE_SMS`,
@@ -86,19 +104,21 @@ with project ID `abda47b3-6e3d-43db-94de-bea147723388`.
 | `development` | Custom client for Metro and IDE | Included        | Explicitly removed during prebuild |
 | `sideload`    | Internal permission-bearing APK | Excluded        | `READ_SMS` and `RECEIVE_SMS`       |
 
-Only a JavaScript development runtime in the `development` build variant may enter the app without
-authentication. On Android, this local path uses a stable synthetic tenant with separate native
-notification configuration and encrypted queue. It never invokes capture sync or uploads without a
-real session. An unauthenticated development-local startup preserves that queue for diagnostics. A
-real session, or any startup where development-local access is unavailable (including a sideload or
-release-profile transition that retains app data), deletes the synthetic key, queue, and capture
-configuration before refreshing capabilities or starting authenticated sync. Authenticated controls
-therefore require a fresh disclosure and configuration. Native tenant preparation also clears a
-different previously configured tenant before local or authenticated capture begins, including after
-unexpected session loss. Navigation and authenticated sync remain blocked until native tenant
-preparation succeeds. Generation ordering prevents superseded authentication transitions from
-mutating current capture keys, queues, or configuration. Native queue and configuration methods also
-reject tenant IDs and preparation generations that do not match the latest prepared auth epoch.
+Only a JavaScript debug runtime may enter the app without authentication. On Android, both internal
+variants use a stable synthetic tenant for this local diagnostic path. The permission-free
+`development` variant can diagnose notifications; the `sideload` variant can diagnose notifications
+and SMS after the same disclosure, sender allowlist, and Android runtime consent required outside
+diagnostics. Release sideload builds still require authentication. Local mode never invokes capture
+sync or uploads without a real session. An unauthenticated local startup preserves its encrypted
+queue for diagnostics. A real session, or any startup where local access is unavailable, deletes the
+synthetic key, queue, and source configuration before refreshing capabilities or starting
+authenticated sync. Authenticated controls therefore require a fresh disclosure and configuration.
+Native tenant preparation also clears a different previously configured tenant before local or
+authenticated capture begins, including after unexpected session loss. Navigation and authenticated
+sync remain blocked until native tenant preparation succeeds. Generation ordering prevents
+superseded authentication transitions from mutating current capture keys, queues, or configuration.
+Native queue and configuration methods also reject tenant IDs and preparation generations that do
+not match the latest prepared auth epoch.
 
 Notification source selection queries only activities declaring the launcher intent through an
 explicit package-visibility `<queries>` entry. Relay does not request `QUERY_ALL_PACKAGES`. Installed
@@ -107,13 +127,15 @@ For authenticated captures, the selected package ID becomes `source.applicationI
 uploaded only with a captured envelope.
 
 Development-local diagnostics decrypt ready queue entries inside the Kotlin module, parse them
-natively, discard non-notification envelopes, and bridge only sender, subject, body, application ID,
-and capture time to the focused viewer. Full decrypted envelopes remain available only to the
+natively, and bridge only source-specific minimized fields to the focused viewer. Notification
+previews include sender, subject, body, application ID, and capture time. Sideload SMS previews
+include sender, body, and capture time. Full decrypted envelopes remain available only to the
 authenticated sync path. Polls are serialized, stale results are ignored, and preview state is
 cleared on screen blur, app backgrounding, and unmount. While the viewer is focused, Android
 `FLAG_SECURE` blocks screenshots and recent-task previews; cleanup removes the flag. No preview or
 enumerated app-list data is logged or persisted by the viewer. Decryption never creates a missing
-tenant key, and queue reads are serialized against tenant cleanup.
+tenant key, and queue reads are serialized against tenant cleanup. See
+[ADR-0009](../decisions/0009-local-android-capture-diagnostics.md).
 
 Run the checked-in configuration gate before any build:
 
