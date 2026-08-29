@@ -3,6 +3,36 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type Database = {
   public: {
     Tables: {
+      account_deletions: {
+        Row: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          completed_at?: string | null;
+          connectors_revoked_at?: string | null;
+          requested_at?: string;
+          state?: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          attempt_count?: number;
+          completed_at?: string | null;
+          connectors_revoked_at?: string | null;
+          requested_at?: string;
+          state?: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       action_rules: {
         Row: {
           approval_mode: string;
@@ -826,6 +856,24 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      finalize_account_deletion: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       is_canonical_fact_instant: { Args: { p_value: string }; Returns: boolean };
       kek_encryption_inventory: {
         Args: { p_environment: string };
@@ -850,6 +898,32 @@ export type Database = {
           raw_expires_at: string;
           replay_count: number;
           status: string;
+        }[];
+      };
+      mark_account_connectors_revoked: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      own_raw_retention_status: {
+        Args: never;
+        Returns: {
+          earliest_expires_at: string;
+          latest_expires_at: string;
+          retained_count: number;
         }[];
       };
       persist_encrypted_source_item: {
@@ -928,6 +1002,7 @@ export type Database = {
         Returns: string;
       };
       purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
+      purge_own_raw_payloads: { Args: never; Returns: number };
       record_dead_letter_item: {
         Args: {
           p_accepted_at: string;
@@ -971,6 +1046,42 @@ export type Database = {
         Args: { p_id: string; p_request_id: string };
         Returns: boolean;
       };
+      request_account_deletion: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      request_own_account_deletion: {
+        Args: never;
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       revoke_device: {
         Args: { p_device_id: string };
         Returns: {
@@ -992,6 +1103,7 @@ export type Database = {
       };
     };
     Enums: {
+      account_deletion_state: "requested" | "connectors_revoked" | "completed";
       action_provider: "google-tasks" | "nextcloud-budget" | "webhook";
       action_status:
         | "proposed"
@@ -1128,6 +1240,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      account_deletion_state: ["requested", "connectors_revoked", "completed"],
       action_provider: ["google-tasks", "nextcloud-budget", "webhook"],
       action_status: [
         "proposed",
