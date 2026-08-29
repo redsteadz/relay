@@ -1,3 +1,9 @@
+import {
+  accountDeletionRequestSchema,
+  accountDeletionResponseSchema,
+  accountDeletionStatusResponseSchema,
+} from "@relay/contracts";
+
 import { authenticateRequest } from "../../../../lib/auth";
 import { deleteAccount, getAccountDeletionStatus, loadPrivacyEnv } from "../../../../lib/privacy";
 
@@ -16,7 +22,8 @@ export async function GET(request: Request) {
   if ("error" in auth) return auth.error;
 
   try {
-    return Response.json({ deletion: await getAccountDeletionStatus(auth.userId, env) });
+    const deletion = await getAccountDeletionStatus(auth.userId, env);
+    return Response.json(accountDeletionStatusResponseSchema.parse({ deletion }));
   } catch {
     return Response.json(
       { error: { code: "privacy_unavailable", message: "Deletion status unavailable" } },
@@ -46,8 +53,7 @@ export async function DELETE(request: Request) {
     );
   }
 
-  const confirm = (body as Record<string, unknown> | null)?.confirm;
-  if (confirm !== "delete my account") {
+  if (!accountDeletionRequestSchema.safeParse(body).success) {
     return Response.json(
       {
         error: {
@@ -61,12 +67,14 @@ export async function DELETE(request: Request) {
 
   try {
     const result = await deleteAccount(auth.userId, env);
-    return Response.json({
-      deleted: true,
-      deletion: result.status,
-      failedRevocations: result.failedRevocations,
-      revokedCredentials: result.revokedCredentials,
-    });
+    return Response.json(
+      accountDeletionResponseSchema.parse({
+        deleted: true,
+        deletion: result.status,
+        failedRevocations: result.failedRevocations,
+        revokedCredentials: result.revokedCredentials,
+      }),
+    );
   } catch {
     // The deletion is resumable: the same call can be retried and each step is idempotent.
     return Response.json(
