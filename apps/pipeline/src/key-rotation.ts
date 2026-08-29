@@ -1,4 +1,4 @@
-import { relayUserIdSchema } from "@relay/contracts";
+import { rawUuidSchema, relayUserIdSchema } from "@relay/contracts";
 import { rewrapValue, type EncryptedValue, type KekKeyring } from "@relay/crypto";
 
 import { readPersistenceConfiguration, supabaseBackendHeaders } from "./configuration";
@@ -17,6 +17,8 @@ type RotationStore = "connections" | "dead_letter_items" | "source_items";
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 type StoreSpec = {
+  aadContextId?: "encryption_aad_envelope_id";
+  aadUserId?: "encryption_aad_user_id";
   ciphertext: "ciphertext" | "credential_ciphertext" | "raw_ciphertext";
   context: (userId: string, id: string) => string;
   contextId: "envelope_id" | "id";
@@ -31,6 +33,7 @@ type StoreSpec = {
 type RotationRow = {
   ciphertext: string;
   contextId: string;
+  contextUserId: string;
   encrypted: EncryptedValue;
   id: string;
   nonce: string;
@@ -64,6 +67,8 @@ const STORE_SPECS: readonly StoreSpec[] = [
     store: "source_items",
   },
   {
+    aadContextId: "encryption_aad_envelope_id",
+    aadUserId: "encryption_aad_user_id",
     ciphertext: "ciphertext",
     context: sourceItemEncryptionContext,
     contextId: "envelope_id",
@@ -131,7 +136,7 @@ function parseRotationRow(value: unknown, spec: StoreSpec): RotationRow {
   const candidate = value as Record<string, unknown>;
   const id = relayUserIdSchema.safeParse(candidate.id);
   const userId = relayUserIdSchema.safeParse(candidate.user_id);
-  const contextId = relayUserIdSchema.safeParse(candidate[spec.contextId]);
+  const canonicalContextId = relayUserIdSchema.safeParse(candidate[spec.contextId]);
   const keyVersion = candidate.key_version;
   const ciphertext = candidate[spec.ciphertext];
   const nonce = candidate[spec.nonce];
@@ -140,7 +145,7 @@ function parseRotationRow(value: unknown, spec: StoreSpec): RotationRow {
   if (
     !id.success ||
     !userId.success ||
-    !contextId.success ||
+    !canonicalContextId.success ||
     typeof keyVersion !== "number" ||
     !Number.isSafeInteger(keyVersion) ||
     keyVersion <= 0 ||
@@ -159,9 +164,30 @@ function parseRotationRow(value: unknown, spec: StoreSpec): RotationRow {
     wrappedKey: postgresByteaToBase64(wrappedDataKey, 48),
     wrapNonce: postgresByteaToBase64(wrapNonce, 12),
   } satisfies EncryptedValue;
+  let contextId = canonicalContextId.data;
+  let contextUserId = userId.data;
+  if (spec.aadContextId !== undefined && spec.aadUserId !== undefined) {
+    const rawContextId = candidate[spec.aadContextId];
+    const rawUserId = candidate[spec.aadUserId];
+    if (rawContextId !== null || rawUserId !== null) {
+      const parsedContextId = rawUuidSchema.safeParse(rawContextId);
+      const parsedUserId = rawUuidSchema.safeParse(rawUserId);
+      if (
+        !parsedContextId.success ||
+        !parsedUserId.success ||
+        relayUserIdSchema.parse(parsedContextId.data) !== canonicalContextId.data ||
+        relayUserIdSchema.parse(parsedUserId.data) !== userId.data
+      ) {
+        throw new Error("Encrypted database row is invalid");
+      }
+      contextId = parsedContextId.data;
+      contextUserId = parsedUserId.data;
+    }
+  }
   return {
     ciphertext,
-    contextId: contextId.data,
+    contextId,
+    contextUserId,
     encrypted,
     id: id.data,
     nonce,
@@ -182,7 +208,7 @@ function rowsUrl(
   const url = new URL(`/rest/v1/${spec.store}`, supabaseUrl);
   url.searchParams.set(
     "select",
-    `id,user_id${spec.contextId === "id" ? "" : `,${spec.contextId}`},${spec.ciphertext},${spec.nonce},wrapped_data_key,wrap_nonce,key_version`,
+    `id,user_id${spec.contextId === "id" ? "" : `,${spec.contextId}`}${spec.aadUserId === undefined ? "" : `,${spec.aadUserId},${spec.aadContextId}`},${spec.ciphertext},${spec.nonce},wrapped_data_key,wrap_nonce,key_version`,
   );
   url.searchParams.set("encryption_environment", `eq.${environment}`);
   if (id === undefined) {
@@ -261,7 +287,7 @@ async function rewrapRow(
   row: RotationRow,
   keyring: KekKeyring,
 ): Promise<"conflict" | "rewrapped" | "stale"> {
-  const context = spec.context(row.userId, row.contextId);
+  const context = spec.context(row.contextUserId, row.contextId);
   const rewrapped = await rewrapValue(row.encrypted, keyring, context);
   if (
     await compareAndSet(fetcher, supabaseUrl, serviceRoleKey, environment, spec, row, rewrapped)
@@ -289,7 +315,7 @@ async function rewrapRow(
   const retry = await rewrapValue(
     current.encrypted,
     keyring,
-    spec.context(current.userId, current.contextId),
+    spec.context(current.contextUserId, current.contextId),
   );
   return (await compareAndSet(
     fetcher,

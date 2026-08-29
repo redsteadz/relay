@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDecryptedIngressEnvelope, parseSourcePersistenceResponse } from "../src/persistence";
+import {
+  parseDecryptedIngressEnvelope,
+  parseSourcePersistenceResponse,
+  parseSourcePersistenceV3Response,
+} from "../src/persistence";
 
 describe("parseSourcePersistenceResponse", () => {
   it("accepts durable persistence", async () => {
@@ -29,6 +33,21 @@ describe("parseSourcePersistenceResponse", () => {
   });
 });
 
+describe("parseSourcePersistenceV3Response", () => {
+  it.each(["stored", "duplicate", "fact-integrity-conflict", "tenant-conflict"] as const)(
+    "accepts fixed result %s",
+    async (result) => {
+      await expect(parseSourcePersistenceV3Response(Response.json(result))).resolves.toBe(result);
+    },
+  );
+
+  it("rejects malformed source persistence results", async () => {
+    await expect(parseSourcePersistenceV3Response(Response.json(false))).rejects.toMatchObject({
+      reason: "persistence_response_invalid",
+    });
+  });
+});
+
 describe("parseDecryptedIngressEnvelope", () => {
   it("returns a fixed invalid outcome for malformed sensitive plaintext", () => {
     expect(
@@ -38,6 +57,30 @@ describe("parseDecryptedIngressEnvelope", () => {
         rawExpiresAt: "2026-08-31T10:00:00.000Z",
       }),
     ).toBeUndefined();
+  });
+
+  it("matches uppercase authenticated IDs semantically and returns a canonical envelope", () => {
+    const plaintext = JSON.stringify({
+      schemaVersion: 1,
+      acceptedAt: "2026-08-24T10:00:00.000Z",
+      rawExpiresAt: "2026-08-31T10:00:00.000Z",
+      envelope: {
+        schemaVersion: 1,
+        id: "5E106D7A-85AA-4A08-9A1F-CB13B42DF1F8",
+        occurredAt: "2026-08-24T10:00:00Z",
+        capturedAt: "2026-08-24T10:00:01Z",
+        source: { kind: "notification", externalId: "synthetic" },
+        attributes: {},
+      },
+    });
+
+    expect(
+      parseDecryptedIngressEnvelope(plaintext, {
+        acceptedAt: "2026-08-24T10:00:00.000Z",
+        envelopeId: "5E106D7A-85AA-4A08-9A1F-CB13B42DF1F8",
+        rawExpiresAt: "2026-08-31T10:00:00.000Z",
+      }),
+    ).toMatchObject({ id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8" });
   });
 
   it("rejects Queue metadata that differs from authenticated retention data", () => {

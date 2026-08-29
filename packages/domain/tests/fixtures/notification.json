@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "20000000-0000-4000-8000-000000000021",
+  "occurredAt": "2026-08-29T10:00:00Z",
+  "capturedAt": "2026-08-29T10:00:01Z",
+  "source": {
+    "kind": "notification",
+    "externalId": "synthetic-notification-21",
+    "applicationId": "com.example.syntheticbank"
+  },
+  "sender": "Example Bank",
+  "subject": "Synthetic card purchase",
+  "body": "USD 14.20 at Example Station",
+  "attributes": {
+    "amount": "14.20",
+    "currency": "USD",
+    "merchant": "Example Station",
+    "location": [
+      {
+        "label": "Example Station",
+        "role": "merchant"
+      },
+      {
+        "label": "Example City",
+        "role": "other"
+      }
+    ],
+    "reference": {
+      "kind": "transaction",
+      "value": "TX-SYNTHETIC-21"
+    }
+  }
+}

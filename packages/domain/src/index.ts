@@ -1,5 +1,7 @@
 import type { FilterExpression, FilterPlan, IngressEnvelope } from "@relay/contracts";
 
+export * from "./facts.js";
+
 export type FilterDecision = "match" | "no-match" | "undecided";
 
 function normalizeText(value: string): string {

@@ -2,6 +2,7 @@ import {
   deadLetterFailureCodeSchema,
   ingressQueueMessageSchema,
   MAX_INGRESS_QUEUE_MESSAGE_BYTES,
+  relayUserIdSchema,
   type DeadLetterFailureCode,
 } from "@relay/contracts";
 
@@ -69,7 +70,9 @@ export async function processIngressQueue(
           parsed.data.failureCode ?? "retry_exhausted_unknown",
         );
         if (env.RELAY_E2E_MODE === "true") {
-          const coordinator = env.TENANT_COORDINATOR.getByName(parsed.data.userId);
+          const coordinator = env.TENANT_COORDINATOR.getByName(
+            relayUserIdSchema.parse(parsed.data.userId),
+          );
           const response = await coordinator.fetch("https://coordinator.internal/e2e/result", {
             method: "POST",
             body: JSON.stringify(parsed.data),
@@ -104,7 +107,9 @@ export async function processIngressQueue(
     }
 
     try {
-      const coordinator = env.TENANT_COORDINATOR.getByName(parsed.data.userId);
+      const coordinator = env.TENANT_COORDINATOR.getByName(
+        relayUserIdSchema.parse(parsed.data.userId),
+      );
       const response = await coordinator.fetch("https://coordinator.internal/process", {
         method: "POST",
         body: JSON.stringify(parsed.data),

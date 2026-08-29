@@ -248,6 +248,11 @@ async function e2eResult(ingressSecret, relayUserId, envelopeId) {
 function assertEncryptedRow(row, fixture) {
   requireCondition(row.encryption_environment === "development", "Encryption owner mismatch");
   requireCondition(row.key_version === 1, "KEK version mismatch");
+  requireCondition(
+    typeof row.fact_set_fingerprint === "string" &&
+      /^[0-9a-f]{64}$/u.test(row.fact_set_fingerprint),
+    "Fact-set fingerprint is missing",
+  );
   for (const field of ["raw_ciphertext", "raw_nonce", "wrapped_data_key", "wrap_nonce"]) {
     requireCondition(
       typeof row[field] === "string" && row[field].startsWith("\\x"),
@@ -268,6 +273,34 @@ function assertEncryptedRow(row, fixture) {
     lifetime > 6 * 24 * 60 * 60 * 1000 && lifetime <= 7 * 24 * 60 * 60 * 1000,
     "Raw retention is not anchored to original seven-day acceptance window",
   );
+}
+
+function assertFactRows(rows, fixture) {
+  requireCondition(rows.length === 6, "Synthetic fact rows were not durable");
+  requireCondition(
+    rows.map((row) => row.kind).join(",") === "sender,date,date,amount,currency,merchant",
+    "Synthetic fact kinds or ordering differ",
+  );
+  requireCondition(
+    rows.every(
+      (row, ordinal) =>
+        row.source_item_id === fixture.id &&
+        row.normalizer_version === 1 &&
+        row.ordinal === ordinal &&
+        row.certainty === "certain" &&
+        Array.isArray(row.provenance) &&
+        row.provenance.length > 0,
+    ),
+    "Synthetic facts lack source linkage or field provenance",
+  );
+  const amount = rows.find((row) => row.kind === "amount");
+  requireCondition(
+    typeof amount?.value === "string" && amount.value === fixture.attributes.amount,
+    "Synthetic amount did not preserve its exact decimal string",
+  );
+  const serialized = JSON.stringify(rows);
+  requireCondition(!serialized.includes(fixture.subject), "Subject appeared in structured facts");
+  requireCondition(!serialized.includes(fixture.body), "Raw body appeared in structured facts");
 }
 
 function assertLogsContainNoSensitiveData() {
@@ -402,10 +435,16 @@ async function main() {
   requireCondition(persisted.keyVersion === 1, "Persisted result KEK version mismatch");
   const rows = await sourceRows(
     status,
-    `id=eq.${encodeURIComponent(fixture.id)}&select=id,user_id,raw_ciphertext,raw_nonce,wrapped_data_key,wrap_nonce,key_version,encryption_environment,created_at,raw_expires_at`,
+    `id=eq.${encodeURIComponent(fixture.id)}&select=id,user_id,fact_set_fingerprint,raw_ciphertext,raw_nonce,wrapped_data_key,wrap_nonce,key_version,encryption_environment,created_at,raw_expires_at`,
   );
   requireCondition(rows.length === 1, "Synthetic source row was not durable");
   assertEncryptedRow(rows[0], fixture);
+  const factRows = await tableRows(
+    status,
+    "source_facts",
+    `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=source_item_id,normalizer_version,ordinal,kind,certainty,value,provenance&order=ordinal.asc`,
+  );
+  assertFactRows(factRows, fixture);
 
   stage = "source duplicate rejection";
   await sendIngress(fixture, userId);
@@ -414,6 +453,12 @@ async function main() {
     () => e2eResult(ingressSecret, userId, fixture.id),
     (value) => value?.status === "duplicate-source",
   );
+  const retriedFactRows = await tableRows(
+    status,
+    "source_facts",
+    `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=id`,
+  );
+  requireCondition(retriedFactRows.length === 6, "Duplicate ingress created additional fact rows");
 
   stage = "fingerprint duplicate rejection";
   const fingerprintDuplicate = {
@@ -613,6 +658,12 @@ async function main() {
       value[0].encryption_environment === null,
   );
   requireCondition(purgedRows.length === 1, "Controlled retention removed source metadata");
+  const retainedFactRows = await tableRows(
+    status,
+    "source_facts",
+    `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=id`,
+  );
+  requireCondition(retainedFactRows.length === 6, "Raw retention cleanup removed derived facts");
 }
 
 let completed = false;
@@ -657,6 +708,6 @@ try {
 
 if (completed && process.exitCode !== 1) {
   globalThis.console.log(
-    "Local E2E passed: encrypted persistence, deduplication, DLQ recovery, replay, and retention cleanup",
+    "Local E2E passed: encrypted persistence, typed facts, deduplication, DLQ recovery, replay, and retention cleanup",
   );
 }
