@@ -1,8 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  CategoryError} from "./categories";
+import type { CategoryError } from "./categories";
 import {
   categoryFailureFor,
   createCategory,
