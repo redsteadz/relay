@@ -63,7 +63,13 @@ function databaseRow(
   return {
     [ciphertextField]: base64ToPostgresBytea(encrypted.ciphertext),
     [nonceField]: base64ToPostgresBytea(encrypted.nonce),
-    ...(store === "dead_letter_items" ? { envelope_id: recordId } : {}),
+    ...(store === "dead_letter_items"
+      ? {
+          envelope_id: recordId,
+          encryption_aad_envelope_id: null,
+          encryption_aad_user_id: null,
+        }
+      : {}),
     id: recordId,
     key_version: encrypted.keyVersion,
     user_id: userId,
@@ -166,6 +172,53 @@ describe("executeKekRotationBatch", () => {
     );
     expect(rewrapped.ciphertext).toBe(encrypted.ciphertext);
     expect(rewrapped.nonce).toBe(encrypted.nonce);
+  });
+
+  it("rewraps dead-letter keys with preserved uppercase AAD IDs", async () => {
+    const keys = keyrings();
+    const aadUserId = userId.toUpperCase();
+    const aadEnvelopeId = recordId.toUpperCase();
+    const context = sourceItemEncryptionContext(aadUserId, aadEnvelopeId);
+    const encrypted = await encryptValue("synthetic-uppercase-aad", keys.first, context);
+    const row = {
+      ...databaseRow(encrypted, "dead_letter_items"),
+      encryption_aad_envelope_id: aadEnvelopeId,
+      encryption_aad_user_id: aadUserId,
+    };
+    let casBody: Record<string, unknown> | undefined;
+    const fetcher = vi.fn((input: string, init?: RequestInit): Promise<Response> => {
+      const url = new URL(input);
+      if (url.pathname.endsWith("/kek_encryption_inventory")) {
+        return Promise.resolve(
+          response([{ key_version: 1, row_count: 1, store: "dead_letter_items" }]),
+        );
+      }
+      if (url.pathname === "/rest/v1/dead_letter_items") return Promise.resolve(response([row]));
+      if (url.pathname.endsWith("/cas_rewrap_dead_letter_data_key")) {
+        casBody = requestBody(init);
+        return Promise.resolve(response(true));
+      }
+      throw new Error("Unexpected synthetic request");
+    });
+
+    await expect(executeKekRotationBatch(environment(keys.serialized), fetcher)).resolves.toEqual({
+      activeVersion: 2,
+      conflicts: 0,
+      rewrapped: 1,
+      scanned: 1,
+    });
+    const rewrapped = {
+      ...encrypted,
+      keyVersion: 2,
+      wrappedKey: postgresByteaToBase64(casBody?.p_new_wrapped_data_key, 48),
+      wrapNonce: postgresByteaToBase64(casBody?.p_new_wrap_nonce, 12),
+    };
+    await expect(decryptValue(rewrapped, keys.rotating, context)).resolves.toBe(
+      "synthetic-uppercase-aad",
+    );
+    await expect(
+      decryptValue(rewrapped, keys.rotating, sourceItemEncryptionContext(userId, recordId)),
+    ).rejects.toThrow();
   });
 
   it("rereads a concurrent credential refresh before retrying CAS", async () => {

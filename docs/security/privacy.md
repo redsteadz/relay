@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-26
+last_verified: 2026-08-29
 ---
 
 # Privacy And Data Lifecycle
@@ -48,6 +48,44 @@ observability can receive parser text.
 OpenAI receives only semantic-clause allowlisted fields after redaction. Relay stores disclosure
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and
 cannot choose tools or action configuration.
+
+## User Controls
+
+Raw payload retention is fixed at seven days and is not user-configurable. A tenant can read how
+many encrypted payloads are still retained and when the next cleanup removes them, and can purge
+them immediately without waiting for expiry. Purging nulls the encryption columns and keeps the
+row, exactly as the scheduled cleanup does, so derived facts, classifications, events, and their
+provenance survive; only the recoverable raw body is destroyed.
+
+Disclosure history lists what was sent to OpenAI -- provider, model, disclosed field names, and
+purpose -- never the prompt or the source content itself. The stored OpenAI key is revocable.
+
+Account deletion revokes provider credentials, cancels pending action runs, invalidates every
+device, deletes stored credentials, purges raw payloads, and then removes the identity, which
+cascades every remaining tenant row. It is idempotent at each step, so an interrupted deletion is
+resumable and its state remains inspectable while it runs. Deletion requires an explicit typed
+confirmation and is irreversible; it is a single deliberate step rather than a repeated or
+obstructive flow. Provider revocation is best effort: a provider that refuses or is unreachable is
+counted and reported, and never strands the deletion, because Relay still destroys every
+credential it holds.
+
+### Retention Exceptions
+
+Deletion removes tenant rows from the live database immediately. Two classes of copy are outside
+that boundary and are deliberately not claimed as deleted:
+
+- **Managed database backups.** The hosted Supabase project's automated backups are retained on the
+  provider's schedule, so a deleted tenant's rows can persist inside a backup image until that
+  backup ages out. Relay does not rewrite backup contents. The exact retention window follows the
+  hosted project's plan and is recorded with the project configuration rather than restated here,
+  where it would drift.
+- **Platform and application logs.** Request and platform logs are metadata only -- fixed operation
+  names, counts, and latency -- and by policy contain no tenant identifier, source content,
+  credential, or ciphertext, so they hold nothing to delete. Cloudflare and Supabase retain their
+  own platform logs under their retention, outside Relay's control.
+
+Audit rows are tenant-owned and cascade with the account. The product-level retention policy for
+audit metadata as a class remains unresolved and is tracked with the data-class table above.
 
 ## Local Harness
 

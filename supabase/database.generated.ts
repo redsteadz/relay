@@ -3,6 +3,36 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type Database = {
   public: {
     Tables: {
+      account_deletions: {
+        Row: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          completed_at?: string | null;
+          connectors_revoked_at?: string | null;
+          requested_at?: string;
+          state?: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          attempt_count?: number;
+          completed_at?: string | null;
+          connectors_revoked_at?: string | null;
+          requested_at?: string;
+          state?: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       action_rules: {
         Row: {
           approval_mode: string;
@@ -224,35 +254,44 @@ export type Database = {
       };
       categories: {
         Row: {
+          archived_at: string | null;
           created_at: string;
           description: string | null;
           id: string;
           is_system: boolean;
           name: string;
+          normalized_name: string | null;
           quiet_by_default: boolean;
           slug: string;
+          sort_order: number;
           updated_at: string;
           user_id: string;
         };
         Insert: {
+          archived_at?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
           is_system?: boolean;
           name: string;
+          normalized_name?: string | null;
           quiet_by_default?: boolean;
           slug: string;
+          sort_order?: number;
           updated_at?: string;
           user_id: string;
         };
         Update: {
+          archived_at?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
           is_system?: boolean;
           name?: string;
+          normalized_name?: string | null;
           quiet_by_default?: boolean;
           slug?: string;
+          sort_order?: number;
           updated_at?: string;
           user_id?: string;
         };
@@ -368,6 +407,8 @@ export type Database = {
           accepted_at: string;
           ciphertext: string | null;
           completed_at: string | null;
+          encryption_aad_envelope_id: string | null;
+          encryption_aad_user_id: string | null;
           encryption_environment: string | null;
           envelope_id: string;
           failure_code: string;
@@ -389,6 +430,8 @@ export type Database = {
           accepted_at: string;
           ciphertext?: string | null;
           completed_at?: string | null;
+          encryption_aad_envelope_id?: string | null;
+          encryption_aad_user_id?: string | null;
           encryption_environment?: string | null;
           envelope_id: string;
           failure_code: string;
@@ -410,6 +453,8 @@ export type Database = {
           accepted_at?: string;
           ciphertext?: string | null;
           completed_at?: string | null;
+          encryption_aad_envelope_id?: string | null;
+          encryption_aad_user_id?: string | null;
           encryption_environment?: string | null;
           envelope_id?: string;
           failure_code?: string;
@@ -578,6 +623,56 @@ export type Database = {
           },
         ];
       };
+      source_facts: {
+        Row: {
+          certainty: Database["public"]["Enums"]["source_fact_certainty"];
+          created_at: string;
+          id: string;
+          kind: Database["public"]["Enums"]["source_fact_kind"];
+          normalizer_version: number;
+          ordinal: number;
+          provenance: Json;
+          source_item_id: string;
+          uncertainty_reason: Database["public"]["Enums"]["source_fact_uncertainty_reason"] | null;
+          user_id: string;
+          value: Json | null;
+        };
+        Insert: {
+          certainty: Database["public"]["Enums"]["source_fact_certainty"];
+          created_at?: string;
+          id?: string;
+          kind: Database["public"]["Enums"]["source_fact_kind"];
+          normalizer_version: number;
+          ordinal: number;
+          provenance: Json;
+          source_item_id: string;
+          uncertainty_reason?: Database["public"]["Enums"]["source_fact_uncertainty_reason"] | null;
+          user_id: string;
+          value?: Json | null;
+        };
+        Update: {
+          certainty?: Database["public"]["Enums"]["source_fact_certainty"];
+          created_at?: string;
+          id?: string;
+          kind?: Database["public"]["Enums"]["source_fact_kind"];
+          normalizer_version?: number;
+          ordinal?: number;
+          provenance?: Json;
+          source_item_id?: string;
+          uncertainty_reason?: Database["public"]["Enums"]["source_fact_uncertainty_reason"] | null;
+          user_id?: string;
+          value?: Json | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "source_facts_user_id_source_item_id_fkey";
+            columns: ["user_id", "source_item_id"];
+            isOneToOne: false;
+            referencedRelation: "source_items";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
       source_items: {
         Row: {
           application_id: string | null;
@@ -588,6 +683,7 @@ export type Database = {
           created_at: string;
           encryption_environment: string | null;
           external_id: string;
+          fact_set_fingerprint: string | null;
           id: string;
           key_version: number | null;
           occurred_at: string;
@@ -612,6 +708,7 @@ export type Database = {
           created_at?: string;
           encryption_environment?: string | null;
           external_id: string;
+          fact_set_fingerprint?: string | null;
           id: string;
           key_version?: number | null;
           occurred_at: string;
@@ -636,6 +733,7 @@ export type Database = {
           created_at?: string;
           encryption_environment?: string | null;
           external_id?: string;
+          fact_set_fingerprint?: string | null;
           id?: string;
           key_version?: number | null;
           occurred_at?: string;
@@ -723,6 +821,8 @@ export type Database = {
         Returns: {
           accepted_at: string;
           ciphertext: string;
+          encryption_aad_envelope_id: string;
+          encryption_aad_user_id: string;
           encryption_environment: string;
           envelope_id: string;
           id: string;
@@ -765,6 +865,25 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      finalize_account_deletion: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      is_canonical_fact_instant: { Args: { p_value: string }; Returns: boolean };
       kek_encryption_inventory: {
         Args: { p_environment: string };
         Returns: {
@@ -788,6 +907,32 @@ export type Database = {
           raw_expires_at: string;
           replay_count: number;
           status: string;
+        }[];
+      };
+      mark_account_connectors_revoked: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      own_raw_retention_status: {
+        Args: never;
+        Returns: {
+          earliest_expires_at: string;
+          latest_expires_at: string;
+          retained_count: number;
         }[];
       };
       persist_encrypted_source_item: {
@@ -832,11 +977,47 @@ export type Database = {
         };
         Returns: boolean;
       };
+      persist_encrypted_source_item_v3: {
+        Args: {
+          p_accepted_at: string;
+          p_application_id: string;
+          p_captured_at: string;
+          p_content_fingerprint: string;
+          p_encryption_environment: string;
+          p_external_id: string;
+          p_fact_set_fingerprint: string;
+          p_id: string;
+          p_key_version: number;
+          p_occurred_at: string;
+          p_raw_ciphertext: string;
+          p_raw_expires_at: string;
+          p_raw_nonce: string;
+          p_source: Database["public"]["Enums"]["source_kind"];
+          p_source_account_id: string;
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: string;
+      };
+      persist_source_facts: {
+        Args: {
+          p_fact_set_fingerprint: string;
+          p_facts: Json;
+          p_normalizer_version: number;
+          p_source_item_id: string;
+          p_user_id: string;
+        };
+        Returns: string;
+      };
       purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
+      purge_own_raw_payloads: { Args: never; Returns: number };
       record_dead_letter_item: {
         Args: {
           p_accepted_at: string;
           p_ciphertext: string;
+          p_encryption_aad_envelope_id?: string;
+          p_encryption_aad_user_id?: string;
           p_encryption_environment: string;
           p_envelope_id: string;
           p_failure_code: string;
@@ -874,6 +1055,42 @@ export type Database = {
         Args: { p_id: string; p_request_id: string };
         Returns: boolean;
       };
+      request_account_deletion: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      request_own_account_deletion: {
+        Args: never;
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       revoke_device: {
         Args: { p_device_id: string };
         Returns: {
@@ -895,6 +1112,7 @@ export type Database = {
       };
     };
     Enums: {
+      account_deletion_state: "requested" | "connectors_revoked" | "completed";
       action_provider: "google-tasks" | "nextcloud-budget" | "webhook";
       action_status:
         | "proposed"
@@ -905,6 +1123,10 @@ export type Database = {
         | "failed"
         | "cancelled";
       event_kind: "task" | "reminder" | "calendar-event" | "fact";
+      source_fact_certainty: "certain" | "uncertain";
+      source_fact_kind:
+        "sender" | "date" | "amount" | "currency" | "merchant" | "location" | "reference";
+      source_fact_uncertainty_reason: "invalid" | "contradictory";
       source_kind: "gmail" | "notification" | "sms" | "email";
     };
     CompositeTypes: {
@@ -1027,6 +1249,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      account_deletion_state: ["requested", "connectors_revoked", "completed"],
       action_provider: ["google-tasks", "nextcloud-budget", "webhook"],
       action_status: [
         "proposed",
@@ -1038,6 +1261,17 @@ export const Constants = {
         "cancelled",
       ],
       event_kind: ["task", "reminder", "calendar-event", "fact"],
+      source_fact_certainty: ["certain", "uncertain"],
+      source_fact_kind: [
+        "sender",
+        "date",
+        "amount",
+        "currency",
+        "merchant",
+        "location",
+        "reference",
+      ],
+      source_fact_uncertainty_reason: ["invalid", "contradictory"],
       source_kind: ["gmail", "notification", "sms", "email"],
     },
   },

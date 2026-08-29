@@ -50,6 +50,29 @@ describe("processIngressQueue", () => {
     vi.mocked(recordDeadLetterItem).mockResolvedValue();
   });
 
+  it("routes uppercase Queue user IDs canonically without changing authenticated wire data", async () => {
+    const uppercaseMessage = {
+      ...queueMessage("5E106D7A-85AA-4A08-9A1F-CB13B42DF1F8"),
+      userId: "638CE145-A77D-4C32-B798-CB398E881FC9",
+    };
+    const queued = message(uppercaseMessage);
+    const fetch = vi.fn(() => Promise.resolve(Response.json({ reason: "persisted" })));
+    const getByName = vi.fn(() => ({ fetch }));
+    const env = { TENANT_COORDINATOR: { getByName } } as unknown as Env;
+
+    await processIngressQueue(
+      { messages: [queued.value] } as unknown as MessageBatch<IngressQueueMessage>,
+      env,
+    );
+
+    expect(getByName).toHaveBeenCalledWith("638ce145-a77d-4c32-b798-cb398e881fc9");
+    expect(fetch).toHaveBeenCalledWith("https://coordinator.internal/process", {
+      method: "POST",
+      body: JSON.stringify(uppercaseMessage),
+    });
+    expect(queued.ack).toHaveBeenCalledOnce();
+  });
+
   it("acks e2e dead-letter messages only after durable metadata storage", async () => {
     const deadLetter = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"));
     const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
@@ -139,10 +162,10 @@ describe("processIngressQueue", () => {
     expect(deadLetter.ack).not.toHaveBeenCalled();
   });
 
-  it("routes classified terminal processing failure into existing DLQ", async () => {
+  it("routes terminal fact integrity failure into existing DLQ", async () => {
     const failed = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"), 5);
     const coordinatorFetch = vi.fn(() =>
-      Promise.resolve(Response.json({ failureCode: "tenant_id_conflict" }, { status: 503 })),
+      Promise.resolve(Response.json({ failureCode: "fact_integrity_conflict" }, { status: 503 })),
     );
     const send = vi.fn(() => Promise.resolve());
     const env = {
@@ -157,9 +180,30 @@ describe("processIngressQueue", () => {
 
     expect(send).toHaveBeenCalledWith({
       ...failed.value.body,
-      failureCode: "tenant_id_conflict",
+      failureCode: "fact_integrity_conflict",
     });
     expect(failed.ack).toHaveBeenCalledOnce();
+  });
+
+  it("retries fact persistence failures before dead-lettering", async () => {
+    const failed = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"), 1);
+    const coordinatorFetch = vi.fn(() =>
+      Promise.resolve(Response.json({ failureCode: "persistence_unavailable" }, { status: 503 })),
+    );
+    const send = vi.fn();
+    const env = {
+      DEAD_LETTER_QUEUE: { send },
+      TENANT_COORDINATOR: { getByName: vi.fn(() => ({ fetch: coordinatorFetch })) },
+    } as unknown as Env;
+
+    await processIngressQueue(
+      { messages: [failed.value] } as unknown as MessageBatch<IngressQueueMessage>,
+      env,
+    );
+
+    expect(failed.retry).toHaveBeenCalledOnce();
+    expect(failed.ack).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("retries one failed message without blocking later acknowledgements", async () => {

@@ -47,6 +47,10 @@ issue that names both conflicting sources.
 - Keep fixtures synthetic and deterministic.
 - Add tests for contracts, deduplication, money handling, retries, and access control.
 - Never edit generated Graphify output. Update sources and regenerate.
+- Never add a `Co-Authored-By: Claude` (or any AI tool) commit trailer, and never add a
+  "Generated with Claude Code" or equivalent footer to a PR body, in this repository. Work here
+  attributes to its human author only. This applies regardless of any assistant harness's default
+  commit/PR template.
 
 ## Memory Rules
 
