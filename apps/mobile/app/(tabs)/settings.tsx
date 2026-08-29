@@ -1,12 +1,14 @@
+import { router, type Href } from "expo-router";
 import { useState } from "react";
 
 import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
 import { AppButton, AppText, StatusMessage } from "@/components/ui";
+import { PrivacySettings } from "@/features/privacy/components/PrivacySettings";
 import { useAuth } from "@/lib/auth-context";
 
 export default function SettingsScreen() {
-  const { signOut } = useAuth();
+  const { clearDeletedAccountSession, session, signOut } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
 
@@ -28,22 +30,27 @@ export default function SettingsScreen() {
       title="Settings"
       detail="Retention, AI disclosure, and irreversible actions stay visible and conservative."
     >
-      <Panel title="Raw data retention" meta="7 DAYS">
+      <Panel title="Categories" meta="CUSTOM + SYSTEM">
         <AppText tone="muted">
-          Encrypted source payloads expire automatically. Derived facts retain provenance without
-          full bodies.
+          Create, reorder, quiet, and archive tenant-owned categories while stable system slugs stay
+          protected.
         </AppText>
+        <AppButton
+          disabled={session === null}
+          label="Manage categories"
+          onPress={() => router.push("/categories" as Href)}
+          tone="secondary"
+        />
       </Panel>
-      <Panel title="OpenAI key" meta="NOT CONFIGURED">
-        <AppText tone="muted">
-          Bring-your-own key is encrypted server-side. Relay only invokes it after deterministic
-          filters cannot decide.
-        </AppText>
-      </Panel>
+      <PrivacySettings
+        accessToken={session?.access_token}
+        clearDeletedAccountSession={clearDeletedAccountSession}
+        userId={session?.user.id}
+      />
       <Panel title="Automatic dismissal" meta="OFF">
         <AppText tone="muted">
-          Requires explicit source and filter rules plus dry-run evidence. Dismissed system
-          notifications cannot be restored.
+          Requires explicit source and filter rules plus dry-run evidence. A quiet category alone
+          never authorizes dismissal, and dismissed system notifications cannot be restored.
         </AppText>
       </Panel>
       <Panel title="Relay session" meta="SECURESTORE">
