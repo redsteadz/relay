@@ -25,6 +25,17 @@ export type NotificationCapturePreview = {
   subject?: string;
 };
 
+export type SmsCapturePreview = {
+  body?: string;
+  capturedAt: string;
+  sender?: string;
+};
+
+export type SmsSenderChoice = {
+  label: string;
+  sender: string;
+};
+
 type RelayDeviceIngressNativeModule = {
   getCapabilities(): Promise<NativeDeviceCapabilities>;
   getSelectableNotificationApps(): Promise<SelectableNotificationApp[]>;
@@ -46,6 +57,7 @@ type RelayDeviceIngressNativeModule = {
     paused: boolean,
     generation: number,
   ): Promise<void>;
+  pickSmsSender(): Promise<SmsSenderChoice | null>;
   syncSmsInbox(tenantId: string, generation: number): Promise<number>;
   deleteQueuedSms(tenantId: string, generation: number): Promise<void>;
   enqueueCapture(
@@ -66,7 +78,12 @@ type RelayDeviceIngressNativeModule = {
     now: number,
     generation: number,
   ): Promise<NotificationCapturePreview[]>;
-  setNotificationCapturePreviewSecure(enabled: boolean): Promise<void>;
+  getSmsCapturePreviews(
+    tenantId: string,
+    now: number,
+    generation: number,
+  ): Promise<SmsCapturePreview[]>;
+  setCapturePreviewSecure(enabled: boolean): Promise<void>;
   acknowledgeCapture(tenantId: string, envelopeId: string, generation: number): Promise<void>;
   failCapture(
     tenantId: string,

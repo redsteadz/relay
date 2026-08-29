@@ -8,11 +8,18 @@ import NativeRelayDeviceIngress, {
   type NativeDeviceCapabilities,
   type NotificationCapturePreview,
   type SelectableNotificationApp,
+  type SmsCapturePreview,
+  type SmsSenderChoice,
 } from "./src/RelayDeviceIngressModule";
 
 export type RelayBuildVariant = keyof typeof buildConstants.buildVariants;
 export type DeviceCapabilities = NativeDeviceCapabilities & { buildVariant: RelayBuildVariant };
-export type { NotificationCapturePreview, SelectableNotificationApp };
+export type {
+  NotificationCapturePreview,
+  SelectableNotificationApp,
+  SmsCapturePreview,
+  SmsSenderChoice,
+};
 
 const buildVariants = buildConstants.buildVariants as Record<RelayBuildVariant, RelayBuildVariant>;
 const buildVariant: RelayBuildVariant =
@@ -120,6 +127,10 @@ const RelayDeviceIngress = {
       currentCaptureGeneration(),
     );
   },
+  async pickSmsSender(): Promise<SmsSenderChoice | undefined> {
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return undefined;
+    return (await NativeRelayDeviceIngress.pickSmsSender()) ?? undefined;
+  },
   async syncSmsInbox(tenantId: string): Promise<number> {
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return 0;
     return NativeRelayDeviceIngress.syncSmsInbox(tenantId, currentCaptureGeneration());
@@ -166,9 +177,17 @@ const RelayDeviceIngress = {
       currentCaptureGeneration(),
     );
   },
-  async setNotificationCapturePreviewSecure(enabled: boolean): Promise<void> {
+  async getSmsCapturePreviews(tenantId: string, now = Date.now()): Promise<SmsCapturePreview[]> {
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return [];
+    return NativeRelayDeviceIngress.getSmsCapturePreviews(
+      tenantId,
+      now,
+      currentCaptureGeneration(),
+    );
+  },
+  async setCapturePreviewSecure(enabled: boolean): Promise<void> {
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
-    await NativeRelayDeviceIngress.setNotificationCapturePreviewSecure(enabled);
+    await NativeRelayDeviceIngress.setCapturePreviewSecure(enabled);
   },
   async acknowledgeCapture(tenantId: string, envelopeId: string): Promise<void> {
     await NativeRelayDeviceIngress?.acknowledgeCapture(

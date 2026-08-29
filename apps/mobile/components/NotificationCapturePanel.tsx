@@ -1,5 +1,5 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppState, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import {
@@ -8,6 +8,7 @@ import {
   normalizeNotificationAppChoices,
   toggleNotificationAppSelection,
 } from "@/lib/notification-capture";
+import { useLocalCapturePreviews } from "@/hooks/useLocalCapturePreviews";
 import RelayDeviceIngress, {
   type DeviceCapabilities,
   type NotificationCapturePreview,
@@ -15,21 +16,24 @@ import RelayDeviceIngress, {
 } from "@/modules/relay-device-ingress";
 import { useRelayTheme } from "@/theme";
 
+import { LocalCaptureQueue } from "./LocalCaptureQueue";
 import { Panel } from "./Panel";
 import { AppButton, AppCheckbox, AppSwitch, AppText, AppTextInput, StatusMessage } from "./ui";
 
 type Props = {
   capabilities: DeviceCapabilities | undefined;
   developmentLocal: boolean;
+  localPreviewEnabled: boolean;
+  localPreviewError: string | undefined;
   tenantId: string | undefined;
   onChanged: () => Promise<void>;
 };
 
-const LOCAL_QUEUE_POLL_MS = 3_000;
-
 export function NotificationCapturePanel({
   capabilities,
   developmentLocal,
+  localPreviewEnabled,
+  localPreviewError,
   tenantId,
   onChanged,
 }: Props) {
@@ -42,13 +46,6 @@ export function NotificationCapturePanel({
   const [disclosed, setDisclosed] = useState(false);
   const [paused, setPaused] = useState(true);
   const [status, setStatus] = useState<string>();
-  const [localCaptures, setLocalCaptures] = useState<NotificationCapturePreview[]>([]);
-  const [localQueueRefreshing, setLocalQueueRefreshing] = useState(false);
-  const [localQueueStatus, setLocalQueueStatus] = useState<string>();
-  const previewLifecycleRef = useRef({ active: false, generation: 0 });
-  const previewRefreshRunningRef = useRef(false);
-  const previewRefreshPendingRef = useRef(false);
-  const secureWindowGenerationRef = useRef(0);
 
   useEffect(() => {
     if (capabilities === undefined) return;
@@ -109,112 +106,18 @@ export function NotificationCapturePanel({
     [appChoices, appSearch],
   );
   const valid = tenantId !== undefined && isValidNotificationAllowlist(allowedPackages);
-
-  const clearLocalCapturePreviews = useCallback(() => {
-    previewLifecycleRef.current.active = false;
-    previewLifecycleRef.current.generation += 1;
-    previewRefreshPendingRef.current = false;
-    setLocalCaptures([]);
-    setLocalQueueRefreshing(false);
-    setLocalQueueStatus(undefined);
-  }, []);
-
-  const refreshLocalCaptures = useCallback(async () => {
-    if (!developmentLocal || tenantId === undefined || !previewLifecycleRef.current.active) {
-      return;
-    }
-    if (previewRefreshRunningRef.current) {
-      previewRefreshPendingRef.current = true;
-      return;
-    }
-
-    previewRefreshRunningRef.current = true;
-    try {
-      do {
-        previewRefreshPendingRef.current = false;
-        if (!previewLifecycleRef.current.active) break;
-        const generation = previewLifecycleRef.current.generation;
-        setLocalQueueRefreshing(true);
-        setLocalQueueStatus(undefined);
-        try {
-          const captures = await RelayDeviceIngress.getNotificationCapturePreviews(tenantId);
-          if (
-            previewLifecycleRef.current.active &&
-            previewLifecycleRef.current.generation === generation
-          ) {
-            setLocalCaptures(captures);
-          }
-        } catch {
-          if (
-            previewLifecycleRef.current.active &&
-            previewLifecycleRef.current.generation === generation
-          ) {
-            setLocalCaptures([]);
-            setLocalQueueStatus("Could not read the encrypted native queue.");
-          }
-        }
-      } while (previewRefreshPendingRef.current && previewLifecycleRef.current.active);
-    } finally {
-      previewRefreshRunningRef.current = false;
-      if (previewLifecycleRef.current.active) setLocalQueueRefreshing(false);
-    }
-  }, [developmentLocal, tenantId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!developmentLocal || tenantId === undefined) {
-        clearLocalCapturePreviews();
-        return undefined;
-      }
-
-      let focused = true;
-      let foreground = AppState.currentState === "active";
-      let secureWindowEnabled = false;
-      const secureWindowGeneration = ++secureWindowGenerationRef.current;
-
-      const activate = () => {
-        if (!focused || !foreground || !secureWindowEnabled) return;
-        previewLifecycleRef.current.active = true;
-        previewLifecycleRef.current.generation += 1;
-        void refreshLocalCaptures();
-      };
-      const deactivate = () => clearLocalCapturePreviews();
-
-      deactivate();
-      void RelayDeviceIngress.setNotificationCapturePreviewSecure(true)
-        .then(() => {
-          if (!focused || secureWindowGenerationRef.current !== secureWindowGeneration) {
-            return;
-          }
-          secureWindowEnabled = true;
-          activate();
-        })
-        .catch(() => {
-          if (!focused) return;
-          deactivate();
-          setLocalQueueStatus("Secure local preview is unavailable.");
-        });
-
-      const subscription = AppState.addEventListener("change", (state) => {
-        foreground = state === "active";
-        if (foreground) activate();
-        else deactivate();
-      });
-      const interval = setInterval(() => void refreshLocalCaptures(), LOCAL_QUEUE_POLL_MS);
-      return () => {
-        focused = false;
-        secureWindowEnabled = false;
-        deactivate();
-        subscription.remove();
-        clearInterval(interval);
-        const cleanupGeneration = ++secureWindowGenerationRef.current;
-        requestAnimationFrame(() => {
-          if (secureWindowGenerationRef.current !== cleanupGeneration) return;
-          void RelayDeviceIngress.setNotificationCapturePreviewSecure(false).catch(() => undefined);
-        });
-      };
-    }, [clearLocalCapturePreviews, developmentLocal, refreshLocalCaptures, tenantId]),
+  const loadLocalCaptures = useCallback(
+    () =>
+      tenantId === undefined
+        ? Promise.resolve<NotificationCapturePreview[]>([])
+        : RelayDeviceIngress.getNotificationCapturePreviews(tenantId),
+    [tenantId],
   );
+  const localPreview = useLocalCapturePreviews({
+    enabled: localPreviewEnabled && developmentLocal && tenantId !== undefined,
+    errorMessage: "Could not read the encrypted native queue.",
+    load: loadLocalCaptures,
+  });
 
   async function save(nextPaused = paused) {
     if (!valid || tenantId === undefined) return false;
@@ -398,59 +301,26 @@ export function NotificationCapturePanel({
         </StatusMessage>
       )}
       {developmentLocal ? (
-        <View
-          style={[
-            styles.localQueue,
-            {
-              borderColor: theme.relay.colors.border,
-              borderRadius: theme.relay.radii.md,
-            },
+        <LocalCaptureQueue
+          captures={localPreview.captures}
+          description="Development-local diagnostic. Relay decrypts these minimized fields only while this panel is visible. Nothing is copied to logs, app storage, or network."
+          emptyMessage="No pending notification captures reached the queue yet."
+          error={localPreviewError ?? localPreview.error}
+          fields={(capture) => [
+            { label: "Sender", value: capture.sender },
+            { label: "Subject", value: capture.subject },
+            { label: "Body", value: capture.body },
+            { label: "Application ID", value: capture.applicationId },
+            { label: "Captured at", value: capture.capturedAt },
           ]}
-        >
-          <View style={styles.queueHeading}>
-            <AppText variant="label">Encrypted native queue</AppText>
-            <AppText tone="accent" variant="eyebrow">
-              {localCaptures.length} PENDING
-            </AppText>
-          </View>
-          <AppText tone="muted">
-            Development-local diagnostic. Relay decrypts these minimized fields only while this
-            panel is visible. Nothing is copied to logs, app storage, or network.
-          </AppText>
-          <AppButton
-            disabled={localQueueRefreshing}
-            label={localQueueRefreshing ? "Refreshing..." : "Refresh pending captures"}
-            onPress={() => void refreshLocalCaptures()}
-            tone="secondary"
-          />
-          {localQueueStatus === undefined ? null : (
-            <StatusMessage tone="error">{localQueueStatus}</StatusMessage>
-          )}
-          {!localQueueRefreshing && localCaptures.length === 0 ? (
-            <AppText tone="muted">No pending notification captures reached the queue yet.</AppText>
-          ) : null}
-          {localCaptures.map((capture, index) => (
-            <View
-              key={`${capture.capturedAt}-${capture.applicationId ?? "unknown"}-${index.toString()}`}
-              style={[
-                styles.capture,
-                {
-                  backgroundColor: theme.relay.colors.background,
-                  borderColor: theme.relay.colors.border,
-                  borderRadius: theme.relay.radii.md,
-                },
-              ]}
-            >
-              <AppText variant="caption">Sender: {capture.sender ?? "Not available"}</AppText>
-              <AppText variant="caption">Subject: {capture.subject ?? "Not available"}</AppText>
-              <AppText variant="caption">Body: {capture.body ?? "Not available"}</AppText>
-              <AppText variant="caption">
-                Application ID: {capture.applicationId ?? "Not available"}
-              </AppText>
-              <AppText variant="caption">Captured at: {capture.capturedAt}</AppText>
-            </View>
-          ))}
-        </View>
+          keyFor={(capture, index) =>
+            `${capture.capturedAt}-${capture.applicationId ?? "unknown"}-${index.toString()}`
+          }
+          onRefresh={localPreview.refresh}
+          refreshLabel="Refresh pending captures"
+          refreshing={localPreview.refreshing}
+          title="Encrypted notification queue"
+        />
       ) : null}
     </Panel>
   );
@@ -467,23 +337,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     padding: 10,
-  },
-  capture: {
-    borderWidth: 1,
-    gap: 5,
-    padding: 10,
-  },
-  localQueue: {
-    borderWidth: 1,
-    gap: 10,
-    padding: 12,
-  },
-  queueHeading: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "space-between",
   },
   selectorHeading: {
     alignItems: "center",

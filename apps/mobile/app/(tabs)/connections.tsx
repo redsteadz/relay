@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
 
 import { NotificationCapturePanel } from "@/components/NotificationCapturePanel";
@@ -7,6 +7,7 @@ import { SmsCapturePanel } from "@/components/SmsCapturePanel";
 import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
 import { AppText } from "@/components/ui";
+import { useSecureLocalCaptureScreen } from "@/hooks/useLocalCapturePreviews";
 import { useAuth } from "@/lib/auth-context";
 import { localDevelopmentAccessEnabled, notificationCaptureMode } from "@/lib/development-access";
 import RelayDeviceIngress, { type DeviceCapabilities } from "@/modules/relay-device-ingress";
@@ -19,6 +20,7 @@ type ScopedCapabilities = {
 export default function ConnectionsScreen() {
   const { session } = useAuth();
   const [scopedCapabilities, setScopedCapabilities] = useState<ScopedCapabilities>();
+  const capabilityRequestRef = useRef(0);
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
@@ -28,28 +30,32 @@ export default function ConnectionsScreen() {
     localDevelopmentAccess,
     Platform.OS,
   );
+  const localPreview = useSecureLocalCaptureScreen(captureMode.developmentLocal);
   const capabilities =
     scopedCapabilities?.stateKey === captureMode.stateKey
       ? scopedCapabilities.capabilities
       : undefined;
 
-  const loadCapabilities = useCallback(async () => {
-    return RelayDeviceIngress.getCapabilities();
-  }, []);
+  const refreshCapabilities = useCallback(async () => {
+    const request = ++capabilityRequestRef.current;
+    try {
+      const nextCapabilities = await RelayDeviceIngress.getCapabilities();
+      if (request === capabilityRequestRef.current) {
+        setScopedCapabilities({ capabilities: nextCapabilities, stateKey: captureMode.stateKey });
+      }
+    } catch (error) {
+      if (request === capabilityRequestRef.current) setScopedCapabilities(undefined);
+      throw error;
+    }
+  }, [captureMode.stateKey]);
 
   useEffect(() => {
     let active = true;
     const refresh = async () => {
       try {
-        const nextCapabilities = await loadCapabilities();
-        if (active) {
-          setScopedCapabilities({
-            capabilities: nextCapabilities,
-            stateKey: captureMode.stateKey,
-          });
-        }
+        if (active) await refreshCapabilities();
       } catch {
-        if (active) setScopedCapabilities(undefined);
+        // refreshCapabilities already clears only the latest failed request.
       }
     };
     void refresh();
@@ -58,9 +64,10 @@ export default function ConnectionsScreen() {
     });
     return () => {
       active = false;
+      capabilityRequestRef.current += 1;
       subscription.remove();
     };
-  }, [captureMode.stateKey, loadCapabilities]);
+  }, [captureMode.stateKey, refreshCapabilities]);
 
   return (
     <Page
@@ -78,25 +85,18 @@ export default function ConnectionsScreen() {
         capabilities={capabilities}
         developmentLocal={captureMode.developmentLocal}
         key={captureMode.stateKey}
-        onChanged={async () => {
-          const nextCapabilities = await loadCapabilities();
-          setScopedCapabilities({
-            capabilities: nextCapabilities,
-            stateKey: captureMode.stateKey,
-          });
-        }}
+        localPreviewEnabled={localPreview.ready}
+        localPreviewError={localPreview.error}
+        onChanged={refreshCapabilities}
         tenantId={captureMode.tenantId}
       />
       <SmsCapturePanel
         capabilities={capabilities}
-        onChanged={async () => {
-          const nextCapabilities = await loadCapabilities();
-          setScopedCapabilities({
-            capabilities: nextCapabilities,
-            stateKey: captureMode.stateKey,
-          });
-        }}
-        tenantId={session?.user.id}
+        developmentLocal={captureMode.developmentLocal}
+        localPreviewEnabled={localPreview.ready}
+        localPreviewError={localPreview.error}
+        onChanged={refreshCapabilities}
+        tenantId={captureMode.tenantId}
       />
     </Page>
   );

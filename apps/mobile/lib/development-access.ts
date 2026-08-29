@@ -12,7 +12,7 @@ export function localDevelopmentAccessEnabled(
   isDevelopment: boolean,
   buildVariant: unknown,
 ): boolean {
-  return isDevelopment && buildVariant === "development";
+  return isDevelopment && (buildVariant === "development" || buildVariant === "sideload");
 }
 
 export function canEnterApp(hasSession: boolean, localDevelopmentAccess: boolean): boolean {
