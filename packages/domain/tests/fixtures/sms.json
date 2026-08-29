@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "30000000-0000-4000-8000-000000000021",
+  "occurredAt": "2026-08-29T11:30:00Z",
+  "capturedAt": "2026-08-29T11:30:02Z",
+  "source": {
+    "kind": "sms",
+    "externalId": "synthetic-sms-21",
+    "accountId": "synthetic-device"
+  },
+  "sender": "+15550100210",
+  "body": "Synthetic SMS fixture with deliberately conflicting candidates.",
+  "attributes": {
+    "amount": ["8.50", "9.50"],
+    "currency": "usd",
+    "merchant": "Example Transit",
+    "dates": [
+      {
+        "role": "transaction",
+        "instant": "not-a-date"
+      }
+    ],
+    "reference": {
+      "kind": "booking",
+      "value": "BOOKING-SYNTHETIC-21"
+    }
+  }
+}

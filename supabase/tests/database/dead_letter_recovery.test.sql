@@ -1,15 +1,21 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(47);
+select plan(50);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at
-) values (
-  '50000000-0000-0000-0000-000000000005',
-  '00000000-0000-0000-0000-000000000000',
-  'authenticated', 'authenticated', 'recovery@example.test', '', now(), now(), now()
-);
+) values
+  (
+    '50000000-0000-0000-0000-000000000005',
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated', 'recovery@example.test', '', now(), now(), now()
+  ),
+  (
+    'abcdefab-cdef-4abc-8def-abcdefabcdef',
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated', 'uppercase-recovery@example.test', '', now(), now(), now()
+  );
 
 select is(
   public.record_dead_letter_item(
@@ -370,7 +376,7 @@ select ok(
 select ok(
   not has_function_privilege(
     'authenticated',
-    'public.record_dead_letter_item(uuid,uuid,uuid,text,timestamptz,timestamptz,text,bytea,bytea,bytea,bytea,integer,uuid)',
+    'public.record_dead_letter_item(uuid,uuid,uuid,text,timestamptz,timestamptz,text,bytea,bytea,bytea,bytea,integer,uuid,text,text)',
     'execute'
   ),
   'authenticated users cannot record dead-letter ciphertext directly'
@@ -486,6 +492,56 @@ select is(
   ),
   1::bigint,
   'same request can republish after ambiguous replay failure'
+);
+
+select is(
+  public.record_dead_letter_item(
+    '7a000000-0000-4000-8000-000000000005',
+    'abcdefab-cdef-4abc-8def-abcdefabcdef',
+    'bcdefabc-defa-4bcd-8efa-bcdefabcdefa',
+    'persistence_unavailable',
+    '2030-04-01T00:00:00Z',
+    '2030-04-08T00:00:00Z',
+    'production',
+    decode(repeat('81', 16), 'hex'), decode(repeat('82', 12), 'hex'),
+    decode(repeat('83', 48), 'hex'), decode(repeat('84', 12), 'hex'), 1, null,
+    'ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF',
+    'BCDEFABC-DEFA-4BCD-8EFA-BCDEFABCDEFA'
+  ),
+  true,
+  'dead-letter record preserves valid uppercase encryption AAD IDs'
+);
+
+select is(
+  public.record_dead_letter_item(
+    '7a000000-0000-4000-8000-000000000005',
+    'abcdefab-cdef-4abc-8def-abcdefabcdef',
+    'bcdefabc-defa-4bcd-8efa-bcdefabcdefa',
+    'retry_exhausted_unknown',
+    '2030-04-01T00:00:00Z',
+    '2030-04-08T00:00:00Z',
+    'production',
+    decode(repeat('81', 16), 'hex'), decode(repeat('82', 12), 'hex'),
+    decode(repeat('83', 48), 'hex'), decode(repeat('84', 12), 'hex'), 1, null,
+    'abcdefab-cdef-4abc-8def-abcdefabcdef',
+    'bcdefabc-defa-4bcd-8efa-bcdefabcdefa'
+  ),
+  false,
+  'dead-letter retry cannot replace original encryption AAD casing'
+);
+
+select results_eq(
+  $$select encryption_aad_user_id, encryption_aad_envelope_id, encode(ciphertext, 'hex')
+    from public.claim_dead_letter_replay(
+      '7a000000-0000-4000-8000-000000000005',
+      '7b000000-0000-4000-8000-000000000005'
+    )$$,
+  $$values (
+    'ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF'::text,
+    'BCDEFABC-DEFA-4BCD-8EFA-BCDEFABCDEFA'::text,
+    repeat('81', 16)::text
+  )$$,
+  'replay claim returns exact original AAD IDs and ciphertext'
 );
 
 select * from finish();

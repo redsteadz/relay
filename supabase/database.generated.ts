@@ -368,6 +368,8 @@ export type Database = {
           accepted_at: string;
           ciphertext: string | null;
           completed_at: string | null;
+          encryption_aad_envelope_id: string | null;
+          encryption_aad_user_id: string | null;
           encryption_environment: string | null;
           envelope_id: string;
           failure_code: string;
@@ -389,6 +391,8 @@ export type Database = {
           accepted_at: string;
           ciphertext?: string | null;
           completed_at?: string | null;
+          encryption_aad_envelope_id?: string | null;
+          encryption_aad_user_id?: string | null;
           encryption_environment?: string | null;
           envelope_id: string;
           failure_code: string;
@@ -410,6 +414,8 @@ export type Database = {
           accepted_at?: string;
           ciphertext?: string | null;
           completed_at?: string | null;
+          encryption_aad_envelope_id?: string | null;
+          encryption_aad_user_id?: string | null;
           encryption_environment?: string | null;
           envelope_id?: string;
           failure_code?: string;
@@ -578,6 +584,56 @@ export type Database = {
           },
         ];
       };
+      source_facts: {
+        Row: {
+          certainty: Database["public"]["Enums"]["source_fact_certainty"];
+          created_at: string;
+          id: string;
+          kind: Database["public"]["Enums"]["source_fact_kind"];
+          normalizer_version: number;
+          ordinal: number;
+          provenance: Json;
+          source_item_id: string;
+          uncertainty_reason: Database["public"]["Enums"]["source_fact_uncertainty_reason"] | null;
+          user_id: string;
+          value: Json | null;
+        };
+        Insert: {
+          certainty: Database["public"]["Enums"]["source_fact_certainty"];
+          created_at?: string;
+          id?: string;
+          kind: Database["public"]["Enums"]["source_fact_kind"];
+          normalizer_version: number;
+          ordinal: number;
+          provenance: Json;
+          source_item_id: string;
+          uncertainty_reason?: Database["public"]["Enums"]["source_fact_uncertainty_reason"] | null;
+          user_id: string;
+          value?: Json | null;
+        };
+        Update: {
+          certainty?: Database["public"]["Enums"]["source_fact_certainty"];
+          created_at?: string;
+          id?: string;
+          kind?: Database["public"]["Enums"]["source_fact_kind"];
+          normalizer_version?: number;
+          ordinal?: number;
+          provenance?: Json;
+          source_item_id?: string;
+          uncertainty_reason?: Database["public"]["Enums"]["source_fact_uncertainty_reason"] | null;
+          user_id?: string;
+          value?: Json | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "source_facts_user_id_source_item_id_fkey";
+            columns: ["user_id", "source_item_id"];
+            isOneToOne: false;
+            referencedRelation: "source_items";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
       source_items: {
         Row: {
           application_id: string | null;
@@ -588,6 +644,7 @@ export type Database = {
           created_at: string;
           encryption_environment: string | null;
           external_id: string;
+          fact_set_fingerprint: string | null;
           id: string;
           key_version: number | null;
           occurred_at: string;
@@ -612,6 +669,7 @@ export type Database = {
           created_at?: string;
           encryption_environment?: string | null;
           external_id: string;
+          fact_set_fingerprint?: string | null;
           id: string;
           key_version?: number | null;
           occurred_at: string;
@@ -636,6 +694,7 @@ export type Database = {
           created_at?: string;
           encryption_environment?: string | null;
           external_id?: string;
+          fact_set_fingerprint?: string | null;
           id?: string;
           key_version?: number | null;
           occurred_at?: string;
@@ -723,6 +782,8 @@ export type Database = {
         Returns: {
           accepted_at: string;
           ciphertext: string;
+          encryption_aad_envelope_id: string;
+          encryption_aad_user_id: string;
           encryption_environment: string;
           envelope_id: string;
           id: string;
@@ -765,6 +826,7 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      is_canonical_fact_instant: { Args: { p_value: string }; Returns: boolean };
       kek_encryption_inventory: {
         Args: { p_environment: string };
         Returns: {
@@ -832,11 +894,46 @@ export type Database = {
         };
         Returns: boolean;
       };
+      persist_encrypted_source_item_v3: {
+        Args: {
+          p_accepted_at: string;
+          p_application_id: string;
+          p_captured_at: string;
+          p_content_fingerprint: string;
+          p_encryption_environment: string;
+          p_external_id: string;
+          p_fact_set_fingerprint: string;
+          p_id: string;
+          p_key_version: number;
+          p_occurred_at: string;
+          p_raw_ciphertext: string;
+          p_raw_expires_at: string;
+          p_raw_nonce: string;
+          p_source: Database["public"]["Enums"]["source_kind"];
+          p_source_account_id: string;
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: string;
+      };
+      persist_source_facts: {
+        Args: {
+          p_fact_set_fingerprint: string;
+          p_facts: Json;
+          p_normalizer_version: number;
+          p_source_item_id: string;
+          p_user_id: string;
+        };
+        Returns: string;
+      };
       purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
       record_dead_letter_item: {
         Args: {
           p_accepted_at: string;
           p_ciphertext: string;
+          p_encryption_aad_envelope_id?: string;
+          p_encryption_aad_user_id?: string;
           p_encryption_environment: string;
           p_envelope_id: string;
           p_failure_code: string;
@@ -905,6 +1002,10 @@ export type Database = {
         | "failed"
         | "cancelled";
       event_kind: "task" | "reminder" | "calendar-event" | "fact";
+      source_fact_certainty: "certain" | "uncertain";
+      source_fact_kind:
+        "sender" | "date" | "amount" | "currency" | "merchant" | "location" | "reference";
+      source_fact_uncertainty_reason: "invalid" | "contradictory";
       source_kind: "gmail" | "notification" | "sms" | "email";
     };
     CompositeTypes: {
@@ -1038,6 +1139,17 @@ export const Constants = {
         "cancelled",
       ],
       event_kind: ["task", "reminder", "calendar-event", "fact"],
+      source_fact_certainty: ["certain", "uncertain"],
+      source_fact_kind: [
+        "sender",
+        "date",
+        "amount",
+        "currency",
+        "merchant",
+        "location",
+        "reference",
+      ],
+      source_fact_uncertainty_reason: ["invalid", "contradictory"],
       source_kind: ["gmail", "notification", "sms", "email"],
     },
   },

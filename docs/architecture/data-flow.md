@@ -1,16 +1,16 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-28
+last_verified: 2026-08-29
 ---
 
 # Data Flow
 
 ```text
 source -> authenticated ingress -> canonical envelope -> envelope encryption -> Queue
-      -> tenant coordinator -> decrypt in memory -> durable encrypted source record
-      -> source identity dedupe -> content fingerprint dedupe
-      -> normalization -> categorization -> event extraction
+      -> tenant coordinator -> decrypt in memory -> source identity/content fingerprint dedupe
+      -> provider-neutral normalization -> durable encrypted source record + typed facts
+      -> categorization -> event extraction
       -> deterministic filter -> optional redacted semantic decision
       -> action proposal (provider dispatch remains disabled until issue #35)
 
@@ -24,23 +24,24 @@ Cloudflare Queues are at-least-once. Every stage can repeat after timeout or dep
 identity uses provider kind, source account, and external ID. Content fingerprints catch equivalent
 payloads with different delivery IDs. One Durable Object instance per tenant explicitly serializes
 decryption, deduplication, and persistence. Supabase unique constraints remain final durable
-arbitration through `persist_encrypted_source_item_v2`; its atomic boolean result reports insert or
-idempotent conflict without reflecting database details. Database conflicts do not populate candidate
-Durable Object identity or fingerprint markers.
+arbitration through `persist_encrypted_source_item_v3`; its fixed result reports stored, duplicate,
+fact-integrity conflict, or tenant conflict without reflecting database details.
 
 ## Deduplication
 
 Two independent layers guard against Cloudflare Queue's at-least-once redelivery, and either alone is
 sufficient for correctness — the second exists because the first is fast, not because it is required:
 
-- **Durable Object local cache** (`source:<identity>` / `fingerprint:<fingerprint>` keys in
-  `DurableObjectStorage`). This is a fast path only. It is durable across a Durable Object eviction and
-  restart, since `DurableObjectStorage`, unlike in-memory JS state, survives that; but a message that
-  reaches the Supabase RPC and gets a `duplicate` result back deliberately does not populate it (see
-  above), so it cannot be assumed complete after any retried or concurrent delivery.
+- **Durable Object local cache** (`source:<identity>`, `fingerprint:<fingerprint>`,
+  `fact-set-fingerprint:<source-id>`, and `source-binding:<source-id>` keys in
+  `DurableObjectStorage`). Bound markers contain source ID, fact digest, source identity, and content
+  fingerprint and survive Durable Object eviction/restart. Exact same-ID database retries may populate
+  them after fact persistence converges; duplicates under another candidate ID do not. Legacy unbound
+  markers never decide a result. One multi-key `put` atomically writes related records, as guaranteed by
+  [Cloudflare Durable Object storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#put).
 - **`source_items` unique constraints** (`(user_id, id)`, `(user_id, source, source_account_id,
 external_id)` with `nulls not distinct`, and `(user_id, content_fingerprint)`), enforced by Postgres
-  through `persist_encrypted_source_item_v2`'s `insert ... on conflict do nothing`. This is final
+  through `persist_encrypted_source_item_v3`'s `insert ... on conflict do nothing`. This is final
   arbitration: even two deliveries that both miss the Durable Object local cache (a genuine race, or a
   cold cache right after a restart) still converge on exactly one row, because Postgres — not the
   Durable Object process — serializes the conflicting inserts. This is also what makes a lost HTTP
@@ -67,6 +68,15 @@ and has no fingerprint or similarity input.
 
 Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
 envelope ID, recovery ID, original acceptance time, and original expiry, never raw source bodies.
+Normal runtime UUID contracts canonicalize valid input to lowercase before new encryption context
+creation. Encrypted Queue wire UUIDs instead validate while preserving original casing because user and
+envelope IDs are authenticated encryption context. Consumers route by canonical tenant ID, decrypt
+with exact wire IDs, then use lowercase IDs for Durable Object keys and database persistence. When
+wire AAD casing differs, coordinator re-encrypts same validated plaintext in memory under canonical
+user/envelope AAD before durable source storage; lowercase-produced messages reuse original encrypted
+value.
+PostgreSQL fact validation compares nested source UUIDs semantically while retaining strict RFC UUID
+syntax validation.
 Acceptance and expiry also live inside encrypted plaintext, so coordinator rejects modified Queue
 metadata after decryption. Coordinator acknowledges only after Supabase persistence. Source rows use
 original authenticated expiry rather than persistence time, so Queue delay cannot extend retention.
@@ -80,6 +90,52 @@ copied into the dead-letter queue, because an invalid body cannot be trusted to 
 Hosted ingestion validates the KEK, HTTPS Supabase URL, and backend key before Queue publication.
 Production rejects local Durable Object fallback even when its development flag is present.
 
+## Typed Fact Normalization
+
+Normalizer version 1 consumes only canonical envelope fields and canonical `attributes` candidates;
+source kind never selects extraction logic. It emits runtime-validated sender, date, amount, currency,
+merchant, location, and reference facts. Date facts carry explicit roles. Amount values remain bounded
+plain decimal strings and never pass through a JavaScript number. Currency accepts uppercase
+three-letter codes without silently rewriting candidate content. Valid date candidates may include
+`Z` or an explicit numeric offset and up to nine fractional digits; normalization resolves the instant
+and persists exactly 30 characters in UTC (`YYYY-MM-DDTHH:mm:ss.fffffffffZ`). Fractions are
+right-padded rather than passed through JavaScript millisecond precision. Equivalent offset/fraction
+forms therefore agree before contradiction evaluation, while distinct sub-millisecond instants remain
+distinct. Runtime and database checks both reject impossible calendar values, noncanonical persisted
+offsets, and persisted precision other than nine digits.
+
+Every fact carries source item ID, normalizer version, deterministic ordinal, certainty, and one or
+more field paths. Provenance stores paths and optional offsets only, never source snippets. Root
+`sender`, `occurredAt`, and `capturedAt` plus allowlisted `attributes.sender`, `attributes.dates`,
+`attributes.amount`, `attributes.currency`, `attributes.merchant`, `attributes.location`, and
+`attributes.reference` are eligible. Body and subject are not copied into facts. Invalid candidates
+become `uncertain/invalid`; conflicting scalar candidates become `uncertain/contradictory`. Uncertain
+facts omit candidate values, so normalization neither guesses nor persists rejected plaintext.
+
+Normalizer output receives a distinct SHA-256 `fact_set_fingerprint` over the complete
+runtime-validated `SourceFactSet` JSON in contract key order. This digest is separate from legacy
+content dedupe because dates and fact attributes are intentionally absent from `content_fingerprint`.
+`persist_encrypted_source_item_v3` atomically inserts encrypted source and fact digest. Same-ID retries
+require exact source identity, content fingerprint, and fact digest; changed bindings or NULL
+pre-migration digests fail as `fact-integrity-conflict` before facts can attach. Source-identity/content
+duplicates under another ID remain normal duplicates, and cross-tenant IDs return fixed
+`tenant-conflict` metadata.
+
+Hosted persistence writes facts through `persist_source_facts` only after encrypted source
+persistence. `(user_id, source_item_id, normalizer_version, ordinal)` is unique and tenant-bound to
+`source_items`; fact persistence requires the same exact fact digest. A missing candidate source ID
+returns normal dedupe only when source persistence already returned `duplicate`. Fact version/digest
+conflicts and impossible stored/missing states fail closed as `fact_integrity_conflict`. Exact retries
+return `duplicate`; different output under the same normalizer version fails closed. If either RPC
+commits but its response is lost, retry converges through exact digest/idempotency checks. Queue
+acknowledgement occurs only after both durable stages converge.
+
+Durable Object markers bind source ID, source identity, content fingerprint, and fact digest. Legacy
+unbound markers fall through to Postgres. Local mode atomically stores encrypted source, structured
+facts, envelope-ID digest, and source binding; an exact binding is duplicate, any changed binding is an
+integrity failure, and an existing local source without a complete binding fails closed. Database
+duplicates under another source ID never receive candidate markers.
+
 Pipeline Analytics Engine points use only fixed metric names, numeric counts, and numeric latency in
 milliseconds. Tenant IDs, envelope IDs, source metadata, ciphertext, URLs, errors, and plaintext are
 not metric dimensions or values.
@@ -88,10 +144,10 @@ not metric dimensions or values.
 
 `pnpm e2e:local` resets a local Supabase stack, starts local API and Wrangler processes, and sends the
 shared synthetic mobile fixture through the complete encrypted ingress path. The harness verifies
-encrypted Supabase persistence, source-identity and fingerprint deduplication, acknowledgement after
-durable persistence, cold database conflict outcomes, duplicate-cache safety, dead-letter metadata
-delivery, operator inspection, exact encrypted replay, terminal replay cleanup, action-run absence,
-and controlled seven-day retention cleanup. It
+encrypted Supabase persistence, typed facts with exact money and field provenance, source-identity and
+fingerprint deduplication, acknowledgement after durable persistence, cold database conflict outcomes,
+duplicate-cache safety, dead-letter metadata delivery, operator inspection, exact encrypted replay,
+terminal replay cleanup, action-run absence, and controlled seven-day retention cleanup. It
 accepts only a loopback Supabase URL and creates no remote Cloudflare or Supabase resources.
 
 The `wrangler.e2e.jsonc` config exists only for `wrangler dev --local`. Result markers contain status
@@ -108,16 +164,19 @@ or reconcile before an ambiguous retry.
 
 Invalid input is rejected before Queue publication. Transient internal failures retry. Exhausted
 messages enter production dead-letter processing. `dead_letter_items` stores exact encrypted Queue
-components, fixed failure code, original identity/expiry, and replay state. Authenticated users have no
-table or RPC access. Dedicated operator API returns metadata only; it has no decrypt operation.
+components, fixed failure code, original identity/expiry, replay state, and validated original AAD ID
+text. AAD text must be UUID-equivalent to canonical database IDs; legacy NULL AAD columns fall back to
+those canonical IDs. Authenticated users have no table or RPC access. Dedicated operator API returns
+metadata only; it has no decrypt operation.
 Coordinator maps configuration, unavailable key version, invalid ciphertext/envelope, persistence,
-tenant-conflict, and invalid-response failures to fixed codes without reflecting error text. Final
-attempt republishes that metadata beside ciphertext to existing dead-letter Queue. If durable recovery
-storage is unavailable, DLQ consumer parks exact message back onto same Queue with bounded delay until
-original expiry.
+tenant-conflict, fact-integrity, and invalid-response failures to fixed codes without reflecting error
+text. Final attempt republishes that metadata beside ciphertext to existing dead-letter Queue. If
+durable recovery storage is unavailable, DLQ consumer parks exact message back onto same Queue with
+bounded delay until original expiry.
 
 Replay atomically claims one unexpired item with stable request UUID and republishes exact ciphertext,
-source identity, encryption context, and original expiry. Queue completion records `succeeded` or
+original-casing encryption context, source identity, and original expiry. Dead-letter KEK rotation uses
+same original AAD text while compare-and-set identity remains canonical. Queue completion records `succeeded` or
 `duplicate`, destroys recoverable dead-letter encryption fields, and writes metadata-only audit rows.
 An ambiguous Queue publication or failed replay retains same active request ID; only retry with that
 ID can republish it. Repeated completion is idempotent. Terminal or expired rows cannot regain ciphertext. Source unique
