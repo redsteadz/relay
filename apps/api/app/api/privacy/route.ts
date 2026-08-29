@@ -1,3 +1,5 @@
+import { privacyOverviewResponseSchema } from "@relay/contracts";
+
 import { authenticateRequest } from "../../../lib/auth";
 import { getAccountDeletionStatus, getRetentionStatus, loadPrivacyEnv } from "../../../lib/privacy";
 
@@ -20,7 +22,7 @@ export async function GET(request: Request) {
       getRetentionStatus(auth.userId, env),
       getAccountDeletionStatus(auth.userId, env),
     ]);
-    return Response.json({ deletion, retention });
+    return Response.json(privacyOverviewResponseSchema.parse({ deletion, retention }));
   } catch {
     return Response.json(
       { error: { code: "privacy_unavailable", message: "Privacy overview unavailable" } },
