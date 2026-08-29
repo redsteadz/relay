@@ -1,3 +1,5 @@
+import { privacyDisclosuresResponseSchema } from "@relay/contracts";
+
 import { authenticateRequest } from "../../../../lib/auth";
 import { listDisclosures, loadPrivacyEnv } from "../../../../lib/privacy";
 
@@ -22,9 +24,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    return Response.json({
-      disclosures: await listDisclosures(auth.userId, env, Number(rawLimit)),
-    });
+    return Response.json(
+      privacyDisclosuresResponseSchema.parse({
+        disclosures: await listDisclosures(auth.userId, env, Number(rawLimit)),
+      }),
+    );
   } catch {
     return Response.json(
       { error: { code: "disclosures_unavailable", message: "Disclosure history unavailable" } },
