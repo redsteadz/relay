@@ -1,4 +1,5 @@
 import {
+  canonicalUuidSchema,
   ingressQueueMessageSchema,
   relayUserIdSchema,
   type DeadLetterFailureCode,
@@ -13,6 +14,7 @@ import {
   sourceIdentity,
 } from "@relay/domain";
 
+import { scheduleEarlierAlarm } from "./alarms";
 import {
   readPersistenceConfiguration,
   supabaseBackendHeaders,
@@ -146,33 +148,42 @@ async function persist(
 ): Promise<SourcePersistenceV3Result | "local"> {
   if (configuration.supabase === undefined) return "local";
 
-  const response = await fetch(
-    `${configuration.supabase.url}/rest/v1/rpc/persist_encrypted_source_item_v3`,
-    {
-      method: "POST",
-      headers: supabaseBackendHeaders(configuration.supabase.serviceRoleKey),
-      body: JSON.stringify({
-        p_application_id: envelope.source.applicationId ?? null,
-        p_accepted_at: message.acceptedAt,
-        p_captured_at: envelope.capturedAt,
-        p_content_fingerprint: fingerprint,
-        p_encryption_environment: configuration.environment,
-        p_external_id: envelope.source.externalId,
-        p_fact_set_fingerprint: factSetFingerprint,
-        p_id: envelope.id,
-        p_key_version: encrypted.keyVersion,
-        p_occurred_at: envelope.occurredAt,
-        p_raw_ciphertext: base64ToPostgresBytea(encrypted.ciphertext),
-        p_raw_expires_at: message.rawExpiresAt,
-        p_raw_nonce: base64ToPostgresBytea(encrypted.nonce),
-        p_source: envelope.source.kind,
-        p_source_account_id: envelope.source.accountId ?? null,
-        p_user_id: userId,
-        p_wrap_nonce: base64ToPostgresBytea(encrypted.wrapNonce),
-        p_wrapped_data_key: base64ToPostgresBytea(encrypted.wrappedKey),
-      }),
-    },
-  );
+  const gmailConnectionId =
+    envelope.source.kind === "gmail"
+      ? canonicalUuidSchema.safeParse(envelope.source.accountId)
+      : undefined;
+  if (gmailConnectionId !== undefined && !gmailConnectionId.success) {
+    throw new SourcePersistenceError("tenant_id_conflict");
+  }
+  const rpc = gmailConnectionId?.success
+    ? "persist_encrypted_source_item_v4"
+    : "persist_encrypted_source_item_v3";
+
+  const response = await fetch(`${configuration.supabase.url}/rest/v1/rpc/${rpc}`, {
+    method: "POST",
+    headers: supabaseBackendHeaders(configuration.supabase.serviceRoleKey),
+    body: JSON.stringify({
+      p_application_id: envelope.source.applicationId ?? null,
+      p_accepted_at: message.acceptedAt,
+      p_captured_at: envelope.capturedAt,
+      ...(gmailConnectionId?.success ? { p_connection_id: gmailConnectionId.data } : {}),
+      p_content_fingerprint: fingerprint,
+      p_encryption_environment: configuration.environment,
+      p_external_id: envelope.source.externalId,
+      p_fact_set_fingerprint: factSetFingerprint,
+      p_id: envelope.id,
+      p_key_version: encrypted.keyVersion,
+      p_occurred_at: envelope.occurredAt,
+      p_raw_ciphertext: base64ToPostgresBytea(encrypted.ciphertext),
+      p_raw_expires_at: message.rawExpiresAt,
+      p_raw_nonce: base64ToPostgresBytea(encrypted.nonce),
+      p_source: envelope.source.kind,
+      p_source_account_id: envelope.source.accountId ?? null,
+      p_user_id: userId,
+      p_wrap_nonce: base64ToPostgresBytea(encrypted.wrapNonce),
+      p_wrapped_data_key: base64ToPostgresBytea(encrypted.wrappedKey),
+    }),
+  });
 
   return parseSourcePersistenceV3Response(response);
 }
@@ -407,8 +418,7 @@ export async function processIngressMessage(
     const expiresAt = Date.parse(message.rawExpiresAt);
     records[localSourceKey] = { encrypted: durableEncrypted, expiresAt };
     records[`source-facts:${envelope.id}:v${factSet.normalizerVersion}`] = factSet;
-    const alarm = await storage.getAlarm();
-    if (alarm === null || alarm > expiresAt) await storage.setAlarm(expiresAt);
+    await scheduleEarlierAlarm(storage, expiresAt);
   }
   if (env.RELAY_E2E_MODE === "true") {
     records[`${E2E_RESULT_PREFIX}${envelope.id}`] = {
@@ -434,5 +444,5 @@ export async function runMaintenanceAlarm(storage: DurableObjectStorage): Promis
     else nextExpiry = Math.min(nextExpiry ?? record.expiresAt, record.expiresAt);
   }
   if (expired.length > 0) await storage.delete(expired);
-  if (nextExpiry !== undefined) await storage.setAlarm(nextExpiry);
+  if (nextExpiry !== undefined) await scheduleEarlierAlarm(storage, nextExpiry);
 }

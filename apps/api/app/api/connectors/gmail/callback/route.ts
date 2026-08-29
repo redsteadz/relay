@@ -1,6 +1,7 @@
 import {
   buildCallbackUrl,
   clearOAuthCookie,
+  DuplicateGmailConnectionError,
   exchangeCodeForTokens,
   fetchGmailAddress,
   loadGmailEnv,
@@ -25,12 +26,12 @@ export async function GET(request: Request) {
   // Google may redirect with an error (e.g. user denied consent).
   if (errorParam !== null) {
     return Response.json(
-      { error: { code: "gmail_oauth_denied", message: `Authorization denied: ${errorParam}` } },
+      { error: { code: "gmail_oauth_denied", message: "Gmail authorization was denied" } },
       { status: 400, headers: { "set-cookie": clearOAuthCookie() } },
     );
   }
 
-  if (code === null || stateParam === null) {
+  if (code === null || code.length === 0 || code.length > 4096 || stateParam === null) {
     return Response.json(
       { error: { code: "invalid_callback", message: "Missing authorization code or state" } },
       { status: 400, headers: { "set-cookie": clearOAuthCookie() } },
@@ -38,7 +39,7 @@ export async function GET(request: Request) {
   }
 
   // Validate state against cookie to prevent callback substitution.
-  const oauthSession = parseOAuthCookie(request);
+  const oauthSession = await parseOAuthCookie(request, env);
   if (oauthSession === null) {
     return Response.json(
       { error: { code: "invalid_state", message: "OAuth session expired or missing" } },
@@ -67,6 +68,14 @@ export async function GET(request: Request) {
     );
   }
 
+  const grantedScopes = tokens.scope.split(" ").filter((scope: string) => scope.length > 0);
+  if (!grantedScopes.includes("https://www.googleapis.com/auth/gmail.readonly")) {
+    return Response.json(
+      { error: { code: "gmail_scope_missing", message: "Required Gmail scope was not granted" } },
+      { status: 403, headers: { "set-cookie": clearOAuthCookie() } },
+    );
+  }
+
   let email;
   try {
     email = await fetchGmailAddress(tokens.accessToken);
@@ -76,8 +85,6 @@ export async function GET(request: Request) {
       { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
     );
   }
-
-  const grantedScopes = tokens.scope.split(" ").filter((s: string) => s.length > 0);
 
   let connection;
   try {
@@ -89,10 +96,16 @@ export async function GET(request: Request) {
       env,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to store connection";
-    const isDuplicate = message === "Gmail account is already connected";
+    const isDuplicate = error instanceof DuplicateGmailConnectionError;
     return Response.json(
-      { error: { code: isDuplicate ? "duplicate_connection" : "connection_failed", message } },
+      {
+        error: {
+          code: isDuplicate ? "duplicate_connection" : "connection_failed",
+          message: isDuplicate
+            ? "Gmail account is already connected"
+            : "Failed to store connection",
+        },
+      },
       { status: isDuplicate ? 409 : 500, headers: { "set-cookie": clearOAuthCookie() } },
     );
   }

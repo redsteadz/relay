@@ -125,14 +125,16 @@ async function buildMessage(
   keyring: ReturnType<typeof parseKekKeyring>,
   envelopeOverrides: Partial<IngressEnvelope> = {},
   wireUserId = userId,
+  producer: "device" | "gmail-provider" = "device",
 ): Promise<IngressQueueMessage> {
   const item = envelope(envelopeOverrides);
   const acceptedAt = "2026-08-24T10:00:00.000Z";
   const rawExpiresAt = "2026-08-31T10:00:00.000Z";
   const plaintext = JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     acceptedAt,
     rawExpiresAt,
+    producer,
     envelope: item,
   });
   const encrypted = await encryptValue(
@@ -414,6 +416,60 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
         sourceItemEncryptionContext(uppercaseUserId, uppercaseId),
       ),
     ).rejects.toThrow();
+  });
+
+  it("uses connection-bound v4 persistence only for validated Gmail account UUID", async () => {
+    const { keyring, serialized } = keyMaterial();
+    const connectionId = "06f96f7d-3e1a-4a66-b98e-58be9766b96e";
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => {
+      void _input;
+      void _init;
+      return Promise.resolve(Response.json("stored"));
+    });
+    const { env } = supabaseEnv(serialized, fetchMock);
+    const { storage } = fakeStorage();
+    const message = await buildMessage(
+      keyring,
+      { source: { kind: "gmail", externalId: "message-1", accountId: connectionId } },
+      userId,
+      "gmail-provider",
+    );
+
+    const response = await processIngressMessage(storage, env, message);
+
+    expect(response.ok).toBe(true);
+    const sourceCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input).endsWith("persist_encrypted_source_item_v4"),
+    );
+    if (typeof sourceCall?.[1]?.body !== "string") throw new TypeError("Expected v4 JSON request");
+    expect(JSON.parse(sourceCall[1].body)).toMatchObject({
+      p_connection_id: connectionId,
+      p_source: "gmail",
+      p_source_account_id: connectionId,
+      p_user_id: userId,
+    });
+  });
+
+  it("rejects encrypted device provenance that claims reserved Gmail source", async () => {
+    const { keyring, serialized } = keyMaterial();
+    const fetchMock = vi.fn();
+    const { env } = supabaseEnv(serialized, fetchMock);
+    const message = await buildMessage(keyring, {
+      source: {
+        kind: "gmail",
+        externalId: "message-1",
+        accountId: "06f96f7d-3e1a-4a66-b98e-58be9766b96e",
+      },
+    });
+
+    const response = await processIngressMessage(fakeStorage().storage, env, message);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      accepted: false,
+      failureCode: "envelope_invalid",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("is exactly one durable row even if the local cache race is lost entirely", async () => {
