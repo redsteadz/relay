@@ -93,3 +93,17 @@ export async function contentFingerprint(item: IngressEnvelope): Promise<string>
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+
+/**
+ * Canonical category-name normalization: Unicode NFKC, trim, collapse internal whitespace runs to a
+ * single space, lowercase.
+ *
+ * This mirrors the `normalized_name` stored generated column added in
+ * `supabase/migrations/202608290002_custom_categories.sql`, which backs the tenant-unique index on
+ * category names. The database remains the authority for uniqueness; this exists so a client can
+ * predict a collision before issuing a write, and so the rule has one documented definition on each
+ * side of the wire.
+ */
+export function normalizeCategoryName(value: string): string {
+  return normalizeText(value);
+}

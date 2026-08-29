@@ -7,7 +7,11 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDirectory = resolve(root, "supabase/migrations");
-const targetMigration = "202608290002_gmail_history.sql";
+const targetMigration = "202608290004_gmail_history.sql";
+const requiredPriorMigrations = [
+  "202608290002_custom_categories.sql",
+  "202608290003_privacy_controls.sql",
+];
 
 function run(command, args, input) {
   return new Promise((resolveRun, reject) => {
@@ -119,6 +123,16 @@ async function main() {
   const migrationNames = (await readdir(migrationsDirectory))
     .filter((name) => name.endsWith(".sql") && name < targetMigration)
     .sort();
+  if (
+    requiredPriorMigrations.some((name) => !migrationNames.includes(name)) ||
+    requiredPriorMigrations.some(
+      (name, index) =>
+        index > 0 &&
+        migrationNames.indexOf(name) <= migrationNames.indexOf(requiredPriorMigrations[index - 1]),
+    )
+  ) {
+    throw new Error("Gmail migration prerequisites are missing or out of order");
+  }
   const priorMigrations = (
     await Promise.all(
       migrationNames.map((name) => readFile(resolve(migrationsDirectory, name), "utf8")),
@@ -208,10 +222,183 @@ async function main() {
            if affected <> 1 then
              raise exception 'upgraded policy blocked inactive Gmail delete';
            end if;
-         end;
-         $$;
-         reset role;
-       `,
+          end;
+          $$;
+          reset role;
+
+          do $$
+          begin
+            if to_regprocedure('public.purge_own_raw_payloads()') is null
+              or to_regprocedure('public.finalize_account_deletion(uuid)') is null then
+              raise exception 'privacy migration was not applied before Gmail';
+            end if;
+            if not exists (
+              select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'categories'
+                and column_name = 'normalized_name'
+            ) then
+              raise exception 'custom category migration was not applied before Gmail';
+            end if;
+          end;
+          $$;
+
+          insert into public.source_items (
+            id, user_id, source, external_id, occurred_at, captured_at, content_fingerprint,
+            raw_expires_at, encryption_environment, raw_ciphertext, raw_nonce, wrapped_data_key,
+            wrap_nonce, key_version
+          ) values (
+            '91300000-0000-0000-0000-000000000003',
+            '91000000-0000-0000-0000-000000000001',
+            'email', 'expired-source', now(), now(), repeat('a', 64), now() - interval '1 second',
+            'production', decode(repeat('31', 16), 'hex'), decode(repeat('32', 12), 'hex'),
+            decode(repeat('33', 48), 'hex'), decode(repeat('34', 12), 'hex'), 1
+          );
+          insert into public.dead_letter_items (
+            id, user_id, envelope_id, failure_code, accepted_at, raw_expires_at,
+            encryption_environment, ciphertext, nonce, wrapped_data_key, wrap_nonce, key_version
+          ) values (
+            '91400000-0000-0000-0000-000000000004',
+            '91000000-0000-0000-0000-000000000001',
+            '91500000-0000-0000-0000-000000000005',
+            'retry_exhausted_unknown', now() - interval '8 days', now() - interval '1 day',
+            'production', decode(repeat('41', 16), 'hex'), decode(repeat('42', 12), 'hex'),
+            decode(repeat('43', 48), 'hex'), decode(repeat('44', 12), 'hex'), 1
+          );
+          insert into public.gmail_terminal_message_receipts (
+            connection_id, user_id, message_digest, reason, completed_at, expires_at
+          ) values (
+            '91100000-0000-0000-0000-000000000001',
+            '91000000-0000-0000-0000-000000000001', repeat('b', 64),
+            'provider-message-missing', now() - interval '8 days', now() - interval '1 day'
+          );
+          insert into public.gmail_disconnect_tombstones (
+            mailbox_digest, connection_id, user_id, completed_at, expires_at
+          ) values (
+            repeat('c', 64), '91100000-0000-0000-0000-000000000001',
+            '91000000-0000-0000-0000-000000000001',
+            now() - interval '2 days', now() - interval '1 day'
+          );
+
+          do $$
+          declare
+            purged bigint;
+          begin
+            purged := public.purge_expired_raw_payloads(now());
+            if purged <> 4 then
+              raise exception 'composed retention purge returned % instead of 4', purged;
+            end if;
+            if exists (
+              select 1 from public.source_items
+              where id = '91300000-0000-0000-0000-000000000003' and raw_ciphertext is not null
+            ) then
+              raise exception 'source cleanup was lost';
+            end if;
+            if not exists (
+              select 1 from public.dead_letter_items
+              where id = '91400000-0000-0000-0000-000000000004'
+                and status = 'expired' and ciphertext is null
+            ) then
+              raise exception 'dead-letter cleanup was lost';
+            end if;
+            if exists (select 1 from public.gmail_terminal_message_receipts)
+              or exists (select 1 from public.gmail_disconnect_tombstones) then
+              raise exception 'Gmail retention cleanup was not added';
+            end if;
+          end;
+          $$;
+
+          insert into public.filter_rules (id, user_id, name, intent, plan) values (
+            '91600000-0000-0000-0000-000000000006',
+            '91000000-0000-0000-0000-000000000001',
+            'Upgrade composition rule', 'test account deletion composition', '{"deterministic":[]}'
+          );
+          insert into public.action_rules (
+            id, user_id, filter_rule_id, connection_id, provider, operation, input_template
+          ) values (
+            '91700000-0000-0000-0000-000000000007',
+            '91000000-0000-0000-0000-000000000001',
+            '91600000-0000-0000-0000-000000000006',
+            '91100000-0000-0000-0000-000000000001',
+            'google-tasks', 'create', '{}'
+          );
+          select public.request_account_deletion('91000000-0000-0000-0000-000000000001');
+          select public.mark_account_connectors_revoked('91000000-0000-0000-0000-000000000001');
+
+          do $$
+          declare
+            finalized public.account_deletions;
+          begin
+            finalized := public.finalize_account_deletion(
+              '91000000-0000-0000-0000-000000000001'
+            );
+            if finalized.state <> 'completed'
+              or exists (
+                select 1 from public.connections
+                where user_id = '91000000-0000-0000-0000-000000000001'
+              )
+              or exists (
+                select 1 from public.gmail_connection_state
+                where user_id = '91000000-0000-0000-0000-000000000001'
+              )
+              or not exists (
+                select 1 from public.action_rules
+                where id = '91700000-0000-0000-0000-000000000007'
+                  and not enabled and connection_id is null
+              ) then
+              raise exception 'account deletion did not compose with Gmail ownership';
+            end if;
+            finalized := public.finalize_account_deletion(
+              '91000000-0000-0000-0000-000000000001'
+            );
+            if finalized.state <> 'completed' then
+              raise exception 'account deletion retry did not converge';
+            end if;
+          end;
+          $$;
+
+          insert into public.gmail_disconnect_receipts (
+            connection_id, user_id, action_id, reason, watch_stopped, token_revoked,
+            provider_already_revoked, detached_action_rule_count
+          ) values (
+            '91100000-0000-0000-0000-000000000001',
+            '91000000-0000-0000-0000-000000000001',
+            '91800000-0000-0000-0000-000000000008',
+            'user-disconnect', true, true, false, 1
+          );
+          insert into public.gmail_disconnect_tombstones (
+            mailbox_digest, connection_id, user_id, expires_at
+          ) values (
+            repeat('d', 64), '91100000-0000-0000-0000-000000000001',
+            '91000000-0000-0000-0000-000000000001', now() + interval '1 day'
+          );
+          insert into public.gmail_terminal_message_receipts (
+            connection_id, user_id, message_digest, reason
+          ) values (
+            '91100000-0000-0000-0000-000000000001',
+            '91000000-0000-0000-0000-000000000001', repeat('e', 64),
+            'provider-message-missing'
+          );
+          delete from auth.users where id = '91000000-0000-0000-0000-000000000001';
+
+          do $$
+          begin
+            if exists (
+              select 1 from public.gmail_disconnect_receipts
+              where user_id = '91000000-0000-0000-0000-000000000001'
+              union all select 1 from public.gmail_disconnect_tombstones
+              where user_id = '91000000-0000-0000-0000-000000000001'
+              union all select 1 from public.gmail_terminal_message_receipts
+              where user_id = '91000000-0000-0000-0000-000000000001'
+              union all select 1 from public.account_deletions
+              where user_id = '91000000-0000-0000-0000-000000000001'
+              union all select 1 from public.categories
+              where user_id = '91000000-0000-0000-0000-000000000001'
+            ) then
+              raise exception 'auth deletion did not cascade composed tenant rows';
+            end if;
+          end;
+          $$;
+        `,
     );
   } finally {
     await dropDatabase(container, successDatabase);

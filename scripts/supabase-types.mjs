@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
@@ -8,9 +9,26 @@ import { fileURLToPath, pathToFileURL, URL } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputPath = resolve(root, "supabase/database.generated.ts");
 
+// Windows exposes `supabase` and `prettier` only as `.CMD` shims, which Node refuses to execute
+// without a shell, and routing an argument array through a shell is deprecated (DEP0190) because
+// the arguments are concatenated rather than escaped. Both tools are Node programs, so on Windows
+// resolve their entry scripts and run them under the current Node binary. Other platforms keep the
+// plain PATH lookup, so CI behaviour is unchanged.
+const nodeEntryPoints = {
+  prettier: "prettier/bin/prettier.cjs",
+  supabase: "supabase/dist/supabase.js",
+};
+const requireFromScript = createRequire(import.meta.url);
+
+function spawnTool(command, args, options) {
+  const entryPoint = process.platform === "win32" ? nodeEntryPoints[command] : undefined;
+  if (entryPoint === undefined) return spawn(command, args, options);
+  return spawn(process.execPath, [requireFromScript.resolve(entryPoint), ...args], options);
+}
+
 function run(command, args, input, env = process.env) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(command, args, { cwd: root, env, stdio: "pipe" });
+    const child = spawnTool(command, args, { cwd: root, env, stdio: "pipe" });
     const stdout = [];
     child.stdout.on("data", (chunk) => stdout.push(chunk));
     child.stderr.resume();
@@ -29,6 +47,14 @@ export function localTypeGenerationEnvironment(environment, status) {
   const password = new URL(databaseUrl).password;
   if (password.length === 0) throw new Error("Supabase local DB_URL omitted its password");
   return { ...environment, SUPABASE_DB_PASSWORD: decodeURIComponent(password) };
+}
+
+// Git stores this file with LF, but a Windows checkout with `core.autocrlf=true` materialises
+// CRLF in the working tree while the generator always emits LF. A raw comparison would report
+// stale types on Windows even when the committed file is byte-correct in git. `write` still emits
+// LF, so the committed form never changes.
+function withUnixLineEndings(value) {
+  return value.split("\r\n").join("\n");
 }
 
 export function normalizeGeneratedTypes(generated) {
@@ -99,7 +125,7 @@ async function main() {
   const generated = await generateTypes(mode === "check-remote");
   if (mode === "check" || mode === "check-remote") {
     const current = await readFile(outputPath, "utf8");
-    if (current !== generated) {
+    if (withUnixLineEndings(current) !== withUnixLineEndings(generated)) {
       throw new Error(
         mode === "check-remote"
           ? "Remote database types differ from committed types"

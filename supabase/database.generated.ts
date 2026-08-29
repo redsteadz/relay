@@ -3,6 +3,36 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type Database = {
   public: {
     Tables: {
+      account_deletions: {
+        Row: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          completed_at?: string | null;
+          connectors_revoked_at?: string | null;
+          requested_at?: string;
+          state?: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          attempt_count?: number;
+          completed_at?: string | null;
+          connectors_revoked_at?: string | null;
+          requested_at?: string;
+          state?: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       action_rules: {
         Row: {
           approval_mode: string;
@@ -224,35 +254,44 @@ export type Database = {
       };
       categories: {
         Row: {
+          archived_at: string | null;
           created_at: string;
           description: string | null;
           id: string;
           is_system: boolean;
           name: string;
+          normalized_name: string | null;
           quiet_by_default: boolean;
           slug: string;
+          sort_order: number;
           updated_at: string;
           user_id: string;
         };
         Insert: {
+          archived_at?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
           is_system?: boolean;
           name: string;
+          normalized_name?: string | null;
           quiet_by_default?: boolean;
           slug: string;
+          sort_order?: number;
           updated_at?: string;
           user_id: string;
         };
         Update: {
+          archived_at?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
           is_system?: boolean;
           name?: string;
+          normalized_name?: string | null;
           quiet_by_default?: boolean;
           slug?: string;
+          sort_order?: number;
           updated_at?: string;
           user_id?: string;
         };
@@ -1010,6 +1049,24 @@ export type Database = {
         };
         Returns: boolean;
       };
+      finalize_account_deletion: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       gmail_connection_ownership_v1: {
         Args: { p_connection_id: string; p_user_id: string };
         Returns: string;
@@ -1062,6 +1119,24 @@ export type Database = {
           wrapped_data_key: string;
         }[];
       };
+      mark_account_connectors_revoked: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       mark_gmail_resync_required_v1: {
         Args: {
           p_connection_id: string;
@@ -1069,6 +1144,14 @@ export type Database = {
           p_user_id: string;
         };
         Returns: boolean;
+      };
+      own_raw_retention_status: {
+        Args: never;
+        Returns: {
+          earliest_expires_at: string;
+          latest_expires_at: string;
+          retained_count: number;
+        }[];
       };
       persist_encrypted_source_item: {
         Args: {
@@ -1170,6 +1253,7 @@ export type Database = {
         Returns: string;
       };
       purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
+      purge_own_raw_payloads: { Args: never; Returns: number };
       record_dead_letter_item: {
         Args: {
           p_accepted_at: string;
@@ -1231,6 +1315,42 @@ export type Database = {
         Args: { p_id: string; p_request_id: string };
         Returns: boolean;
       };
+      request_account_deletion: {
+        Args: { p_user_id: string };
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      request_own_account_deletion: {
+        Args: never;
+        Returns: {
+          attempt_count: number;
+          completed_at: string | null;
+          connectors_revoked_at: string | null;
+          requested_at: string;
+          state: Database["public"]["Enums"]["account_deletion_state"];
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "account_deletions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       resolve_gmail_connection_v1: {
         Args: { p_normalized_email: string };
         Returns: {
@@ -1268,6 +1388,7 @@ export type Database = {
       };
     };
     Enums: {
+      account_deletion_state: "requested" | "connectors_revoked" | "completed";
       action_provider: "google-tasks" | "nextcloud-budget" | "webhook";
       action_status:
         | "proposed"
@@ -1404,6 +1525,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      account_deletion_state: ["requested", "connectors_revoked", "completed"],
       action_provider: ["google-tasks", "nextcloud-budget", "webhook"],
       action_status: [
         "proposed",

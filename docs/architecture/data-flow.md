@@ -75,6 +75,13 @@ Active Gmail rows deny direct authenticated table deletion. Same-tenant complete
 retries successful after row deletion. Mailbox-digest tombstone absorbs late provider notifications
 through saved watch expiration plus configured Pub/Sub retention without routing work.
 
+Account deletion uses same private Gmail boundary before local finalization, but with explicit
+best-effort exception: API sends only authenticated tenant/connection UUID in bounded, idempotent
+request; Pipeline alone may decrypt credential and perform stop/revoke/receipt ordering. Pipeline or
+provider failure is counted and does not block local credential, tenant-row, and identity deletion.
+API never directly handles Gmail credential or provider call, and no plaintext enters logs. Ordinary
+standalone Gmail disconnect retains strict retry-until-provider-complete behavior above.
+
 ## Deduplication
 
 Two independent layers guard against Cloudflare Queue's at-least-once redelivery, and either alone is

@@ -545,6 +545,60 @@ export const categorySlugSchema = z.enum([
 ]);
 export type CategorySlug = z.infer<typeof categorySlugSchema>;
 
+export const categoryCustomSlugSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, "Category slug must be lowercase kebab-case");
+
+/**
+ * Category display name. Length matches the database `categories_name_length` constraint, and the
+ * blank check mirrors `categories_name_not_blank`. Tenant uniqueness is enforced by the database
+ * against the normalized form (see `normalizeCategoryName` in `@relay/domain`), not here.
+ */
+export const categoryNameSchema = z
+  .string()
+  .min(1)
+  .max(60)
+  .refine((value) => value.trim().length > 0, "Category name cannot be blank");
+
+export const categoryCreateRequestSchema = z
+  .object({
+    slug: categoryCustomSlugSchema,
+    name: categoryNameSchema,
+    description: z.string().max(280).optional(),
+    quietByDefault: z.boolean().optional(),
+    sortOrder: z.int().min(0).optional(),
+  })
+  .strict();
+export type CategoryCreateRequest = z.infer<typeof categoryCreateRequestSchema>;
+
+export const categoryUpdateRequestSchema = z
+  .object({
+    name: categoryNameSchema.optional(),
+    description: z.string().max(280).nullable().optional(),
+    quietByDefault: z.boolean().optional(),
+    sortOrder: z.int().min(0).optional(),
+    archived: z.boolean().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, "Category update requires at least one field");
+export type CategoryUpdateRequest = z.infer<typeof categoryUpdateRequestSchema>;
+
+export const categorySchema = z
+  .object({
+    id: canonicalUuidSchema,
+    slug: z.string().min(1).max(64),
+    name: categoryNameSchema,
+    description: z.string().max(280).optional(),
+    isSystem: z.boolean(),
+    quietByDefault: z.boolean(),
+    sortOrder: z.int().min(0),
+    archivedAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .strict();
+export type Category = z.infer<typeof categorySchema>;
+
 export const eventKindSchema = z.enum(["task", "reminder", "calendar-event", "fact"]);
 export const relayEventSchema = z.object({
   id: canonicalUuidSchema,

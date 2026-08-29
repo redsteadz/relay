@@ -772,7 +772,9 @@ async function runPendingGmailDisconnectIntent(
     identitiesMatch(disconnect, identity)
   ) {
     const result = await runGmailDisconnect(storage, env, fetcher, signal);
-    if (result !== "completed") throw new Error("Gmail disconnect intent did not complete");
+    if (result !== "completed" && result !== "not-found") {
+      throw new Error("Gmail disconnect intent did not complete");
+    }
     return true;
   }
 
@@ -786,7 +788,9 @@ async function runPendingGmailDisconnectIntent(
   if (!accepted.ok) throw new Error("Gmail disconnect intent is invalid");
   if (intents.size > 1) await scheduleEarlierAlarm(storage, Date.now());
   const result = await runGmailDisconnect(storage, env, fetcher, signal);
-  if (result !== "completed") throw new Error("Gmail disconnect intent did not complete");
+  if (result !== "completed" && result !== "not-found") {
+    throw new Error("Gmail disconnect intent did not complete");
+  }
   return true;
 }
 
@@ -1176,6 +1180,12 @@ async function clearDisconnectedHistory(storage: DurableObjectStorage): Promise<
   if (!historyCleared || !intentsCleared) await scheduleEarlierAlarm(storage, Date.now());
 }
 
+async function abandonMissingGmailDisconnect(storage: DurableObjectStorage): Promise<"not-found"> {
+  await storage.delete(DISCONNECT_WORK_KEY);
+  await clearDisconnectedHistory(storage);
+  return "not-found";
+}
+
 function automaticRemovalExpiresAt(env: Env): number {
   const retentionMs = readGmailProviderConfiguration(env).pubsubRetentionSeconds * 1000;
   return (
@@ -1245,6 +1255,11 @@ async function maintainRemovedCoordinator(
   await storage.delete([ALARM_RETRY_KEY, IDENTITY_KEY, REMOVED_MARKER_KEY]);
 }
 
+async function clearFinalizedAutomaticRevocation(storage: DurableObjectStorage): Promise<void> {
+  // Pipeline compatibility date makes this atomically remove SQLite/KV state and also delete alarm.
+  await storage.deleteAll();
+}
+
 async function completeAutomaticGmailRevocation(
   storage: DurableObjectStorage,
   env: Env,
@@ -1253,22 +1268,48 @@ async function completeAutomaticGmailRevocation(
   signal?: AbortSignal,
 ): Promise<void> {
   const marker = await ensureAutomaticRemovalMarker(storage, env, work);
-  await booleanRpc(
-    env,
-    "disconnect_gmail_connection_v1",
-    {
-      p_action_id: work.actionId,
-      p_connection_id: work.connectionId,
-      p_provider_already_revoked: true,
-      p_pubsub_retention_seconds: readGmailProviderConfiguration(env).pubsubRetentionSeconds,
-      p_reason: work.reason,
-      p_token_revoked: true,
-      p_user_id: work.userId,
-      p_watch_stopped: false,
-    },
-    fetcher,
-    signal,
-  );
+  try {
+    await booleanRpc(
+      env,
+      "disconnect_gmail_connection_v1",
+      {
+        p_action_id: work.actionId,
+        p_connection_id: work.connectionId,
+        p_provider_already_revoked: true,
+        p_pubsub_retention_seconds: readGmailProviderConfiguration(env).pubsubRetentionSeconds,
+        p_reason: work.reason,
+        p_token_revoked: true,
+        p_user_id: work.userId,
+        p_watch_stopped: false,
+      },
+      fetcher,
+      signal,
+    );
+  } catch (error) {
+    let ownership: "absent" | "active" | "completed";
+    try {
+      ownership = await withOperationDeadline(
+        (lookupSignal) =>
+          readGmailConnectionOwnership(
+            env,
+            {
+              schemaVersion: work.schemaVersion,
+              connectionId: work.connectionId,
+              userId: work.userId,
+            },
+            fetcher,
+            lookupSignal,
+          ),
+        GMAIL_EXTERNAL_OPERATION_TIMEOUT_MS,
+        signal,
+      );
+    } catch {
+      throw error;
+    }
+    if (ownership !== "absent") throw error;
+    await clearFinalizedAutomaticRevocation(storage);
+    return;
+  }
   const completed = automaticRemovalMarker(env, work, marker, "completed");
   await storage.put(REMOVED_MARKER_KEY, completed);
   await maintainRemovedCoordinator(storage, completed);
@@ -1317,9 +1358,8 @@ export async function runGmailDisconnect(
     try {
       connection = await loadGmailConnectionCredential(env, identity, fetcher, signal);
     } catch (error) {
-      if (error instanceof GmailConnectionNotFoundError && work.phase === "stop") {
-        await storage.delete(DISCONNECT_WORK_KEY);
-        return "not-found";
+      if (error instanceof GmailConnectionNotFoundError) {
+        return abandonMissingGmailDisconnect(storage);
       }
       throw error;
     }
@@ -1352,22 +1392,33 @@ export async function runGmailDisconnect(
   if (work.phase === "delete") {
     const pubsubRetentionSeconds = readGmailProviderConfiguration(env).pubsubRetentionSeconds;
     const actionId = await gmailRemovalActionId(identity.connectionId, "user-disconnect");
-    await booleanRpc(
-      env,
-      "disconnect_gmail_connection_v1",
-      {
-        p_action_id: actionId,
-        p_connection_id: identity.connectionId,
-        p_provider_already_revoked: work.providerAlreadyRevoked,
-        p_pubsub_retention_seconds: pubsubRetentionSeconds,
-        p_reason: "user-disconnect",
-        p_token_revoked: work.tokenRevoked,
-        p_user_id: identity.userId,
-        p_watch_stopped: work.watchStopped,
-      },
-      fetcher,
-      signal,
-    );
+    try {
+      await booleanRpc(
+        env,
+        "disconnect_gmail_connection_v1",
+        {
+          p_action_id: actionId,
+          p_connection_id: identity.connectionId,
+          p_provider_already_revoked: work.providerAlreadyRevoked,
+          p_pubsub_retention_seconds: pubsubRetentionSeconds,
+          p_reason: "user-disconnect",
+          p_token_revoked: work.tokenRevoked,
+          p_user_id: identity.userId,
+          p_watch_stopped: work.watchStopped,
+        },
+        fetcher,
+        signal,
+      );
+    } catch (error) {
+      try {
+        if ((await readGmailConnectionOwnership(env, identity, fetcher, signal)) === "absent") {
+          return abandonMissingGmailDisconnect(storage);
+        }
+      } catch {
+        // Preserve original retryable database failure when ownership cannot be read.
+      }
+      throw error;
+    }
     work = { ...work, phase: "done" };
     await storage.put(DISCONNECT_WORK_KEY, work);
   }

@@ -11,6 +11,7 @@ async function publishPrivate(
   path: "/internal/gmail/cursor" | "/internal/gmail/disconnect" | "/internal/ingest",
   message: unknown,
   allowLocalStub: boolean,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const secret = process.env.RELAY_INGEST_SHARED_SECRET;
   if (secret === undefined) {
@@ -21,18 +22,16 @@ async function publishPrivate(
     "content-type": "application/json",
     "x-relay-internal-secret": secret,
   };
+  const init: RequestInit = { method: "POST", headers, body };
+  if (signal !== undefined) init.signal = signal;
   const pipelineUrl = process.env.RELAY_PIPELINE_URL;
   if (process.env.NODE_ENV !== "production" && pipelineUrl !== undefined) {
-    return fetch(`${pipelineUrl}${path}`, { method: "POST", headers, body });
+    return fetch(`${pipelineUrl}${path}`, init);
   }
 
   try {
     const { env } = getCloudflareContext();
-    return await env.PIPELINE.fetch(`https://pipeline.internal${path}`, {
-      method: "POST",
-      headers,
-      body,
-    });
+    return await env.PIPELINE.fetch(`https://pipeline.internal${path}`, init);
   } catch {
     if (
       allowLocalStub &&
@@ -53,6 +52,9 @@ export async function publishGmailCursor(cursor: VerifiedGmailCursor): Promise<R
   return publishPrivate("/internal/gmail/cursor", cursor, false);
 }
 
-export async function publishGmailDisconnect(request: GmailDisconnectRequest): Promise<Response> {
-  return publishPrivate("/internal/gmail/disconnect", request, false);
+export async function publishGmailDisconnect(
+  request: GmailDisconnectRequest,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return publishPrivate("/internal/gmail/disconnect", request, false, signal);
 }

@@ -41,6 +41,11 @@ function fakeStorage(
   options: { failBaselineReady?: boolean; hangGetKey?: string } = {},
 ) {
   let alarm: number | null = null;
+  const deleteAll = vi.fn(() => {
+    alarm = null;
+    values.clear();
+    return Promise.resolve();
+  });
   const storage = {
     get: vi.fn((key: string | string[]) => {
       if (key === options.hangGetKey) {
@@ -87,6 +92,7 @@ function fakeStorage(
       alarm = null;
       return Promise.resolve();
     }),
+    deleteAll,
     list: vi.fn((options?: { limit?: number; prefix?: string }) => {
       const entries = [...values.entries()]
         .filter(([key]) => options?.prefix === undefined || key.startsWith(options.prefix))
@@ -103,7 +109,7 @@ function fakeStorage(
         } as unknown as DurableObjectTransaction),
     ),
   };
-  return { storage: storage as unknown as DurableObjectStorage, values };
+  return { deleteAll, storage: storage as unknown as DurableObjectStorage, values };
 }
 
 function environment(overrides: Partial<Env> = {}): Env {
@@ -1030,7 +1036,7 @@ describe("Gmail provider processing retries", () => {
     expect(values.has("gmail:history-work")).toBe(false);
     expect([...values.keys()].some((key) => key.startsWith("gmail:history-chunk:"))).toBe(false);
     expect([...values.keys()].some((key) => key.startsWith("gmail:history-seen:"))).toBe(false);
-  });
+  }, 30_000);
 
   it("truncates over-header and Queue-expanding messages so later messages still progress", async () => {
     const row = await encryptedCredential();
@@ -1713,6 +1719,198 @@ describe("Gmail durable alarm retries", () => {
     expect(values.has("gmail:identity")).toBe(false);
     expect(fetcher).toHaveBeenCalledTimes(providerCallCount);
   });
+
+  it("clears all automatic invalid_grant state when account finalization removes ownership", async () => {
+    const row = await encryptedCredential();
+    const { deleteAll, storage, values } = fakeStorage();
+    await acceptGmailCursor(storage, identity, "200");
+    let tokenCalls = 0;
+    const disconnectBodies: Record<string, unknown>[] = [];
+    const ownershipBodies: Record<string, unknown>[] = [];
+    const fetcher = vi.fn((input: string, init?: RequestInit) => {
+      const path = requestPath(input);
+      if (path.endsWith("/load_gmail_connection_v1")) return Promise.resolve(Response.json([row]));
+      if (path.endsWith("/token")) {
+        tokenCalls += 1;
+        return Promise.resolve(Response.json({ error: "invalid_grant" }, { status: 400 }));
+      }
+      if (path.endsWith("/disconnect_gmail_connection_v1")) {
+        disconnectBodies.push(requestBody(init));
+        return Promise.resolve(Response.json(false));
+      }
+      if (path.endsWith("/gmail_connection_ownership_v1")) {
+        ownershipBodies.push(requestBody(init));
+        return Promise.resolve(Response.json("absent"));
+      }
+      throw new Error("unexpected synthetic request");
+    });
+
+    await runGmailAlarm(storage, environment(), fetcher);
+    await storage.put({
+      "gmail:alarm-retry": { attempts: 1, nextAttemptAt: Date.now() },
+      "gmail:history-chunk:synthetic:000": ["message-1"],
+      "gmail:history-page:synthetic": true,
+      "gmail:history-seen:synthetic": true,
+    });
+    expect(values.has("gmail:history-work")).toBe(true);
+    expect(await storage.getAlarm()).not.toBeNull();
+
+    await expect(runGmailAlarmReliably(storage, environment(), fetcher)).resolves.toBe(true);
+
+    expect(tokenCalls).toBe(1);
+    expect(disconnectBodies).toHaveLength(1);
+    expect(disconnectBodies[0]).toMatchObject({
+      p_connection_id: connectionId,
+      p_provider_already_revoked: true,
+      p_reason: "provider-grant-revoked",
+      p_user_id: userId,
+    });
+    expect(disconnectBodies[0]?.p_action_id).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(ownershipBodies).toEqual([{ p_connection_id: connectionId, p_user_id: userId }]);
+    expect(fetcher.mock.calls.some(([input]) => requestPath(input).endsWith("/stop"))).toBe(false);
+    expect(fetcher.mock.calls.some(([input]) => requestPath(input).endsWith("/revoke"))).toBe(
+      false,
+    );
+    expect(values.size).toBe(0);
+    expect(await storage.getAlarm()).toBeNull();
+    expect(deleteAll).toHaveBeenCalledOnce();
+
+    const providerCallCount = fetcher.mock.calls.length;
+    await expect(
+      runGmailAlarmReliably(fakeStorage(values).storage, environment(), fetcher),
+    ).resolves.toBe(false);
+    expect(fetcher).toHaveBeenCalledTimes(providerCallCount);
+  });
+
+  it("terminates lost automatic completion after restart when account finalization removes receipt and connection", async () => {
+    const row = await encryptedCredential();
+    const { storage, values } = fakeStorage();
+    await acceptGmailCursor(storage, identity, "200");
+    let ownership: "absent" | "active" = "active";
+    let tokenCalls = 0;
+    const disconnectBodies: Record<string, unknown>[] = [];
+    const ownershipBodies: Record<string, unknown>[] = [];
+    const fetcher = vi.fn((input: string, init?: RequestInit) => {
+      const path = requestPath(input);
+      if (path.endsWith("/load_gmail_connection_v1")) return Promise.resolve(Response.json([row]));
+      if (path.endsWith("/token")) {
+        tokenCalls += 1;
+        return Promise.resolve(Response.json({ error: "invalid_grant" }, { status: 400 }));
+      }
+      if (path.endsWith("/disconnect_gmail_connection_v1")) {
+        disconnectBodies.push(requestBody(init));
+        return Promise.reject(new Error("synthetic lost automatic completion response"));
+      }
+      if (path.endsWith("/gmail_connection_ownership_v1")) {
+        ownershipBodies.push(requestBody(init));
+        return Promise.resolve(Response.json(ownership));
+      }
+      throw new Error("unexpected synthetic request");
+    });
+
+    await runGmailAlarm(storage, environment(), fetcher);
+    await storage.deleteAlarm();
+    await expect(runGmailAlarmReliably(storage, environment(), fetcher)).resolves.toBe(true);
+    expect(values.get("gmail:revocation-work")).toMatchObject({
+      connectionId,
+      reason: "provider-grant-revoked",
+      userId,
+    });
+    expect(values.get("gmail:removed")).toMatchObject({ phase: "pending" });
+    expect(values.get("gmail:alarm-retry")).toMatchObject({ attempts: 1 });
+
+    const retry = values.get("gmail:alarm-retry") as GmailAlarmRetryFixture;
+    vi.setSystemTime(retry.nextAttemptAt);
+    ownership = "absent";
+    const restarted = fakeStorage(values).storage;
+    await expect(runGmailAlarmReliably(restarted, environment(), fetcher)).resolves.toBe(true);
+
+    expect(tokenCalls).toBe(1);
+    expect(disconnectBodies).toHaveLength(2);
+    expect(disconnectBodies[0]).toEqual(disconnectBodies[1]);
+    expect(disconnectBodies[0]).toMatchObject({
+      p_connection_id: connectionId,
+      p_reason: "provider-grant-revoked",
+      p_user_id: userId,
+    });
+    expect(disconnectBodies[0]?.p_action_id).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(ownershipBodies).toEqual([
+      { p_connection_id: connectionId, p_user_id: userId },
+      { p_connection_id: connectionId, p_user_id: userId },
+    ]);
+    expect(fetcher.mock.calls.some(([input]) => requestPath(input).endsWith("/stop"))).toBe(false);
+    expect(fetcher.mock.calls.some(([input]) => requestPath(input).endsWith("/revoke"))).toBe(
+      false,
+    );
+    expect(values.size).toBe(0);
+    expect(await restarted.getAlarm()).toBeNull();
+
+    const callCount = fetcher.mock.calls.length;
+    await expect(
+      runGmailAlarmReliably(fakeStorage(values).storage, environment(), fetcher),
+    ).resolves.toBe(false);
+    expect(fetcher).toHaveBeenCalledTimes(callCount);
+  });
+
+  it.each([
+    ["active", "active"],
+    ["completed", "completed"],
+    ["conflicting", "conflict"],
+    ["unavailable", undefined],
+  ] as const)(
+    "keeps automatic revocation retryable when ownership is %s",
+    async (_name, ownership) => {
+      const actionId = "06f96f7d-3e1a-4a66-b98e-58be9766b96e";
+      const work = { ...identity, actionId, reason: "provider-grant-revoked" };
+      const marker = {
+        ...work,
+        expiresAt: Date.now() + 604_800_000,
+        phase: "pending",
+      };
+      const { deleteAll, storage, values } = fakeStorage(
+        new Map<string, unknown>([
+          ["gmail:identity", identity],
+          ["gmail:removed", marker],
+          ["gmail:revocation-work", work],
+        ]),
+      );
+      await storage.setAlarm(Date.now());
+      const fetcher = vi.fn((input: string) => {
+        const path = requestPath(input);
+        if (path.endsWith("/disconnect_gmail_connection_v1")) {
+          return Promise.resolve(Response.json(false));
+        }
+        if (path.endsWith("/gmail_connection_ownership_v1")) {
+          return ownership === undefined
+            ? Promise.resolve(new Response(null, { status: 503 }))
+            : Promise.resolve(Response.json(ownership));
+        }
+        throw new Error("unexpected synthetic request");
+      });
+
+      await expect(runGmailAlarm(storage, environment(), fetcher)).rejects.toThrow(
+        "Gmail persistence update failed",
+      );
+
+      expect(values.get("gmail:identity")).toEqual(identity);
+      expect(values.get("gmail:revocation-work")).toEqual(work);
+      expect(values.get("gmail:removed")).toMatchObject({ ...work, phase: "pending" });
+      expect(
+        (values.get("gmail:removed") as { expiresAt: number }).expiresAt,
+      ).toBeGreaterThanOrEqual(marker.expiresAt);
+      expect(await storage.getAlarm()).toBe(Date.now());
+      expect(deleteAll).not.toHaveBeenCalled();
+      expect(fetcher.mock.calls.some(([input]) => requestPath(input).endsWith("/token"))).toBe(
+        false,
+      );
+      expect(fetcher.mock.calls.some(([input]) => requestPath(input).endsWith("/stop"))).toBe(
+        false,
+      );
+      expect(fetcher.mock.calls.some(([input]) => requestPath(input).endsWith("/revoke"))).toBe(
+        false,
+      );
+    },
+  );
 });
 
 describe("Gmail disconnect retries", () => {
@@ -2078,6 +2276,87 @@ describe("Gmail disconnect retries", () => {
     expect(stopAttempts).toBe(2);
     expect(paths.indexOf("/gmail/v1/users/me/stop")).toBeLessThan(paths.indexOf("/revoke"));
     expect(disconnectCalls).toBe(1);
+  });
+
+  it("stops revoke-phase retries after account finalization removes Gmail credential", async () => {
+    const row = await encryptedCredential();
+    const { storage, values } = fakeStorage();
+    await acceptGmailDisconnect(storage, identity);
+    let loadCalls = 0;
+    let stopCalls = 0;
+    let revokeCalls = 0;
+    const fetcher = vi.fn((input: string) => {
+      const path = requestPath(input);
+      if (path.endsWith("/load_gmail_connection_v1")) {
+        loadCalls += 1;
+        return Promise.resolve(Response.json(loadCalls === 1 ? [row] : []));
+      }
+      if (path.endsWith("/token"))
+        return Promise.resolve(Response.json({ access_token: "access" }));
+      if (path.endsWith("/stop")) {
+        stopCalls += 1;
+        return Promise.resolve(Response.json({}));
+      }
+      if (path.endsWith("/revoke")) {
+        revokeCalls += 1;
+        return Promise.resolve(new Response(null, { status: 503 }));
+      }
+      throw new Error("unexpected synthetic request");
+    });
+
+    await expect(runGmailDisconnect(storage, environment(), fetcher)).rejects.toThrow();
+    expect(values.get("gmail:disconnect-work")).toMatchObject({ phase: "revoke" });
+    await expect(
+      runGmailDisconnect(fakeStorage(values).storage, environment(), fetcher),
+    ).resolves.toBe("not-found");
+
+    expect(values.has("gmail:disconnect-work")).toBe(false);
+    expect(stopCalls).toBe(1);
+    expect(revokeCalls).toBe(1);
+  });
+
+  it("stops receipt-phase retries after account finalization removes Gmail ownership", async () => {
+    const row = await encryptedCredential();
+    const { storage, values } = fakeStorage();
+    await acceptGmailDisconnect(storage, identity);
+    let ownership: "absent" | "active" = "active";
+    let stopCalls = 0;
+    let revokeCalls = 0;
+    let disconnectCalls = 0;
+    const fetcher = vi.fn((input: string) => {
+      const path = requestPath(input);
+      if (path.endsWith("/load_gmail_connection_v1")) return Promise.resolve(Response.json([row]));
+      if (path.endsWith("/token"))
+        return Promise.resolve(Response.json({ access_token: "access" }));
+      if (path.endsWith("/stop")) {
+        stopCalls += 1;
+        return Promise.resolve(Response.json({}));
+      }
+      if (path.endsWith("/revoke")) {
+        revokeCalls += 1;
+        return Promise.resolve(Response.json({}));
+      }
+      if (path.endsWith("/disconnect_gmail_connection_v1")) {
+        disconnectCalls += 1;
+        return Promise.resolve(Response.json(false));
+      }
+      if (path.endsWith("/gmail_connection_ownership_v1")) {
+        return Promise.resolve(Response.json(ownership));
+      }
+      throw new Error("unexpected synthetic request");
+    });
+
+    await expect(runGmailDisconnect(storage, environment(), fetcher)).rejects.toThrow();
+    expect(values.get("gmail:disconnect-work")).toMatchObject({ phase: "delete" });
+    ownership = "absent";
+    await expect(
+      runGmailDisconnect(fakeStorage(values).storage, environment(), fetcher),
+    ).resolves.toBe("not-found");
+
+    expect(values.has("gmail:disconnect-work")).toBe(false);
+    expect(stopCalls).toBe(1);
+    expect(revokeCalls).toBe(1);
+    expect(disconnectCalls).toBe(2);
   });
 
   it("resumes durable delete phase after lost database response without repeating provider effects", async () => {

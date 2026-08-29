@@ -36,6 +36,57 @@ from public, anon, authenticated, service_role;
 
 select public.assert_gmail_mailbox_migration_ready_v1();
 
+-- Custom-category invariants must block direct deletion of system categories without blocking the
+-- auth.users ON DELETE CASCADE used by account deletion. PostgreSQL executes that referential action
+-- from a parent trigger, so the category trigger is nested; direct category deletion remains depth 1.
+-- Replacing the function here composes the already-ordered category and privacy migrations without
+-- rewriting either migration.
+create or replace function public.enforce_category_invariants()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.is_system and current_role = 'authenticated' then
+      raise exception 'System categories cannot be created by users' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    if new.user_id is distinct from old.user_id then
+      raise exception 'Category tenant cannot change' using errcode = '42501';
+    end if;
+    if new.is_system is distinct from old.is_system then
+      raise exception 'Category system flag is immutable' using errcode = '42501';
+    end if;
+    if old.is_system and new.slug is distinct from old.slug then
+      raise exception 'System category slug is immutable' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if pg_trigger_depth() > 1 then
+    return old;
+  end if;
+  if old.is_system then
+    raise exception 'System category cannot be deleted' using errcode = '42501';
+  end if;
+  if exists (
+    select 1
+    from public.classifications c
+    where c.user_id = old.user_id
+      and c.category_id = old.id
+  ) then
+    raise exception 'Category with existing classifications must be archived, not deleted'
+      using errcode = '23503';
+  end if;
+  return old;
+end;
+$$;
+
 update public.connections
 set external_account_id = lower(btrim(external_account_id))
 where provider = 'gmail' and status = 'active';

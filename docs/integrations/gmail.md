@@ -1,12 +1,13 @@
 ---
 status: accepted
 owner: integrations
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 sources:
   - https://developers.google.com/gmail/api/guides/push
   - https://cloud.google.com/pubsub/docs/push
   - https://cloud.google.com/pubsub/docs/authenticate-push-subscriptions
   - https://developers.cloudflare.com/durable-objects/api/alarms/
+  - https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#deleteall
   - https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list
   - https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile
   - https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/stop
@@ -162,6 +163,21 @@ maintenance, and disconnect deliveries acknowledge terminal state after database
 without recreating work or calling Google. Alarm removes marker and identity only after that boundary.
 Completed receipts resolve only for same tenant and make repeated disconnect return same success after
 active row deletion. Cross-tenant and random IDs remain indistinguishable absence.
+
+Account deletion deliberately weakens ordinary disconnect's provider-completion guarantee so an
+external outage cannot strand irreversible local deletion. Before database finalization, API queues
+every active Gmail connection for same private Pipeline endpoint using authenticated tenant and
+connection UUID only. Up to four repeat-safe requests run concurrently under one shared 20-second
+deadline; timed-out and unstarted requests count as failures. Pipeline therefore remains sole owner of
+credential decryption, `users.stop`, token revocation, stable action ID, receipt, and disconnect
+ordering; API never selects Gmail credential columns or calls Google for Gmail. Success avoids any
+second revocation. Failure is counted, but API still removes local credentials and tenant rows, which
+can leave provider watch or grant active because Relay intentionally discards ability to retry. Neither
+path logs mailbox, credential, token, provider response, or other plaintext. Any outstanding Durable
+Object automatic revoke/receipt phase that later observes missing post-finalization ownership clears
+all coordinator storage and its alarm without another provider call. Current Pipeline compatibility
+date makes SQLite-backed Durable Object `deleteAll()` atomically remove KV/SQL state and also delete
+active alarm.
 
 Disconnect transaction also stores normalized-mailbox SHA-256 tombstone, without mailbox, credential,
 or content. Tombstone expires at later of disconnect time and saved Gmail watch expiration, plus exact

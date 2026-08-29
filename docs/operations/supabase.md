@@ -181,10 +181,15 @@ a separate Storage backup before storing user objects there.
 ## Deletion And Ownership
 
 User deletion is a privileged backend operation that deletes the `auth.users` row; foreign keys then
-cascade all Relay-owned rows, including that user's database audit rows. Require fresh
-authentication, stable request idempotency, a non-content deletion receipt outside user-owned
-tables, and post-delete verification. This capability remains disabled until its dedicated
-access-control implementation and tests exist.
+cascade all Relay-owned rows, including that user's database audit rows. Account deletion requires
+authenticated explicit confirmation, records resumable database state, attempts provider cleanup,
+finalizes local rows idempotently, and removes Auth identity last. Gmail cleanup first crosses private
+Pipeline binding by tenant/connection UUID; API never loads Gmail credential. Provider failure is
+counted but cannot strand local deletion. See [privacy lifecycle](../security/privacy.md) for retained
+backup/log exceptions and exact tradeoff. Current route relies on verified bearer session plus typed
+confirmation. Fresh-auth recency enforcement, non-content completion receipt outside cascading
+user-owned tables, and post-delete verification remain release follow-up requirements; stable database
+steps and provider requests are already retry-safe.
 
 Project deletion permanently removes all hosted data and backups. Require approved retention check,
 verified export or explicit no-backup decision, confirmation from the billing owner and recovery
