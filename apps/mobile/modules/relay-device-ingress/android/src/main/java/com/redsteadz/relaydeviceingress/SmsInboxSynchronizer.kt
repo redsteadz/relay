@@ -26,10 +26,7 @@ internal object SmsInboxSynchronizer {
     val configuration = settings.read() ?: return 0
     if (configuration.tenantId != tenantId || configuration.paused) return 0
 
-    val initialSync = configuration.lastProviderId == 0L
-    val selection = if (initialSync) null else "${BaseColumns._ID}>?"
-    val selectionArgs = if (initialSync) null else arrayOf(configuration.lastProviderId.toString())
-    val sortOrder = "${BaseColumns._ID} ${if (initialSync) "DESC" else "ASC"}"
+    val query = SmsInboxCursor.query(configuration.lastProviderId)
     var captured = 0
     var lastProcessed = configuration.lastProviderId
 
@@ -37,9 +34,9 @@ internal object SmsInboxSynchronizer {
       applicationContext.contentResolver.query(
         Telephony.Sms.Inbox.CONTENT_URI,
         projection,
-        selection,
-        selectionArgs,
-        sortOrder
+        query.selection,
+        query.selectionArgs,
+        query.sortOrder
       )?.use { cursor ->
         val idColumn = cursor.getColumnIndexOrThrow(BaseColumns._ID)
         val senderColumn = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
@@ -56,7 +53,7 @@ internal object SmsInboxSynchronizer {
             if (!cursor.moveToNext()) break
             val providerId = cursor.getLong(idColumn)
             val sender = cursor.getString(senderColumn).orEmpty()
-            if (SmsSender.normalize(sender) in current.allowedSenders) {
+            if (SmsSender.normalize(sender, current.countryIso) in current.allowedSenders) {
               val message = SmsProviderMessage(
                 providerId = providerId,
                 sender = sender,
@@ -78,10 +75,20 @@ internal object SmsInboxSynchronizer {
                 )
                 captured += 1
               } catch (error: IllegalArgumentException) {
-                if (error.message == "capture_queue_limit") break else throw error
+                if (error.message == "capture_queue_limit") {
+                  lastProcessed = SmsInboxCursor.afterRow(
+                    lastProcessed,
+                    providerId,
+                    completed = false
+                  )
+                  break
+                } else {
+                  throw error
+                }
               }
             }
-            lastProcessed = maxOf(lastProcessed, providerId)
+            // Queue-full exits above before this cursor update, so that row is retried later.
+            lastProcessed = SmsInboxCursor.afterRow(lastProcessed, providerId, completed = true)
           }
         }
       }
