@@ -555,6 +555,75 @@ export const openAiCredentialStatusSchema = z
   .strict();
 export type OpenAiCredentialStatus = z.infer<typeof openAiCredentialStatusSchema>;
 
+export const privacyRetentionStatusSchema = z
+  .object({
+    earliestExpiresAt: z.iso.datetime({ offset: true }).nullable(),
+    latestExpiresAt: z.iso.datetime({ offset: true }).nullable(),
+    retainedCount: z.int().min(0),
+    retentionDays: z.literal(7),
+  })
+  .strict();
+export type PrivacyRetentionStatus = z.infer<typeof privacyRetentionStatusSchema>;
+
+export const accountDeletionStateSchema = z.enum(["requested", "connectors_revoked", "completed"]);
+export const accountDeletionStatusSchema = z
+  .object({
+    attemptCount: z.int().min(0),
+    completedAt: z.iso.datetime({ offset: true }).nullable(),
+    connectorsRevokedAt: z.iso.datetime({ offset: true }).nullable(),
+    requestedAt: z.iso.datetime({ offset: true }),
+    state: accountDeletionStateSchema,
+  })
+  .strict();
+export type AccountDeletionStatus = z.infer<typeof accountDeletionStatusSchema>;
+
+export const accountDeletionStatusResponseSchema = z
+  .object({ deletion: accountDeletionStatusSchema.nullable() })
+  .strict();
+
+export const privacyOverviewResponseSchema = z
+  .object({
+    deletion: accountDeletionStatusSchema.nullable(),
+    retention: privacyRetentionStatusSchema,
+  })
+  .strict();
+export type PrivacyOverviewResponse = z.infer<typeof privacyOverviewResponseSchema>;
+
+export const privacyDisclosureSchema = z
+  .object({
+    createdAt: z.iso.datetime({ offset: true }),
+    disclosedFields: z.array(z.string().min(1)),
+    id: canonicalUuidSchema,
+    model: z.string().min(1),
+    provider: z.string().min(1),
+    purpose: z.string().min(1),
+  })
+  .strict();
+export type PrivacyDisclosure = z.infer<typeof privacyDisclosureSchema>;
+
+export const privacyDisclosuresResponseSchema = z
+  .object({ disclosures: z.array(privacyDisclosureSchema) })
+  .strict();
+
+export const privacyPurgeResponseSchema = z
+  .object({ purged: z.literal(true), purgedCount: z.int().min(0) })
+  .strict();
+export type PrivacyPurgeResponse = z.infer<typeof privacyPurgeResponseSchema>;
+
+export const accountDeletionRequestSchema = z
+  .object({ confirm: z.literal("delete my account") })
+  .strict();
+
+export const accountDeletionResponseSchema = z
+  .object({
+    deleted: z.literal(true),
+    deletion: accountDeletionStatusSchema,
+    failedRevocations: z.int().min(0),
+    revokedCredentials: z.int().min(0),
+  })
+  .strict();
+export type AccountDeletionResponse = z.infer<typeof accountDeletionResponseSchema>;
+
 export const apiErrorSchema = z.object({
   error: z.object({
     code: z.string(),
