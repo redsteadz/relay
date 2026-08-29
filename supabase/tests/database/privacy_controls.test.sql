@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(27);
+select plan(28);
 
 -- Two tenants. Tenant one carries raw payloads plus derived rows that must survive a purge; tenant
 -- two exists so every tenant-scoped claim is checked against a second user rather than assumed.
@@ -278,6 +278,33 @@ select results_eq(
   'select state::text from public.request_account_deletion(''70000000-0000-4000-8000-000000000002'')',
   'values (''requested'')',
   'service role can open a deletion for an already authenticated tenant'
+);
+
+-- Criterion: account deletion deletes tenant rows. Removing the identity is what the API does
+-- last, and every tenant table references auth.users on delete cascade, so this proves the claim
+-- rather than trusting the foreign keys by inspection.
+delete from auth.users where id = '70000000-0000-4000-8000-000000000001';
+
+select results_eq(
+  $$select (
+      (select count(*) from public.profiles where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.devices where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.connections where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.source_items where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.categories where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.classifications where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.filter_rules where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.relay_events where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.action_rules where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.action_runs where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.ai_disclosures where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.audit_log where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.source_facts where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.dead_letter_items where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.account_deletions where user_id = '70000000-0000-4000-8000-000000000001')
+    )::bigint$$,
+  'values (0::bigint)',
+  'removing the identity cascades every tenant row away'
 );
 
 select * from finish();
