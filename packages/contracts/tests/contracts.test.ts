@@ -4,6 +4,11 @@ import {
   amountFactSchema,
   canonicalFactInstantSchema,
   canonicalUuidSchema,
+  categoryCreateRequestSchema,
+  categoryCustomSlugSchema,
+  categoryNameSchema,
+  categorySchema,
+  categoryUpdateRequestSchema,
   deadLetterFailureCodeSchema,
   deviceIngressRequestSchema,
   deviceRegistrationRequestSchema,
@@ -411,6 +416,67 @@ describe("encryptedIngressPayloadSchema", () => {
           source: { kind: "notification", externalId: "synthetic" },
           attributes: {},
         },
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("category contracts", () => {
+  it("accepts a well-formed create request", () => {
+    expect(
+      categoryCreateRequestSchema.safeParse({
+        slug: "work-notes",
+        name: "Work Notes",
+        quietByDefault: true,
+        sortOrder: 3,
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each(["Work", "work_notes", "-work", "work-", "wörk"])(
+    "rejects non-kebab custom slug %j",
+    (slug) => {
+      expect(categoryCustomSlugSchema.safeParse(slug).success).toBe(false);
+    },
+  );
+
+  it("rejects a whitespace-only name the way the database does", () => {
+    expect(categoryNameSchema.safeParse("   ").success).toBe(false);
+  });
+
+  it("rejects a name longer than the database column constraint", () => {
+    expect(categoryNameSchema.safeParse("a".repeat(61)).success).toBe(false);
+    expect(categoryNameSchema.safeParse("a".repeat(60)).success).toBe(true);
+  });
+
+  it("rejects unknown fields on create", () => {
+    expect(
+      categoryCreateRequestSchema.safeParse({
+        slug: "work",
+        name: "Work",
+        isSystem: true,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires at least one field on update", () => {
+    expect(categoryUpdateRequestSchema.safeParse({}).success).toBe(false);
+    expect(categoryUpdateRequestSchema.safeParse({ archived: true }).success).toBe(true);
+  });
+
+  it("rejects a negative sort order", () => {
+    expect(categoryUpdateRequestSchema.safeParse({ sortOrder: -1 }).success).toBe(false);
+  });
+
+  it("parses a category row shape", () => {
+    expect(
+      categorySchema.safeParse({
+        id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        slug: "transaction",
+        name: "Transactions",
+        isSystem: true,
+        quietByDefault: false,
+        sortOrder: 0,
       }).success,
     ).toBe(true);
   });
