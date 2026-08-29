@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { publishFilterCompilation, publishIngress } from "./pipeline";
+import { publishFilterCompilation, publishGmailDisconnect, publishIngress } from "./pipeline";
 
 const openNext = vi.hoisted(() => ({ getCloudflareContext: vi.fn() }));
 
@@ -38,6 +38,37 @@ describe("publishIngress", () => {
       },
       method: "POST",
     });
+  });
+
+  it("routes Gmail disconnect through private Pipeline binding without local success stub", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("RELAY_INGEST_SHARED_SECRET", "synthetic-secret");
+    const pipelineFetch = vi.fn(() => Promise.resolve(Response.json({ disconnected: true })));
+    openNext.getCloudflareContext.mockReturnValue({
+      env: { PIPELINE: { fetch: pipelineFetch } },
+    });
+    const signal = new AbortController().signal;
+    const message = {
+      schemaVersion: 1 as const,
+      connectionId: "19784902-e7a4-4f7f-b04d-e3a78c876629",
+      userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
+    };
+
+    const response = await publishGmailDisconnect(message, signal);
+
+    expect(response.status).toBe(200);
+    expect(pipelineFetch).toHaveBeenCalledWith(
+      "https://pipeline.internal/internal/gmail/disconnect",
+      {
+        body: JSON.stringify(message),
+        headers: {
+          "content-type": "application/json",
+          "x-relay-internal-secret": "synthetic-secret",
+        },
+        method: "POST",
+        signal,
+      },
+    );
   });
 });
 

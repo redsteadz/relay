@@ -61,12 +61,16 @@
     },
   },
   "vars": {
+    "GOOGLE_PUBSUB_MESSAGE_RETENTION_SECONDS": "604800",
     "RELAY_DEAD_LETTER_QUEUE": "relay-ingress-dead-letter-production",
     "RELAY_ENVIRONMENT": "production",
   },
   "secrets": {
     "required": [
       "RELAY_CREDENTIAL_KEK_KEYRING",
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOOGLE_GMAIL_PUBSUB_TOPIC",
       "RELAY_INGEST_SHARED_SECRET",
       "RELAY_RECOVERY_SHARED_SECRET",
       "SUPABASE_URL",

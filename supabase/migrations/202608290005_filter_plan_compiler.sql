@@ -1,4 +1,4 @@
--- Versioned filter-plan persistence (issue #26).
+-- Versioned filter-plan persistence after Gmail History (issue #26).
 --
 -- Natural-language compilation happens in Pipeline. This migration makes each result append-only,
 -- keeps compiler disclosures beside the plan, and exposes tenant rows as read-only history.
@@ -84,11 +84,15 @@ for select using ((select auth.uid()) = user_id);
 
 revoke insert, update, delete on public.filter_rules from authenticated, service_role;
 
--- OpenAI deletion must atomically disable semantic rules. Other connector deletion behavior remains
--- unchanged until each provider receives its own revocation transaction.
-drop policy "users delete own connections" on public.connections;
-create policy "users delete own non-openai connections" on public.connections
-for delete using ((select auth.uid()) = user_id and provider <> 'openai');
+-- OpenAI deletion must atomically disable semantic rules. Preserve Gmail's requirement that active
+-- watches disconnect through provider cleanup before their connection row can disappear.
+drop policy "users delete own non-active-gmail connections" on public.connections;
+create policy "users delete own unmanaged connections" on public.connections
+for delete using (
+  (select auth.uid()) = user_id
+  and provider <> 'openai'
+  and (provider <> 'gmail' or status <> 'active')
+);
 
 create function public.enforce_filter_revision_immutability()
 returns trigger

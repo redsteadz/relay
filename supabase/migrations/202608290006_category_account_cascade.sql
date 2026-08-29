@@ -1,4 +1,4 @@
--- Preserve system-category protection without blocking account deletion.
+-- Preserve system-category protection without blocking account deletion after filter versioning.
 --
 -- The category trigger runs at depth one for a direct category delete and at a nested depth when an
 -- auth.users foreign-key cascade removes tenant data. Account deletion must be able to complete.

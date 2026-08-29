@@ -10,6 +10,110 @@ export const devicePlatformSchema = z.enum(["android", "ios", "web"]);
 export const MAX_INGRESS_QUEUE_MESSAGE_BYTES = 120_000;
 export const RAW_PAYLOAD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
+export const gmailHistoryIdSchema = z
+  .string()
+  .min(1)
+  .max(32)
+  .regex(/^(?:0|[1-9][0-9]*)$/u, "Gmail History ID must be a decimal string");
+
+function hasForbiddenMailboxCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return /\s/u.test(character) || codePoint <= 31 || codePoint === 127;
+  });
+}
+
+export const normalizedGmailMailboxSchema = z
+  .string()
+  .min(3)
+  .max(320)
+  .refine(
+    (value) =>
+      value === value.trim().toLowerCase() &&
+      value.includes("@") &&
+      !hasForbiddenMailboxCharacter(value),
+    "Gmail mailbox must be normalized",
+  );
+
+export const gmailPushCursorPayloadSchema = z
+  .object({
+    emailAddress: z.string().min(3).max(320),
+    historyId: gmailHistoryIdSchema,
+  })
+  .strict();
+
+export const verifiedGmailCursorSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    emailAddress: normalizedGmailMailboxSchema,
+    historyId: gmailHistoryIdSchema,
+  })
+  .strict();
+export type VerifiedGmailCursor = z.infer<typeof verifiedGmailCursorSchema>;
+
+export const gmailDisconnectRequestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    connectionId: canonicalUuidSchema,
+    userId: relayUserIdSchema,
+  })
+  .strict();
+export type GmailDisconnectRequest = z.infer<typeof gmailDisconnectRequestSchema>;
+
+const pubSubAttributesSchema = z
+  .record(z.string().min(1).max(256), z.string().max(1024))
+  .refine((value) => Object.keys(value).length <= 32, "Too many Pub/Sub attributes");
+
+const pubSubMessageIdSchema = z
+  .string()
+  .min(1)
+  .max(32)
+  .regex(/^(?:0|[1-9][0-9]*)$/u);
+const pubSubPublishTimeSchema = z.iso.datetime({ offset: true });
+
+const gmailPubSubMessageSchema = z
+  .object({
+    attributes: pubSubAttributesSchema.optional(),
+    data: z
+      .string()
+      .min(1)
+      .max(4096)
+      .regex(/^[A-Za-z0-9_-]+={0,2}$/u),
+    messageId: pubSubMessageIdSchema,
+    message_id: pubSubMessageIdSchema.optional(),
+    orderingKey: z.string().max(1024).optional(),
+    publishTime: pubSubPublishTimeSchema,
+    publish_time: pubSubPublishTimeSchema.optional(),
+  })
+  .strict()
+  .superRefine((message, context) => {
+    if (message.message_id !== undefined && message.message_id !== message.messageId) {
+      context.addIssue({ code: "custom", message: "Pub/Sub message ID aliases must match" });
+    }
+    if (message.publish_time !== undefined && message.publish_time !== message.publishTime) {
+      context.addIssue({ code: "custom", message: "Pub/Sub publish time aliases must match" });
+    }
+  })
+  .transform((message) => ({
+    ...(message.attributes === undefined ? {} : { attributes: message.attributes }),
+    data: message.data,
+    messageId: message.messageId,
+    ...(message.orderingKey === undefined ? {} : { orderingKey: message.orderingKey }),
+    publishTime: message.publishTime,
+  }));
+
+export const gmailPubSubPushSchema = z
+  .object({
+    message: gmailPubSubMessageSchema,
+    subscription: z
+      .string()
+      .min(1)
+      .max(512)
+      .regex(/^projects\/[A-Za-z0-9._~+%-]+\/subscriptions\/[A-Za-z0-9._~+%-]+$/u),
+    deliveryAttempt: z.int().min(1).max(2_147_483_647).optional(),
+  })
+  .strict();
+
 export const deviceRegistrationRequestSchema = z
   .object({ id: deviceIdSchema, platform: devicePlatformSchema })
   .strict();
@@ -39,7 +143,34 @@ export const ingressEnvelopeSchema = z.object({
 });
 export type IngressEnvelope = z.infer<typeof ingressEnvelopeSchema>;
 
-export const encryptedIngressPayloadSchema = z
+export const ingressProducerSchema = z.enum(["device", "gmail-provider"]);
+export type IngressProducer = z.infer<typeof ingressProducerSchema>;
+
+const encryptedIngressPayloadV2Schema = z
+  .object({
+    schemaVersion: z.literal(2),
+    acceptedAt: z.iso.datetime({ offset: true }),
+    rawExpiresAt: z.iso.datetime({ offset: true }),
+    producer: ingressProducerSchema,
+    envelope: ingressEnvelopeSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.envelope.source.kind === "gmail") !== (value.producer === "gmail-provider")) {
+      context.addIssue({
+        code: "custom",
+        message: "Ingress producer does not own source kind",
+        path: ["producer"],
+      });
+    }
+  })
+  .refine(
+    (value) =>
+      Date.parse(value.rawExpiresAt) - Date.parse(value.acceptedAt) === RAW_PAYLOAD_RETENTION_MS,
+    { message: "Raw payload expiry must be exactly seven days after acceptance" },
+  );
+
+const encryptedIngressPayloadV1Schema = z
   .object({
     schemaVersion: z.literal(1),
     acceptedAt: z.iso.datetime({ offset: true }),
@@ -47,11 +178,21 @@ export const encryptedIngressPayloadSchema = z
     envelope: ingressEnvelopeSchema,
   })
   .strict()
+  .refine((value) => value.envelope.source.kind !== "gmail", {
+    message: "Legacy ingress cannot claim reserved Gmail source",
+    path: ["envelope", "source", "kind"],
+  })
   .refine(
     (value) =>
       Date.parse(value.rawExpiresAt) - Date.parse(value.acceptedAt) === RAW_PAYLOAD_RETENTION_MS,
     { message: "Raw payload expiry must be exactly seven days after acceptance" },
-  );
+  )
+  .transform((value) => ({ ...value, producer: "device" as const }));
+
+export const encryptedIngressPayloadSchema = z.union([
+  encryptedIngressPayloadV2Schema,
+  encryptedIngressPayloadV1Schema,
+]);
 export type EncryptedIngressPayload = z.infer<typeof encryptedIngressPayloadSchema>;
 
 export const deviceIngressRequestSchema = z

@@ -21,6 +21,7 @@
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:auth:configure": "node --env-file-if-exists=.env scripts/configure-supabase-auth.mjs",
+    "supabase:gmail-upgrade:test": "node scripts/test-gmail-migration-upgrade.mjs",
     "supabase:types": "node --env-file-if-exists=.env scripts/supabase-types.mjs write",
     "supabase:types:check": "node --env-file-if-exists=.env scripts/supabase-types.mjs check",
     "supabase:types:remote:check": "node --env-file-if-exists=.env scripts/supabase-types.mjs check-remote"

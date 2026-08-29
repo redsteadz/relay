@@ -1,5 +1,8 @@
 export type PipelineMetricName =
   | "dead_letter_parking_failed"
+  | "gmail_maintenance_failed"
+  | "kek_rotation_failed"
+  | "retention_purge_failed"
   | "retention_purge"
   | "source_item_duplicate"
   | "source_item_failed"

@@ -35,8 +35,8 @@ filter intent, financial records, calendars/tasks, and action authority.
 ## Open Risks
 
 Gmail restricted-scope verification, Google API Limited Use review, SMS distribution approval,
-provider reconciliation details, abuse/rate limits, and account deletion completion need tracked
-implementation and release issues.
+provider reconciliation details, abuse/rate limits, and account-deletion fresh-auth, external receipt,
+post-delete verification, and provider-failure tradeoff need tracked release issues.
 
 One hosted runtime creates shared quota, deployment, backup, and operator blast radius. ADR-0007
 accepts that topology for current stage; tenant controls remain mandatory. Account enrollment remains

@@ -61,9 +61,10 @@ describe("parseDecryptedIngressEnvelope", () => {
 
   it("matches uppercase authenticated IDs semantically and returns a canonical envelope", () => {
     const plaintext = JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       acceptedAt: "2026-08-24T10:00:00.000Z",
       rawExpiresAt: "2026-08-31T10:00:00.000Z",
+      producer: "device",
       envelope: {
         schemaVersion: 1,
         id: "5E106D7A-85AA-4A08-9A1F-CB13B42DF1F8",
@@ -85,9 +86,10 @@ describe("parseDecryptedIngressEnvelope", () => {
 
   it("rejects Queue metadata that differs from authenticated retention data", () => {
     const plaintext = JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       acceptedAt: "2026-08-24T10:00:00.000Z",
       rawExpiresAt: "2026-08-31T10:00:00.000Z",
+      producer: "device",
       envelope: {
         schemaVersion: 1,
         id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",

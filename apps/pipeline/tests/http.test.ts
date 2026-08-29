@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../src/env";
 import { compileAndPersistFilter } from "../src/filters";
+import { handleGmailDisconnect } from "../src/gmail";
 import { handlePipelineRequest } from "../src/http";
 import { listDeadLetterItems, replayDeadLetterItem } from "../src/recovery";
 
@@ -10,6 +11,10 @@ vi.mock("../src/recovery", () => ({
   listDeadLetterItems: vi.fn(() => Promise.resolve([])),
   recordDeadLetterItem: vi.fn(() => Promise.resolve()),
   replayDeadLetterItem: vi.fn(() => Promise.resolve(true)),
+}));
+vi.mock("../src/gmail", () => ({
+  handleGmailDisconnect: vi.fn(() => Promise.resolve(Response.json({ disconnected: true }))),
+  handleVerifiedGmailCursor: vi.fn(),
 }));
 
 vi.mock("../src/filters", () => ({
@@ -116,5 +121,68 @@ describe("Pipeline filter compiler boundary", () => {
 
     expect(response.status).toBe(401);
     expect(compileAndPersistFilter).not.toHaveBeenCalled();
+  });
+});
+
+describe("Pipeline Gmail disconnect boundary", () => {
+  it("requires internal credential before forwarding strict tenant-bound request", async () => {
+    const body = {
+      schemaVersion: 1,
+      connectionId: "19784902-e7a4-4f7f-b04d-e3a78c876629",
+      userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
+    };
+    const unauthorized = await handlePipelineRequest(
+      new Request("https://pipeline.internal/internal/gmail/disconnect", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+    expect(unauthorized.status).toBe(401);
+    expect(handleGmailDisconnect).not.toHaveBeenCalled();
+
+    const response = await handlePipelineRequest(
+      new Request("https://pipeline.internal/internal/gmail/disconnect", {
+        method: "POST",
+        headers: { "x-relay-internal-secret": "synthetic-ingress-secret" },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(handleGmailDisconnect).toHaveBeenCalledWith(env, body);
+  });
+});
+
+describe("Pipeline generic ingress boundary", () => {
+  it("rejects reserved Gmail source before encryption or Queue publication", async () => {
+    const response = await handlePipelineRequest(
+      new Request("https://pipeline.internal/internal/ingest", {
+        method: "POST",
+        headers: { "x-relay-internal-secret": "synthetic-ingress-secret" },
+        body: JSON.stringify({
+          userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
+          envelope: {
+            schemaVersion: 1,
+            id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+            occurredAt: "2026-08-29T10:00:00Z",
+            capturedAt: "2026-08-29T10:00:01Z",
+            source: {
+              kind: "gmail",
+              externalId: "synthetic-message",
+              accountId: "19784902-e7a4-4f7f-b04d-e3a78c876629",
+            },
+            attributes: {},
+          },
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      accepted: false,
+      reason: "reserved-source",
+    });
   });
 });
