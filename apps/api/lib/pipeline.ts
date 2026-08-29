@@ -1,28 +1,29 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-type PipelineMessage = {
+import type { FilterCompileInternalRequest } from "@relay/contracts";
+
+type IngressPipelineMessage = {
   userId: string;
   envelope: unknown;
 };
 
-export async function publishIngress(message: PipelineMessage): Promise<Response> {
+async function publishInternal(path: string, body: string): Promise<Response> {
   const secret = process.env.RELAY_INGEST_SHARED_SECRET;
   if (secret === undefined) {
     return Response.json({ accepted: false, reason: "internal-secret-missing" }, { status: 503 });
   }
-  const body = JSON.stringify(message);
   const headers = {
     "content-type": "application/json",
     "x-relay-internal-secret": secret,
   };
   const pipelineUrl = process.env.RELAY_PIPELINE_URL;
   if (process.env.NODE_ENV !== "production" && pipelineUrl !== undefined) {
-    return fetch(`${pipelineUrl}/internal/ingest`, { method: "POST", headers, body });
+    return fetch(`${pipelineUrl}${path}`, { method: "POST", headers, body });
   }
 
   try {
     const { env } = getCloudflareContext();
-    return await env.PIPELINE.fetch("https://pipeline.internal/internal/ingest", {
+    return await env.PIPELINE.fetch(`https://pipeline.internal${path}`, {
       method: "POST",
       headers,
       body,
@@ -34,4 +35,14 @@ export async function publishIngress(message: PipelineMessage): Promise<Response
 
     return Response.json({ accepted: false, reason: "pipeline-unavailable" }, { status: 503 });
   }
+}
+
+export async function publishIngress(message: IngressPipelineMessage): Promise<Response> {
+  return publishInternal("/internal/ingest", JSON.stringify(message));
+}
+
+export async function publishFilterCompilation(
+  request: FilterCompileInternalRequest,
+): Promise<Response> {
+  return publishInternal("/internal/filters/compile", JSON.stringify(request));
 }

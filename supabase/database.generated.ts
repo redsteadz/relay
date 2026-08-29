@@ -510,6 +510,7 @@ export type Database = {
       filter_rules: {
         Row: {
           approval_mode: string;
+          compiler_version: number;
           created_at: string;
           dismiss_source_notification: boolean;
           dismissal_dry_run_completed_at: string | null;
@@ -518,12 +519,16 @@ export type Database = {
           intent: string;
           name: string;
           plan: Json;
+          series_id: string;
+          supported_predicates: Json;
+          unsupported_clauses: Json;
           updated_at: string;
           user_id: string;
           version: number;
         };
         Insert: {
           approval_mode?: string;
+          compiler_version?: number;
           created_at?: string;
           dismiss_source_notification?: boolean;
           dismissal_dry_run_completed_at?: string | null;
@@ -532,12 +537,16 @@ export type Database = {
           intent: string;
           name: string;
           plan: Json;
+          series_id?: string;
+          supported_predicates?: Json;
+          unsupported_clauses?: Json;
           updated_at?: string;
           user_id: string;
           version?: number;
         };
         Update: {
           approval_mode?: string;
+          compiler_version?: number;
           created_at?: string;
           dismiss_source_notification?: boolean;
           dismissal_dry_run_completed_at?: string | null;
@@ -546,6 +555,9 @@ export type Database = {
           intent?: string;
           name?: string;
           plan?: Json;
+          series_id?: string;
+          supported_predicates?: Json;
+          unsupported_clauses?: Json;
           updated_at?: string;
           user_id?: string;
           version?: number;
@@ -838,6 +850,43 @@ export type Database = {
         Args: { p_id: string; p_request_id: string; p_result: string };
         Returns: boolean;
       };
+      create_filter_rule_revision: {
+        Args: {
+          p_enabled?: boolean;
+          p_expected_version?: number;
+          p_intent: string;
+          p_name: string;
+          p_plan: Json;
+          p_series_id?: string;
+          p_supported_predicates: Json;
+          p_unsupported_clauses: Json;
+          p_user_id: string;
+        };
+        Returns: {
+          approval_mode: string;
+          compiler_version: number;
+          created_at: string;
+          dismiss_source_notification: boolean;
+          dismissal_dry_run_completed_at: string | null;
+          enabled: boolean;
+          id: string;
+          intent: string;
+          name: string;
+          plan: Json;
+          series_id: string;
+          supported_predicates: Json;
+          unsupported_clauses: Json;
+          updated_at: string;
+          user_id: string;
+          version: number;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "filter_rules";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       decide_action_run: {
         Args: { p_action_run_id: string; p_decision: string };
         Returns: {
@@ -864,6 +913,10 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      filter_plan_has_forbidden_keys: {
+        Args: { p_value: Json };
+        Returns: boolean;
       };
       finalize_account_deletion: {
         Args: { p_user_id: string };
@@ -1110,6 +1163,7 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      revoke_openai_connection: { Args: { p_user_id: string }; Returns: Json };
     };
     Enums: {
       account_deletion_state: "requested" | "connectors_revoked" | "completed";

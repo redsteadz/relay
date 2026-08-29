@@ -484,44 +484,268 @@ export const filterFieldSchema = z.enum([
   "attributes.amount",
 ]);
 
-export const filterPredicateSchema = z.object({
-  field: filterFieldSchema,
-  operator: z.enum(["equals", "contains", "starts-with", "exists", "in"]),
-  value: z.union([z.string(), z.array(z.string())]).optional(),
-});
+export type FilterField = z.infer<typeof filterFieldSchema>;
+
+export const filterValueOperatorSchema = z.enum(["equals", "contains", "starts-with"]);
+export const filterOperatorSchema = z.enum([...filterValueOperatorSchema.options, "exists", "in"]);
+
+const filterScalarValueSchema = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine((value) => value === value.trim(), "Filter values must not have surrounding whitespace");
+
+const filterTextFieldSchema = z.enum([
+  "source.applicationId",
+  "sender",
+  "subject",
+  "body",
+  "attributes.merchant",
+]);
+const filterExistsFieldSchema = z.enum([
+  ...filterTextFieldSchema.options,
+  "attributes.currency",
+  "attributes.amount",
+]);
+
+export const filterPredicateSchema = z
+  .union([
+    z
+      .object({
+        field: filterFieldSchema,
+        operator: z.literal("equals"),
+        value: filterScalarValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        field: filterTextFieldSchema,
+        operator: z.enum(["contains", "starts-with"]),
+        value: filterScalarValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        field: filterExistsFieldSchema,
+        operator: z.literal("exists"),
+      })
+      .strict(),
+    z
+      .object({
+        field: filterFieldSchema,
+        operator: z.literal("in"),
+        value: z.array(filterScalarValueSchema).min(1).max(32),
+      })
+      .strict(),
+  ])
+  .superRefine((predicate, context) => {
+    if (predicate.operator === "exists") return;
+    const values = Array.isArray(predicate.value) ? predicate.value : [predicate.value];
+    const valid = values.every((value) => {
+      if (predicate.field === "source.kind") return sourceKindSchema.safeParse(value).success;
+      if (predicate.field === "category") return categoryCustomSlugSchema.safeParse(value).success;
+      if (predicate.field === "attributes.currency") return /^[A-Z]{3}$/u.test(value);
+      if (predicate.field === "attributes.amount") {
+        return exactDecimalStringSchema.safeParse(value).success;
+      }
+      return true;
+    });
+    if (!valid) {
+      context.addIssue({ code: "custom", message: "Filter value is invalid for its field" });
+    }
+  });
+
+export type FilterPredicate = z.infer<typeof filterPredicateSchema>;
 
 export type FilterExpression =
-  | z.infer<typeof filterPredicateSchema>
+  | FilterPredicate
+  | { never: true }
   | { all: FilterExpression[] }
   | { any: FilterExpression[] }
   | { not: FilterExpression };
 
-export const filterExpressionSchema: z.ZodType<FilterExpression> = z.lazy(() =>
+const filterExpressionNodeSchema: z.ZodType<FilterExpression> = z.lazy(() =>
   z.union([
     filterPredicateSchema,
-    z.object({ all: z.array(filterExpressionSchema).min(1) }),
-    z.object({ any: z.array(filterExpressionSchema).min(1) }),
-    z.object({ not: filterExpressionSchema }),
+    z.object({ never: z.literal(true) }).strict(),
+    z.object({ all: z.array(filterExpressionNodeSchema).min(1).max(16) }).strict(),
+    z.object({ any: z.array(filterExpressionNodeSchema).min(1).max(16) }).strict(),
+    z.object({ not: filterExpressionNodeSchema }).strict(),
   ]),
 );
+
+const boundedFilterExpressionSchema = z.unknown().superRefine((expression, context) => {
+  const pending: { depth: number; value: unknown }[] = [{ depth: 1, value: expression }];
+  let nodes = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) break;
+    nodes += 1;
+    if (current.depth > 8) {
+      context.addIssue({ code: "custom", message: "Filter expression exceeds maximum depth" });
+      return;
+    }
+    if (nodes > 64) {
+      context.addIssue({ code: "custom", message: "Filter expression exceeds maximum size" });
+      return;
+    }
+    if (typeof current.value !== "object" || current.value === null) continue;
+    const record = current.value as Record<string, unknown>;
+    if (Array.isArray(record.all)) {
+      if (record.all.length > 16) {
+        context.addIssue({ code: "custom", message: "Filter expression has too many children" });
+        return;
+      }
+      for (const child of record.all) pending.push({ depth: current.depth + 1, value: child });
+    }
+    if (Array.isArray(record.any)) {
+      if (record.any.length > 16) {
+        context.addIssue({ code: "custom", message: "Filter expression has too many children" });
+        return;
+      }
+      for (const child of record.any) pending.push({ depth: current.depth + 1, value: child });
+    }
+    if ("not" in record) pending.push({ depth: current.depth + 1, value: record.not });
+  }
+});
+
+export const filterExpressionSchema = boundedFilterExpressionSchema.pipe(
+  filterExpressionNodeSchema,
+);
+
+export const filterIntentSchema = z
+  .string()
+  .min(1)
+  .max(4000)
+  .refine((value) => value === value.trim(), "Filter intent must not have surrounding whitespace");
 
 export const filterPlanSchema = z
   .object({
     schemaVersion: z.literal(1),
-    intent: z.string().min(1).max(4000),
+    compilerVersion: z.literal(1),
+    intent: filterIntentSchema,
     deterministic: filterExpressionSchema.optional(),
     semantic: z
       .object({
         question: z.string().min(1).max(2000),
         minimumConfidence: z.number().min(0).max(1).default(0.8),
-        allowedFields: z.array(filterFieldSchema).min(1),
+        allowedFields: z.array(filterFieldSchema).min(1).max(filterFieldSchema.options.length),
       })
+      .strict()
       .optional(),
   })
+  .strict()
   .refine((plan) => plan.deterministic !== undefined || plan.semantic !== undefined, {
     message: "A filter needs deterministic or semantic evaluation",
   });
 export type FilterPlan = z.infer<typeof filterPlanSchema>;
+
+const filterRuleNameSchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .refine((value) => value === value.trim(), "Filter name must not have surrounding whitespace");
+
+const filterCompileRevisionShape = {
+  name: filterRuleNameSchema,
+  intent: filterIntentSchema,
+  enabled: z.boolean().optional(),
+  seriesId: canonicalUuidSchema.optional(),
+  expectedVersion: postgresIntegerSchema.optional(),
+};
+
+function validateFilterRevisionPair(
+  value: { expectedVersion?: number | undefined; seriesId?: string | undefined },
+  context: z.RefinementCtx,
+) {
+  if ((value.seriesId === undefined) !== (value.expectedVersion === undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: "Filter edits require both seriesId and expectedVersion",
+    });
+  }
+}
+
+export const filterCompileRequestSchema = z
+  .object(filterCompileRevisionShape)
+  .strict()
+  .superRefine(validateFilterRevisionPair);
+export type FilterCompileRequest = z.infer<typeof filterCompileRequestSchema>;
+
+export const filterCompileInternalRequestSchema = z
+  .object({ userId: canonicalUuidSchema, ...filterCompileRevisionShape })
+  .strict()
+  .superRefine(validateFilterRevisionPair);
+export type FilterCompileInternalRequest = z.infer<typeof filterCompileInternalRequestSchema>;
+
+export const filterCompilerCategorySchema = z
+  .object({
+    slug: categoryCustomSlugSchema,
+    name: categoryNameSchema,
+  })
+  .strict();
+export type FilterCompilerCategory = z.infer<typeof filterCompilerCategorySchema>;
+
+export const filterUnsupportedReasonSchema = z.enum([
+  "action-intent-not-allowed",
+  "invalid-value",
+  "semantic-required",
+]);
+
+export const filterUnsupportedClauseSchema = z
+  .object({
+    text: z.string().min(1).max(1000),
+    reason: filterUnsupportedReasonSchema,
+  })
+  .strict();
+export type FilterUnsupportedClause = z.infer<typeof filterUnsupportedClauseSchema>;
+
+export const filterSupportedPredicateSchema = z
+  .object({
+    field: filterFieldSchema,
+    operators: z.array(filterOperatorSchema).min(1).max(filterOperatorSchema.options.length),
+  })
+  .strict();
+export type FilterSupportedPredicate = z.infer<typeof filterSupportedPredicateSchema>;
+
+export const filterCompilationSchema = z
+  .object({
+    plan: filterPlanSchema,
+    supportedPredicates: z
+      .array(filterSupportedPredicateSchema)
+      .min(1)
+      .max(filterFieldSchema.options.length),
+    unsupportedClauses: z.array(filterUnsupportedClauseSchema).max(16),
+  })
+  .strict();
+export type FilterCompilation = z.infer<typeof filterCompilationSchema>;
+
+export const filterRuleVersionSchema = z
+  .object({
+    id: canonicalUuidSchema,
+    userId: canonicalUuidSchema,
+    seriesId: canonicalUuidSchema,
+    name: filterRuleNameSchema,
+    intent: filterIntentSchema,
+    plan: filterPlanSchema,
+    version: postgresIntegerSchema,
+    enabled: z.boolean(),
+    createdAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+export type FilterRuleVersion = z.infer<typeof filterRuleVersionSchema>;
+
+export const filterCompileResponseSchema = z
+  .object({
+    rule: filterRuleVersionSchema,
+    supportedPredicates: z
+      .array(filterSupportedPredicateSchema)
+      .min(1)
+      .max(filterFieldSchema.options.length),
+    unsupportedClauses: z.array(filterUnsupportedClauseSchema).max(16),
+  })
+  .strict();
+export type FilterCompileResponse = z.infer<typeof filterCompileResponseSchema>;
 
 export const actionProviderSchema = z.enum(["google-tasks", "nextcloud-budget", "webhook"]);
 export const actionIntentSchema = z.object({
@@ -554,6 +778,17 @@ export const openAiCredentialStatusSchema = z
   })
   .strict();
 export type OpenAiCredentialStatus = z.infer<typeof openAiCredentialStatusSchema>;
+
+export const openAiCredentialRevocationResultSchema = z
+  .object({
+    revoked: z.boolean(),
+    connectionId: canonicalUuidSchema.optional(),
+    disabledRuleCount: z.int().min(0),
+  })
+  .strict()
+  .refine((result) => result.revoked === (result.connectionId !== undefined), {
+    message: "Revoked credentials require a connection ID",
+  });
 
 export const apiErrorSchema = z.object({
   error: z.object({

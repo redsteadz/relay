@@ -204,39 +204,39 @@ describe("revokeOpenAiCredential", () => {
     vi.clearAllMocks();
   });
 
-  it("deletes the credential and disables filter rules that need semantic evaluation", async () => {
-    const selectExisting = chainable({ data: { id: connectionId }, error: null });
-    const deleteConnection = chainable({ error: null });
-    const selectEnabledRules = chainable({
-      data: [
-        { id: "rule-semantic", plan: { semantic: { question: "is this urgent?" } } },
-        { id: "rule-deterministic", plan: { deterministic: { field: "sender" } } },
-      ],
+  it("atomically revokes the credential and dependent semantic rules", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: { revoked: true, connectionId, disabledRuleCount: 1 },
       error: null,
     });
-    const updateRules = chainable({ error: null });
-    const insertAudit = chainable({ error: null });
-    const from = vi
-      .fn()
-      .mockReturnValueOnce(selectExisting)
-      .mockReturnValueOnce(deleteConnection)
-      .mockReturnValueOnce(selectEnabledRules)
-      .mockReturnValueOnce(updateRules)
-      .mockReturnValueOnce(insertAudit);
-    supabase.createClient.mockReturnValue({ from });
+    supabase.createClient.mockReturnValue({ rpc });
 
     const { revokeOpenAiCredential } = await importSubject();
     const result = await revokeOpenAiCredential(userId, env);
 
     expect(result.revoked).toBe(true);
-    expect(updateRules.update).toHaveBeenCalledWith({ enabled: false });
-    expect(updateRules.in).toHaveBeenCalledWith("id", ["rule-semantic"]);
+    expect(rpc).toHaveBeenCalledWith("revoke_openai_connection", { p_user_id: userId });
+  });
+
+  it("fails closed when atomic revocation is unavailable", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: "synthetic-failure" },
+    });
+    supabase.createClient.mockReturnValue({ rpc });
+
+    const { revokeOpenAiCredential } = await importSubject();
+    await expect(revokeOpenAiCredential(userId, env)).rejects.toThrow(
+      "Failed to revoke OpenAI credential",
+    );
   });
 
   it("reports nothing to revoke when no credential is configured", async () => {
-    const selectExisting = chainable({ data: null, error: null });
-    const from = vi.fn().mockReturnValue(selectExisting);
-    supabase.createClient.mockReturnValue({ from });
+    const rpc = vi.fn().mockResolvedValue({
+      data: { revoked: false, disabledRuleCount: 0 },
+      error: null,
+    });
+    supabase.createClient.mockReturnValue({ rpc });
 
     const { revokeOpenAiCredential } = await importSubject();
     await expect(revokeOpenAiCredential(userId, env)).resolves.toEqual({ revoked: false });

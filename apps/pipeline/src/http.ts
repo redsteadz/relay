@@ -1,6 +1,7 @@
 import {
   deadLetterReplayRequestSchema,
   encryptedIngressPayloadSchema,
+  filterCompileInternalRequestSchema,
   healthResponseSchema,
   ingressEnvelopeSchema,
   RAW_PAYLOAD_RETENTION_MS,
@@ -11,6 +12,7 @@ import { encryptValue } from "@relay/crypto";
 import { PersistenceConfigurationError, readPersistenceConfiguration } from "./configuration";
 import { sourceItemEncryptionContext } from "./encryption";
 import type { Env } from "./env";
+import { compileAndPersistFilter, FilterCompilationError } from "./filters";
 import { publishIngressQueueMessage } from "./queue";
 import { listDeadLetterItems, replayDeadLetterItem } from "./recovery";
 
@@ -86,6 +88,26 @@ export async function handlePipelineRequest(request: Request, env: Env): Promise
     return coordinator.fetch(
       `https://coordinator.internal/e2e/result?envelopeId=${encodeURIComponent(envelopeId.data)}`,
     );
+  }
+
+  if (request.method === "POST" && url.pathname === "/internal/filters/compile") {
+    const compilationRequest = filterCompileInternalRequestSchema.safeParse(
+      await request.json().catch(() => undefined),
+    );
+    if (!compilationRequest.success) {
+      return Response.json({ error: "invalid" }, { status: 400 });
+    }
+    try {
+      const configuration = readPersistenceConfiguration(env);
+      return Response.json(await compileAndPersistFilter(configuration, compilationRequest.data), {
+        status: 201,
+      });
+    } catch (error) {
+      if (error instanceof FilterCompilationError && error.reason === "filter_revision_conflict") {
+        return Response.json({ error: "filter-revision-conflict" }, { status: 409 });
+      }
+      return Response.json({ error: "filter-compilation-unavailable" }, { status: 503 });
+    }
   }
 
   if (request.method === "POST" && url.pathname === "/internal/ingest") {
