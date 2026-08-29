@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(18);
+select plan(20);
 
 -- Fixtures run as the migration role: `auth.users` inserts fire `handle_new_user`, which seeds the
 -- ten system categories per tenant, and `classifications` is select-only under RLS.
@@ -186,6 +186,35 @@ select results_eq(
   $$select count(*)::bigint from public.categories where is_system$$,
   'values (10::bigint)',
   'second tenant still sees exactly its own ten system categories'
+);
+
+-- Run as the migration role so these exercise the trigger and the composite foreign key
+-- themselves rather than row-level security. Even a service-role write must not move a category
+-- across tenants, or bind a classification to another tenant's category.
+reset role;
+
+select throws_ok(
+  $$update public.categories
+    set user_id = '60000000-0000-4000-8000-000000000002'
+    where slug = 'retired-project'$$,
+  '42501',
+  'Category tenant cannot change',
+  'a category cannot be reassigned to another tenant'
+);
+
+select throws_ok(
+  $$insert into public.classifications
+      (user_id, source_item_id, category_id, method, confidence)
+    values (
+      '60000000-0000-4000-8000-000000000001',
+      '61100000-0000-4000-8000-000000000001',
+      (select id from public.categories
+        where user_id = '60000000-0000-4000-8000-000000000002' and slug = 'task'),
+      'deterministic', 0.900
+    )$$,
+  '23503',
+  null,
+  'a classification cannot reference another tenant category'
 );
 
 select * from finish();
