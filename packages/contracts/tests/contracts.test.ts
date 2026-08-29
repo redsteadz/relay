@@ -10,6 +10,10 @@ import {
   encryptedIngressPayloadSchema,
   exactDecimalStringSchema,
   filterPlanSchema,
+  gmailDisconnectRequestSchema,
+  gmailHistoryIdSchema,
+  gmailPubSubPushSchema,
+  verifiedGmailCursorSchema,
   ingressEnvelopeSchema,
   ingressQueueMessageSchema,
   openAiCredentialStatusSchema,
@@ -19,6 +23,84 @@ import {
   sourceFactSetSchema,
   uncertainFactSchema,
 } from "../src/index.js";
+
+describe("verified Gmail cursor contracts", () => {
+  it("preserves decimal History IDs beyond Number precision", () => {
+    const historyId = "18446744073709551615";
+    const parsed = verifiedGmailCursorSchema.parse({
+      schemaVersion: 1,
+      emailAddress: "mailbox@example.test",
+      historyId,
+    });
+
+    expect(parsed.historyId).toBe(historyId);
+    expect(gmailHistoryIdSchema.safeParse(Number(historyId)).success).toBe(false);
+  });
+
+  it("rejects unnormalized mailboxes and non-decimal cursors", () => {
+    expect(
+      verifiedGmailCursorSchema.safeParse({
+        schemaVersion: 1,
+        emailAddress: "Mailbox@Example.test",
+        historyId: "1e6",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("strictly validates Pub/Sub wrapper metadata", () => {
+    const wrapper = {
+      message: {
+        data: "eyJlbWFpbEFkZHJlc3MiOiJtYWlsYm94QGV4YW1wbGUudGVzdCIsImhpc3RvcnlJZCI6IjEifQ",
+        messageId: "42",
+        message_id: "42",
+        publishTime: "2026-08-29T10:00:00Z",
+        publish_time: "2026-08-29T10:00:00Z",
+      },
+      subscription: "projects/synthetic-project/subscriptions/relay-gmail",
+    };
+
+    expect(gmailPubSubPushSchema.parse(wrapper)).toEqual({
+      message: {
+        data: wrapper.message.data,
+        messageId: "42",
+        publishTime: "2026-08-29T10:00:00Z",
+      },
+      subscription: wrapper.subscription,
+    });
+    expect(
+      gmailPubSubPushSchema.safeParse({ ...wrapper, mailbox: "mailbox@example.test" }).success,
+    ).toBe(false);
+    expect(
+      gmailPubSubPushSchema.safeParse({
+        ...wrapper,
+        message: { ...wrapper.message, message_id: "43" },
+      }).success,
+    ).toBe(false);
+    expect(
+      gmailPubSubPushSchema.safeParse({
+        ...wrapper,
+        message: { ...wrapper.message, publish_time: "2026-08-29T10:00:01Z" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("binds Gmail disconnect to one canonical tenant and connection", () => {
+    const parsed = gmailDisconnectRequestSchema.parse({
+      schemaVersion: 1,
+      connectionId: "19784902-E7A4-4F7F-B04D-E3A78C876629",
+      userId: "638CE145-A77D-4C32-B798-CB398E881FC9",
+    });
+
+    expect(parsed).toEqual({
+      schemaVersion: 1,
+      connectionId: "19784902-e7a4-4f7f-b04d-e3a78c876629",
+      userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
+    });
+    expect(gmailDisconnectRequestSchema.safeParse({ ...parsed, provider: "gmail" }).success).toBe(
+      false,
+    );
+  });
+});
 
 describe("canonicalUuidSchema", () => {
   it("parses uppercase UUID input to lowercase string output", () => {
@@ -400,9 +482,10 @@ describe("encryptedIngressPayloadSchema", () => {
   it("authenticates the original acceptance and expiry beside the envelope", () => {
     expect(
       encryptedIngressPayloadSchema.safeParse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         acceptedAt: "2026-08-24T10:00:00Z",
         rawExpiresAt: "2026-08-31T10:00:00Z",
+        producer: "device",
         envelope: {
           schemaVersion: 1,
           id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
@@ -413,5 +496,68 @@ describe("encryptedIngressPayloadSchema", () => {
         },
       }).success,
     ).toBe(true);
+  });
+
+  it("binds reserved Gmail source to trusted provider producer", () => {
+    const payload = {
+      schemaVersion: 2 as const,
+      acceptedAt: "2026-08-24T10:00:00Z",
+      rawExpiresAt: "2026-08-31T10:00:00Z",
+      producer: "device" as const,
+      envelope: {
+        schemaVersion: 1 as const,
+        id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        occurredAt: "2026-08-24T10:00:00Z",
+        capturedAt: "2026-08-24T10:00:01Z",
+        source: {
+          kind: "gmail" as const,
+          externalId: "synthetic-message",
+          accountId: "19784902-e7a4-4f7f-b04d-e3a78c876629",
+        },
+        attributes: {},
+      },
+    };
+
+    expect(encryptedIngressPayloadSchema.safeParse(payload).success).toBe(false);
+    expect(
+      encryptedIngressPayloadSchema.safeParse({ ...payload, producer: "gmail-provider" }).success,
+    ).toBe(true);
+    expect(
+      encryptedIngressPayloadSchema.safeParse({
+        ...payload,
+        producer: "gmail-provider",
+        envelope: {
+          ...payload.envelope,
+          source: { kind: "notification", externalId: "synthetic-notification" },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts legacy non-Gmail plaintext but rejects legacy Gmail impersonation", () => {
+    const legacy = {
+      schemaVersion: 1 as const,
+      acceptedAt: "2026-08-24T10:00:00Z",
+      rawExpiresAt: "2026-08-31T10:00:00Z",
+      envelope: {
+        schemaVersion: 1 as const,
+        id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        occurredAt: "2026-08-24T10:00:00Z",
+        capturedAt: "2026-08-24T10:00:01Z",
+        source: { kind: "notification" as const, externalId: "synthetic" },
+        attributes: {},
+      },
+    };
+
+    expect(encryptedIngressPayloadSchema.parse(legacy)).toMatchObject({ producer: "device" });
+    expect(
+      encryptedIngressPayloadSchema.safeParse({
+        ...legacy,
+        envelope: {
+          ...legacy.envelope,
+          source: { kind: "gmail", externalId: "synthetic-message" },
+        },
+      }).success,
+    ).toBe(false);
   });
 });

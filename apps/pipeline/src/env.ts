@@ -5,6 +5,10 @@ export type IngressQueueMessage = ContractIngressQueueMessage;
 export interface Env {
   DEAD_LETTER_QUEUE: Queue<IngressQueueMessage>;
   INGRESS_QUEUE: Queue<IngressQueueMessage>;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_GMAIL_PUBSUB_TOPIC?: string;
+  GOOGLE_PUBSUB_MESSAGE_RETENTION_SECONDS?: string;
   PIPELINE_METRICS?: AnalyticsEngineDataset;
   RELAY_ALLOW_LOCAL_DURABILITY?: string;
   RELAY_CREDENTIAL_KEK_KEYRING: string;
