@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accountDeletionRequestSchema,
+  accountDeletionResponseSchema,
   amountFactSchema,
   canonicalFactInstantSchema,
   canonicalUuidSchema,
@@ -25,6 +27,9 @@ import {
   ingressQueueMessageSchema,
   openAiCredentialStatusSchema,
   openAiCredentialSubmitRequestSchema,
+  privacyDisclosuresResponseSchema,
+  privacyOverviewResponseSchema,
+  privacyPurgeResponseSchema,
   normalizationDateCandidateSchema,
   sourceFactSchema,
   sourceFactSetSchema,
@@ -763,6 +768,91 @@ describe("openAiCredentialStatusSchema", () => {
     expect(
       openAiCredentialStatusSchema.safeParse({ provider: "openai", configured: false }).success,
     ).toBe(true);
+  });
+});
+
+describe("privacy control contracts", () => {
+  const deletion = {
+    attemptCount: 1,
+    completedAt: null,
+    connectorsRevokedAt: null,
+    requestedAt: "2026-08-29T10:00:00Z",
+    state: "requested",
+  } as const;
+
+  it("parses the overview without accepting a configurable retention window", () => {
+    expect(
+      privacyOverviewResponseSchema.safeParse({
+        deletion,
+        retention: {
+          earliestExpiresAt: "2026-08-30T10:00:00Z",
+          latestExpiresAt: "2026-09-01T10:00:00Z",
+          retainedCount: 3,
+          retentionDays: 7,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      privacyOverviewResponseSchema.safeParse({
+        deletion: null,
+        retention: {
+          earliestExpiresAt: null,
+          latestExpiresAt: null,
+          retainedCount: 0,
+          retentionDays: 30,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps disclosure history metadata-only", () => {
+    expect(
+      privacyDisclosuresResponseSchema.safeParse({
+        disclosures: [
+          {
+            createdAt: "2026-08-29T10:00:00Z",
+            disclosedFields: ["subject", "sender"],
+            id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+            model: "gpt-5-mini",
+            provider: "openai",
+            purpose: "Classify an undecidable message",
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      privacyDisclosuresResponseSchema.safeParse({
+        disclosures: [
+          {
+            createdAt: "2026-08-29T10:00:00Z",
+            disclosedFields: ["subject"],
+            id: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+            model: "gpt-5-mini",
+            provider: "openai",
+            purpose: "Classify",
+            prompt: "must never cross this boundary",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires the exact destructive confirmation and bounded counters", () => {
+    expect(accountDeletionRequestSchema.safeParse({ confirm: "delete my account" }).success).toBe(
+      true,
+    );
+    expect(accountDeletionRequestSchema.safeParse({ confirm: "DELETE" }).success).toBe(false);
+    expect(
+      accountDeletionResponseSchema.safeParse({
+        deleted: true,
+        deletion: { ...deletion, completedAt: "2026-08-29T10:01:00Z", state: "completed" },
+        failedRevocations: 0,
+        revokedCredentials: 2,
+      }).success,
+    ).toBe(true);
+    expect(privacyPurgeResponseSchema.safeParse({ purged: true, purgedCount: -1 }).success).toBe(
+      false,
+    );
   });
 });
 

@@ -19,6 +19,8 @@ import { createRelaySupabaseClient } from "./supabase";
 import RelayDeviceIngress from "../modules/relay-device-ingress";
 
 type AuthContextValue = {
+  client: SupabaseClient | undefined;
+  clearDeletedAccountSession: () => Promise<void>;
   completeMagicLink: (code: string) => Promise<void>;
   configurationError: boolean;
   initialized: boolean;
@@ -108,9 +110,33 @@ export function AuthProvider({ children }: PropsWithChildren) {
     startTransition(() => setSession(null));
   }
 
+  async function clearDeletedAccountSession() {
+    let cleanupFailed = false;
+    const tenantId = session?.user.id;
+    if (tenantId !== undefined) {
+      try {
+        await RelayDeviceIngress.clearCaptureQueue(tenantId);
+      } catch {
+        cleanupFailed = true;
+      }
+    }
+    if (client === undefined) cleanupFailed = true;
+    else {
+      try {
+        await clearRelaySession(client);
+      } catch {
+        cleanupFailed = true;
+      }
+    }
+    startTransition(() => setSession(null));
+    if (cleanupFailed) throw new Error("Deleted account local cleanup was incomplete");
+  }
+
   return (
     <AuthContext.Provider
       value={{
+        client,
+        clearDeletedAccountSession,
         completeMagicLink,
         configurationError: client === undefined,
         initialized,

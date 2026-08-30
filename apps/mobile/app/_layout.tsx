@@ -1,5 +1,6 @@
 import "react-native-gesture-handler";
 
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -10,6 +11,7 @@ import { AppText, LoadingState } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import {
   canEnterApp,
+  canEnterSignIn,
   localDevelopmentAccessEnabled,
   notificationCaptureMode,
 } from "@/lib/development-access";
@@ -19,6 +21,7 @@ import { RelayThemeProvider, useRelayTheme } from "@/theme";
 
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
+  const queryClient = useQueryClient();
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
@@ -31,6 +34,17 @@ function AuthenticatedStack() {
   const [preparedStateKey, setPreparedStateKey] = useState<string>();
   const [preparationFailed, setPreparationFailed] = useState(false);
   const preparationGenerationRef = useRef(0);
+  const previousUserIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (previousUserIdRef.current !== userId) {
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] === "categories" || query.queryKey[0] === "privacy",
+      });
+      previousUserIdRef.current = userId;
+    }
+  }, [queryClient, session?.user.id]);
 
   useEffect(() => {
     if (!initialized) return;
@@ -79,8 +93,10 @@ function AuthenticatedStack() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Protected guard={appAccessAllowed}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="categories" />
+          <Stack.Screen name="disclosures" />
         </Stack.Protected>
-        <Stack.Protected guard={!appAccessAllowed}>
+        <Stack.Protected guard={canEnterSignIn(session !== null)}>
           <Stack.Screen name="sign-in" />
         </Stack.Protected>
         <Stack.Protected guard={session === null}>
@@ -118,9 +134,20 @@ function ThemedRoot() {
 }
 
 export default function RootLayout() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: { retry: 1, staleTime: 30_000 },
+          mutations: { retry: false },
+        },
+      }),
+  );
   return (
     <RelayThemeProvider>
-      <ThemedRoot />
+      <QueryClientProvider client={queryClient}>
+        <ThemedRoot />
+      </QueryClientProvider>
     </RelayThemeProvider>
   );
 }

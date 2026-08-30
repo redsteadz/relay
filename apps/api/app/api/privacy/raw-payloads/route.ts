@@ -1,3 +1,5 @@
+import { privacyPurgeResponseSchema } from "@relay/contracts";
+
 import { authenticateRequest } from "../../../../lib/auth";
 import { loadPrivacyEnv, purgeRawPayloads } from "../../../../lib/privacy";
 
@@ -15,7 +17,12 @@ export async function DELETE(request: Request) {
   if ("error" in auth) return auth.error;
 
   try {
-    return Response.json({ purged: true, purgedCount: await purgeRawPayloads(auth.userId, env) });
+    return Response.json(
+      privacyPurgeResponseSchema.parse({
+        purged: true,
+        purgedCount: await purgeRawPayloads(auth.userId, env),
+      }),
+    );
   } catch {
     return Response.json(
       { error: { code: "purge_failed", message: "Raw payload purge failed" } },
