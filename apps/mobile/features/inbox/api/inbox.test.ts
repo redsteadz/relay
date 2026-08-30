@@ -13,10 +13,13 @@ function client(results: Record<string, Result>) {
     supabase: {
       from(table: string) {
         calls.push(table);
+        const settle = () => Promise.resolve(results[table] ?? { data: [], error: null });
+        // PostgREST query builders are thenable, so a query that ends without `limit` still awaits.
         const builder = {
-          limit: () => Promise.resolve(results[table] ?? { data: [], error: null }),
+          limit: settle,
           order: () => builder,
           select: () => builder,
+          then: (resolve: (value: unknown) => unknown) => settle().then(resolve),
         };
         return builder;
       },
@@ -58,10 +61,104 @@ describe("listInbox", () => {
 
     const items = await listInbox(supabase as never);
 
-    expect(calls.sort()).toEqual(["relay_events", "source_facts"]);
+    expect(calls.sort()).toEqual([
+      "categories",
+      "classifications",
+      "relay_events",
+      "source_facts",
+      "source_items",
+    ]);
     expect(items.map((item) => item.origin).sort()).toEqual(["event", "fact"]);
     expect(items.find((item) => item.origin === "event")?.group).toBe("actionable");
     expect(items.find((item) => item.origin === "fact")?.group).toBe("needs-review");
+  });
+
+  it("explains where an item came from and which decision placed it", async () => {
+    const { supabase } = client({
+      categories: { data: [{ id: "cat-1", name: "Finance" }], error: null },
+      classifications: {
+        data: [
+          {
+            category_id: "cat-1",
+            confidence: 0.77,
+            method: "deterministic",
+            rationale: "Rule 3",
+            source_item_id: eventRow.source_item_id,
+          },
+        ],
+        error: null,
+      },
+      relay_events: { data: [eventRow], error: null },
+      source_facts: { data: [], error: null },
+      source_items: {
+        data: [
+          {
+            application_id: "com.google.android.gm",
+            id: eventRow.source_item_id,
+            occurred_at: "2026-08-30T20:59:00.000Z",
+            processed_at: "2026-08-30T21:00:05.000Z",
+            raw_expires_at: "2026-09-06T21:00:00.000Z",
+            sender: "billing@example.test",
+            source: "notification",
+            subject: "Statement ready",
+          },
+        ],
+        error: null,
+      },
+    });
+
+    const [item] = await listInbox(supabase as never, "2026-08-31T00:00:00.000Z");
+
+    expect(item?.source.kind).toBe("notification");
+    expect(item?.source.applicationId).toBe("com.google.android.gm");
+    expect(item?.category).toEqual({
+      confidence: 0.77,
+      method: "deterministic",
+      name: "Finance",
+      rationale: "Rule 3",
+    });
+    expect(item?.processing).toBe("processed");
+    expect(item?.retention.rawExpired).toBe(false);
+  });
+
+  it("marks a raw payload that has already expired", async () => {
+    const { supabase } = client({
+      relay_events: { data: [eventRow], error: null },
+      source_facts: { data: [], error: null },
+      source_items: {
+        data: [
+          {
+            application_id: null,
+            id: eventRow.source_item_id,
+            occurred_at: "2026-08-01T00:00:00.000Z",
+            processed_at: null,
+            raw_expires_at: "2026-08-08T00:00:00.000Z",
+            sender: null,
+            source: "notification",
+            subject: null,
+          },
+        ],
+        error: null,
+      },
+    });
+
+    const [item] = await listInbox(supabase as never, "2026-08-31T00:00:00.000Z");
+
+    expect(item?.retention.rawExpired).toBe(true);
+    expect(item?.processing).toBe("pending");
+  });
+
+  it("states an unknown source rather than dropping an item whose source row is gone", async () => {
+    const { supabase } = client({
+      relay_events: { data: [eventRow], error: null },
+      source_facts: { data: [], error: null },
+      source_items: { data: [], error: null },
+    });
+
+    const [item] = await listInbox(supabase as never);
+
+    expect(item?.source.kind).toBe("unknown");
+    expect(item?.category).toBeUndefined();
   });
 
   it("reports a failed event read without leaking the row payload", async () => {

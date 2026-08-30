@@ -36,20 +36,101 @@ export type InboxFactInput = {
   value: unknown;
 };
 
+/** Where an item came from, so detail can name the source without reopening the raw payload. */
+export type InboxSource = {
+  applicationId: string | undefined;
+  kind: string;
+  occurredAt: string;
+  sender: string | undefined;
+  subject: string | undefined;
+};
+
+/**
+ * The filter decision that placed this item in a category.
+ *
+ * `method` records how the decision was reached, so a deterministic rule and a semantic clause are
+ * never presented as the same kind of claim.
+ */
+export type InboxCategory = {
+  confidence: number | undefined;
+  method: string;
+  name: string | undefined;
+  rationale: string | undefined;
+};
+
+/**
+ * Retention state of the encrypted raw payload behind an item.
+ *
+ * Raw copies expire seven days after capture. The derived item outlives them, so a screen must be
+ * able to say the original is gone rather than implying it could still be opened.
+ */
+export type InboxRetention = {
+  rawExpired: boolean;
+  rawExpiresAt: string | undefined;
+};
+
+/**
+ * Whether the pipeline finished with this item's source.
+ *
+ * Clients cannot read the dead-letter store by policy, so a failure is visible only as a capture the
+ * pipeline accepted but never marked processed. That is reported as unfinished rather than failed,
+ * because from here the two are indistinguishable.
+ */
+export type InboxProcessing = "pending" | "processed";
+
+export type InboxContext = {
+  category: InboxCategory | undefined;
+  processing: InboxProcessing;
+  retention: InboxRetention;
+  source: InboxSource;
+};
+
 export type InboxItem = {
+  category: InboxCategory | undefined;
   confidence: number | undefined;
   group: InboxGroup;
   id: string;
   kind: string;
   occurredAt: string;
   origin: InboxOrigin;
+  processing: InboxProcessing;
+  retention: InboxRetention;
   /** Why Relay is unsure. Never empty for a `needs-review` item, always empty otherwise. */
   reviewReasons: readonly string[];
   scheduledAt: string | undefined;
+  /** Lowercased derived text search matches against. Never includes an expired raw payload. */
+  searchText: string;
+  source: InboxSource;
   sourceItemId: string;
   summary: string | undefined;
   title: string;
 };
+
+/**
+ * Builds the text search reads.
+ *
+ * Only derived fields and retained metadata are included, matching what the item itself already
+ * shows. Searching cannot reach anything a person could not otherwise read on the screen.
+ */
+function searchTextFor(
+  title: string,
+  summary: string | undefined,
+  kind: string,
+  context: InboxContext,
+): string {
+  return [
+    title,
+    summary,
+    kind,
+    context.category?.name,
+    context.source.applicationId,
+    context.source.sender,
+    context.source.subject,
+  ]
+    .filter((part): part is string => part !== undefined && part !== "")
+    .join(" ")
+    .toLowerCase();
+}
 
 const REVIEW_REASON_TEXT: Record<string, string> = {
   contradictory: "Relay read conflicting values for this.",
@@ -83,10 +164,11 @@ function eventReviewReasons(event: InboxEventInput): string[] {
   return reasons;
 }
 
-export function inboxItemForEvent(event: InboxEventInput): InboxItem {
+export function inboxItemForEvent(event: InboxEventInput, context: InboxContext): InboxItem {
   const reviewReasons = eventReviewReasons(event);
   const scheduledAt = event.startsAt ?? event.dueAt ?? undefined;
   return {
+    category: context.category,
     confidence: event.confidence ?? undefined,
     // A scheduled item is actionable only once Relay trusts when it happens; an ambiguous time makes
     // it reviewable instead, because acting on the wrong date is worse than acting late.
@@ -100,18 +182,24 @@ export function inboxItemForEvent(event: InboxEventInput): InboxItem {
     kind: event.kind,
     occurredAt: event.createdAt,
     origin: "event",
+    processing: context.processing,
+    retention: context.retention,
     reviewReasons,
     scheduledAt,
+    searchText: searchTextFor(event.title, event.summary ?? undefined, event.kind, context),
+    source: context.source,
     sourceItemId: event.sourceItemId,
     summary: event.summary ?? undefined,
     title: event.title,
   };
 }
 
-export function inboxItemForFact(fact: InboxFactInput): InboxItem {
+export function inboxItemForFact(fact: InboxFactInput, context: InboxContext): InboxItem {
   const uncertain = fact.certainty !== "certain";
   const reviewReasons = uncertain ? [reasonText(fact.uncertaintyReason ?? "unspecified")] : [];
+  const title = factTitle(fact);
   return {
+    category: context.category,
     confidence: undefined,
     // A fact carries no schedule, so it is never actionable on its own. It either needs a person to
     // resolve it or belongs in the quiet record behind the events that cite it.
@@ -120,11 +208,15 @@ export function inboxItemForFact(fact: InboxFactInput): InboxItem {
     kind: fact.kind,
     occurredAt: fact.createdAt,
     origin: "fact",
+    processing: context.processing,
+    retention: context.retention,
     reviewReasons,
     scheduledAt: undefined,
+    searchText: searchTextFor(title, undefined, fact.kind, context),
+    source: context.source,
     sourceItemId: fact.sourceItemId,
     summary: undefined,
-    title: factTitle(fact),
+    title,
   };
 }
 
@@ -161,4 +253,24 @@ export function inboxSections(items: readonly InboxItem[]): readonly InboxSectio
       .filter((item) => item.group === group)
       .sort((left, right) => compareWithin(group, left, right)),
   }));
+}
+
+/**
+ * Narrows the inbox by a typed query.
+ *
+ * Every term must match, so adding words narrows rather than widens. A blank query returns the inbox
+ * unchanged rather than nothing, because an empty search box is not a filter.
+ */
+export function filterInbox(items: readonly InboxItem[], query: string): readonly InboxItem[] {
+  const terms = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  if (terms.length === 0) return items;
+  return items.filter((item) => terms.every((term) => item.searchText.includes(term)));
+}
+
+/** Retention state for a raw payload, given when it expires and when the read happens. */
+export function inboxRetention(rawExpiresAt: string | null, now: string): InboxRetention {
+  return {
+    rawExpired: rawExpiresAt !== null && rawExpiresAt <= now,
+    rawExpiresAt: rawExpiresAt ?? undefined,
+  };
 }
