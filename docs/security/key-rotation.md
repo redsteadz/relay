@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-28
+last_verified: 2026-08-29
 ---
 
 # Secret Provisioning And KEK Rotation
@@ -11,15 +11,18 @@ last_verified: 2026-08-28
 Shared hosted runtime uses one secret set. Store runtime values only in platform secret stores and
 recovery copy only in maintainers' password manager.
 
-| Secret                         | Runtime owners       | Purpose                                      |
-| ------------------------------ | -------------------- | -------------------------------------------- |
-| `GOOGLE_CLIENT_ID`             | API Worker           | Identify Google connector OAuth client       |
-| `GOOGLE_CLIENT_SECRET`         | API Worker           | Authenticate Google connector OAuth client   |
-| `RELAY_CREDENTIAL_KEK_KEYRING` | API, Pipeline Worker | Wrap per-record data keys                    |
-| `RELAY_INGEST_SHARED_SECRET`   | API, Pipeline Worker | Authenticate internal ingestion              |
-| `RELAY_RECOVERY_SHARED_SECRET` | API, Pipeline Worker | Authorize metadata inspection and replay     |
-| `SUPABASE_SERVICE_ROLE_KEY`    | API, Pipeline Worker | Perform tenant-bound persistence and cleanup |
-| `SUPABASE_URL`                 | API, Pipeline Worker | Select canonical hosted data plane           |
+| Secret                                | Runtime owners       | Purpose                                      |
+| ------------------------------------- | -------------------- | -------------------------------------------- |
+| `GOOGLE_CLIENT_ID`                    | API, Pipeline Worker | Identify Google connector OAuth client       |
+| `GOOGLE_CLIENT_SECRET`                | API, Pipeline Worker | Authenticate Google OAuth and token refresh  |
+| `GOOGLE_GMAIL_PUBSUB_TOPIC`           | Pipeline Worker      | Select exact Gmail watch publication topic   |
+| `GOOGLE_PUBSUB_AUDIENCE`              | API Worker           | Bind authenticated push JWT to Relay route   |
+| `GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL` | API Worker           | Restrict pushes to configured Google sender  |
+| `RELAY_CREDENTIAL_KEK_KEYRING`        | API, Pipeline Worker | Wrap per-record data keys                    |
+| `RELAY_INGEST_SHARED_SECRET`          | API, Pipeline Worker | Authenticate internal ingestion              |
+| `RELAY_RECOVERY_SHARED_SECRET`        | API, Pipeline Worker | Authorize metadata inspection and replay     |
+| `SUPABASE_SERVICE_ROLE_KEY`           | API, Pipeline Worker | Perform tenant-bound persistence and cleanup |
+| `SUPABASE_URL`                        | API, Pipeline Worker | Select canonical hosted data plane           |
 
 `SUPABASE_SERVICE_ROLE_KEY` is retained as the binding name, but its value must be the dedicated
 modern `sb_secret_` backend key. Send it only as Supabase's `apikey` header; it is not a JWT and must

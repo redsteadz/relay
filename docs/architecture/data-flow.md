@@ -18,6 +18,19 @@ Queue retry exhaustion -> dead-letter Queue -> ciphertext-only dead-letter ledge
 operator recovery credential -> metadata inspection -> atomic replay claim -> original Queue
 ```
 
+Gmail adds authenticated cursor stage before canonical ingress:
+
+```text
+Google Pub/Sub -> API JWT verification -> bounded/validated cursor -> private Pipeline binding
+  -> exact active mailbox ownership -> gmail:<connection-id> Durable Object pending cursor
+  -> encrypted credential decrypt in memory -> Gmail History/message retrieval
+  -> deterministic bounded Gmail envelope -> provider-authenticated encrypted ingress -> Queue
+```
+
+API performs only authenticated OAuth callback protocol exchanges and mailbox-profile verification.
+After connector creation, Pipeline exclusively owns watch, History, message, stop, token revocation,
+ordering, retry, and reconciliation work.
+
 ## Delivery Semantics
 
 Cloudflare Queues are at-least-once. Every stage can repeat after timeout or deployment. Source
@@ -26,6 +39,48 @@ payloads with different delivery IDs. One Durable Object instance per tenant exp
 decryption, deduplication, and persistence. Supabase unique constraints remain final durable
 arbitration through `persist_encrypted_source_item_v3`; its fixed result reports stored, duplicate,
 fact-integrity conflict, or tenant conflict without reflecting database details.
+Gmail source rows use connection-bound `persist_encrypted_source_item_v4`, which retains v3 conflict
+semantics while requiring active matching Gmail `(user_id, connection_id)` and writing
+`source_items.connection_id`. Non-Gmail ingress remains on v3 during rolling deployment.
+
+Gmail Pub/Sub cursor acknowledgement has separate durable boundary. Pipeline resolves normalized
+mailbox to exactly one active connection, or acknowledges one unexpired disconnect tombstone without
+routing work. Unique active ownership takes precedence over an old tombstone after reconnect. Active routing then uses
+`gmail:<connection-id>` Durable Object, which atomically stores
+identity and highest pending decimal History ID before returning success. IDs remain strings and are
+compared with `BigInt`, never `Number`. Alarm retries reload Supabase cursor and encrypted credential,
+so eviction loses no correctness state. Durable continuation limits an alarm to one History page or
+ten message fetch/publications, records successful message progress, removes seen/chunk/page markers as
+each page drains, and keeps newer pushes separate
+from immutable active start/target cursors. Changed message IDs are deduplicated; deterministic
+envelope UUID makes lost Queue responses safe. Cursor compare-and-set RPC treats already-advanced value
+as idempotent lost-response retry and otherwise requires expected predecessor. Cursor never advances
+before all pages and message publications complete. First-watch in-flight and returned-baseline states
+prevent crash recovery from repeating `watch` and guessing an initial cursor; ambiguous initialization
+instead enters explicit resync-required state. Explicit rejected watch responses clear in-flight state
+and retry, while response loss after possible success remains ambiguous. Canonical provider details live in
+[Gmail integration](../integrations/gmail.md).
+
+Deterministic malformed/over-limit Gmail messages become tenant-bound metadata-only terminal receipts
+keyed by message-ID digest. Receipt commit is equivalent to Queue acceptance only for advancing that
+specific message; transient provider/Queue failures remain retryable, and receipts expire after seven
+days. Durable alarm retry metadata and
+explicit bounded backoff continue after Cloudflare automatic alarm retries would end.
+
+Gmail consent withdrawal follows same private boundary: authenticated API forwards tenant/connection
+identity to mailbox Durable Object; Pipeline durably executes `users.stop`, Google token revocation,
+and idempotent Supabase credential deletion in that order. Failure before stop or revoke completion
+retains encrypted credential for retry. Permanent Supabase receipt arbitrates lost delete responses.
+Active Gmail rows deny direct authenticated table deletion. Same-tenant completed receipt makes API
+retries successful after row deletion. Mailbox-digest tombstone absorbs late provider notifications
+through saved watch expiration plus configured Pub/Sub retention without routing work.
+
+Account deletion uses same private Gmail boundary before local finalization, but with explicit
+best-effort exception: API sends only authenticated tenant/connection UUID in bounded, idempotent
+request; Pipeline alone may decrypt credential and perform stop/revoke/receipt ordering. Pipeline or
+provider failure is counted and does not block local credential, tenant-row, and identity deletion.
+API never directly handles Gmail credential or provider call, and no plaintext enters logs. Ordinary
+standalone Gmail disconnect retains strict retry-until-provider-complete behavior above.
 
 ## Deduplication
 
@@ -62,12 +117,16 @@ boundary) rather than a silent behavior change.
 
 Neither layer ever deletes a `source_items` row on a fingerprint or identity match — a conflict only
 suppresses a _new_ insert. Cross-source content similarity is not a deletion trigger anywhere in this
-codebase; the only automated deletion is the unrelated seven-day raw-payload retention purge
-(`purge_expired_raw_payloads`, see [privacy lifecycle](../security/privacy.md)), which is time-based
-and has no fingerprint or similarity input.
+codebase. Automated retention is time-based and has no fingerprint or similarity input:
+`purge_expired_raw_payloads` destroys seven-day raw/dead-letter encryption fields and deletes expired
+Gmail terminal receipts and disconnect tombstones (see [privacy lifecycle](../security/privacy.md)).
 
 Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
 envelope ID, recovery ID, original acceptance time, and original expiry, never raw source bodies.
+Encrypted plaintext also authenticates trusted producer. `gmail-provider` is required exactly for
+reserved Gmail source; generic device ingress cannot claim provider ownership. Producer-aware payloads
+use schema version 2. Queue drain accepts legacy version 1 only for non-Gmail source and canonicalizes
+its implied producer to `device`.
 Normal runtime UUID contracts canonicalize valid input to lowercase before new encryption context
 creation. Encrypted Queue wire UUIDs instead validate while preserving original casing because user and
 envelope IDs are authenticated encryption context. Consumers route by canonical tenant ID, decrypt
@@ -139,6 +198,11 @@ duplicates under another source ID never receive candidate markers.
 Pipeline Analytics Engine points use only fixed metric names, numeric counts, and numeric latency in
 milliseconds. Tenant IDs, envelope IDs, source metadata, ciphertext, URLs, errors, and plaintext are
 not metric dimensions or values.
+
+Gmail callback/provider paths emit no dynamic logs or metric dimensions. Push body, Gmail text,
+mailbox, tenant, connection, credentials, bearer/access/refresh tokens, authorization headers,
+provider bodies, and request/provider URLs remain excluded. Provider and persistence failures use
+fixed internal codes/messages.
 
 ## Local End-To-End Harness
 

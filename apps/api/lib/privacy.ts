@@ -4,12 +4,16 @@ import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "../../../supabase/database.generated";
 import { revokeGoogleToken } from "./google-tasks";
+import { publishGmailDisconnect } from "./pipeline";
 
 export type PrivacyEnv = {
   kekKeyring: string;
   supabaseServiceRoleKey: string;
   supabaseUrl: string;
 };
+
+export const ACCOUNT_DELETION_GMAIL_DISCONNECT_TIMEOUT_MS = 20_000;
+const ACCOUNT_DELETION_GMAIL_DISCONNECT_CONCURRENCY = 4;
 
 export function loadPrivacyEnv(): PrivacyEnv | null {
   const kekKeyring = process.env.RELAY_CREDENTIAL_KEK_KEYRING;
@@ -45,6 +49,81 @@ function postgresByteaToBase64(value: unknown): string {
     binary += String.fromCharCode(Number.parseInt(hex.slice(index, index + 2), 16));
   }
   return btoa(binary);
+}
+
+async function attemptGmailDisconnect(
+  userId: string,
+  connectionId: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (signal.aborted) return false;
+
+  let resolveAborted: (() => void) | undefined;
+  const aborted = new Promise<false>((resolve) => {
+    resolveAborted = () => resolve(false);
+    signal.addEventListener("abort", resolveAborted, { once: true });
+  });
+  const published = Promise.resolve()
+    .then(() =>
+      publishGmailDisconnect(
+        {
+          schemaVersion: 1,
+          connectionId,
+          userId,
+        },
+        signal,
+      ),
+    )
+    .then(
+      (response) => response.ok,
+      () => false,
+    );
+
+  try {
+    return await Promise.race([published, aborted]);
+  } finally {
+    if (resolveAborted !== undefined) signal.removeEventListener("abort", resolveAborted);
+  }
+}
+
+async function disconnectGmailConnections(
+  userId: string,
+  connectionIds: string[],
+): Promise<{ failed: number; revoked: number }> {
+  if (connectionIds.length === 0) return { failed: 0, revoked: 0 };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    ACCOUNT_DELETION_GMAIL_DISCONNECT_TIMEOUT_MS,
+  );
+  const outcomes = Array<boolean>(connectionIds.length).fill(false);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (!controller.signal.aborted) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const connectionId = connectionIds[index];
+      if (connectionId === undefined) return;
+      outcomes[index] = await attemptGmailDisconnect(userId, connectionId, controller.signal);
+    }
+  };
+
+  try {
+    await Promise.all(
+      Array.from(
+        {
+          length: Math.min(ACCOUNT_DELETION_GMAIL_DISCONNECT_CONCURRENCY, connectionIds.length),
+        },
+        worker,
+      ),
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const revoked = outcomes.filter(Boolean).length;
+  return { failed: connectionIds.length - revoked, revoked };
 }
 
 export type RetentionStatus = {
@@ -183,25 +262,43 @@ export async function getAccountDeletionStatus(
 /**
  * Best-effort provider-side revocation.
  *
- * Google refresh tokens are revoked at the provider; OpenAI has no revocation endpoint, so removing
- * the stored key is the whole of what Relay can do. A provider that refuses or is unreachable must
- * not strand the deletion, so failures are counted rather than thrown — the credential rows are
- * deleted regardless, which is what guarantees Relay itself retains nothing.
+ * Active Gmail connections are sent to Pipeline by tenant-bound connection ID; API never loads their
+ * encrypted credential or calls Gmail/Google for them. Other Google refresh tokens are revoked here.
+ * OpenAI has no revocation endpoint, so removing its stored key is the whole of what Relay can do. A
+ * provider that refuses or is unreachable must not strand deletion, so failures are counted rather
+ * than thrown — credential rows are deleted regardless, guaranteeing Relay itself retains nothing.
  */
 export async function revokeProviderCredentials(
   userId: string,
   env: PrivacyEnv,
 ): Promise<{ revoked: number; failed: number }> {
   const supabase = serviceClient(env);
-  const { data } = await supabase
+  const { data: connections, error: connectionError } = await supabase
+    .from("connections")
+    .select("id, provider, status")
+    .eq("user_id", userId);
+  if (connectionError !== null) throw new Error("Provider connections unavailable");
+
+  const gmail = await disconnectGmailConnections(
+    userId,
+    (connections ?? [])
+      .filter((connection) => connection.provider === "gmail" && connection.status === "active")
+      .map((connection) => connection.id),
+  );
+  let revoked = gmail.revoked;
+  let failed = gmail.failed;
+
+  // Excluding Gmail at query time keeps its encrypted credential out of API memory. Pipeline alone
+  // can decrypt Gmail credentials and preserve users.stop -> token revoke -> receipt ordering.
+  const { data, error: credentialError } = await supabase
     .from("connections")
     .select(
       "id, provider, credential_ciphertext, credential_nonce, wrapped_data_key, wrap_nonce, key_version",
     )
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .like("provider", "google%");
+  if (credentialError !== null) throw new Error("Provider credentials unavailable");
 
-  let revoked = 0;
-  let failed = 0;
   for (const row of data ?? []) {
     if (!row.provider.startsWith("google")) continue;
     try {
