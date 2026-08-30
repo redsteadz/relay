@@ -24,6 +24,7 @@
     "sideload": {
       "extends": "base",
       "distribution": "internal",
+      "environment": "preview",
       "env": {
         "RELAY_BUILD_VARIANT": "sideload"
       },

@@ -108,11 +108,18 @@ assert.deepEqual(eas, {
     [buildVariants.sideload]: {
       extends: "base",
       distribution: "internal",
+      environment: "preview",
       env: { RELAY_BUILD_VARIANT: buildVariants.sideload },
       android: { buildType: "apk" },
     },
   },
 });
+
+// Sideload APKs run on physical devices, so they must not inherit the base
+// environment that points development builds at the emulator loopback host.
+const sideloadEnvironment =
+  eas.build[buildVariants.sideload].environment ?? eas.build.base.environment;
+assert.notEqual(sideloadEnvironment, eas.build.base.environment);
 
 assert.equal(packageJson.dependencies["expo-dev-client"], "57.0.15");
 const easPostInstall = packageJson.scripts["eas-build-post-install"];
