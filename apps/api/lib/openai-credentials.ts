@@ -7,6 +7,7 @@ import {
 } from "@relay/contracts";
 
 import type { Database } from "../../../supabase/database.generated";
+import { databaseError, logApiIntegrationError } from "./observability";
 
 const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
 const OPENAI_PROVIDER = "openai";
@@ -75,13 +76,27 @@ export async function validateOpenAiKey(apiKey: string): Promise<boolean> {
     response = await fetch(OPENAI_MODELS_ENDPOINT, {
       headers: { authorization: `Bearer ${apiKey}` },
     });
-  } catch {
-    throw new CredentialValidationUnavailableError("OpenAI validation is unavailable");
+  } catch (error: unknown) {
+    throw new CredentialValidationUnavailableError("OpenAI validation is unavailable", {
+      cause: error,
+    });
   }
-  await response.body?.cancel().catch(() => undefined);
+  try {
+    await response.body?.cancel();
+  } catch (error: unknown) {
+    logApiIntegrationError(error, {
+      code: "OPENAI_RESPONSE_CANCELLATION_FAILED",
+      event: "integration.response_cleanup_failed",
+      integration: "openai",
+      operation: "validateOpenAiKey.cancelResponse",
+      requestId: crypto.randomUUID(),
+    });
+  }
   if (response.status === 401 || response.status === 403) return false;
   if (!response.ok)
-    throw new CredentialValidationUnavailableError("OpenAI validation is unavailable");
+    throw new CredentialValidationUnavailableError("OpenAI validation is unavailable", {
+      cause: new Error(`OpenAI validation returned status ${response.status.toString()}`),
+    });
   return true;
 }
 
@@ -94,13 +109,16 @@ export async function getOpenAiCredentialStatus(
   userId: string,
   env: OpenAiEnv,
 ): Promise<OpenAiCredentialStatus> {
-  const { data } = await serviceClient(env)
+  const { data, error } = await serviceClient(env)
     .from("connections")
     .select("metadata")
     .eq("user_id", userId)
     .eq("provider", OPENAI_PROVIDER)
     .maybeSingle();
 
+  if (error !== null) {
+    throw databaseError(error, "OPENAI_STATUS_QUERY_FAILED", "getOpenAiCredentialStatus");
+  }
   if (data === null) return { provider: "openai", configured: false };
   const lastValidatedAt = readLastValidatedAt(data.metadata);
   return {
@@ -143,10 +161,10 @@ export async function submitOpenAiCredential(
     if (error.code === "23505") {
       throw new CredentialConflictError("An OpenAI key is already configured");
     }
-    throw new Error("Failed to store OpenAI credential");
+    throw databaseError(error, "OPENAI_CREDENTIAL_STORE_FAILED", "submitOpenAiCredential");
   }
 
-  await supabase.from("audit_log").insert({
+  const { error: auditError } = await supabase.from("audit_log").insert({
     user_id: userId,
     actor_type: "user",
     actor_id: userId,
@@ -155,6 +173,18 @@ export async function submitOpenAiCredential(
     target_id: connectionId,
     metadata: { provider: OPENAI_PROVIDER },
   });
+  if (auditError !== null) {
+    logApiIntegrationError(
+      databaseError(auditError, "OPENAI_AUDIT_WRITE_FAILED", "submitOpenAiCredential.audit"),
+      {
+        code: "OPENAI_AUDIT_WRITE_FAILED",
+        event: "database.audit_write_failed",
+        integration: "supabase",
+        operation: "submitOpenAiCredential.audit",
+        requestId: crypto.randomUUID(),
+      },
+    );
+  }
 
   return { provider: "openai", configured: true, lastValidatedAt };
 }
@@ -165,12 +195,15 @@ export async function rotateOpenAiCredential(
   env: OpenAiEnv,
 ): Promise<OpenAiCredentialStatus> {
   const supabase = serviceClient(env);
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("connections")
     .select("id")
     .eq("user_id", userId)
     .eq("provider", OPENAI_PROVIDER)
     .maybeSingle();
+  if (existingError !== null) {
+    throw databaseError(existingError, "OPENAI_CREDENTIAL_QUERY_FAILED", "rotateOpenAiCredential");
+  }
   if (existing === null) throw new CredentialNotFoundError("No OpenAI key is configured");
 
   await assertValidOpenAiKey(apiKey);
@@ -194,9 +227,11 @@ export async function rotateOpenAiCredential(
     })
     .eq("id", existing.id)
     .eq("user_id", userId);
-  if (error !== null) throw new Error("Failed to rotate OpenAI credential");
+  if (error !== null) {
+    throw databaseError(error, "OPENAI_CREDENTIAL_ROTATE_FAILED", "rotateOpenAiCredential");
+  }
 
-  await supabase.from("audit_log").insert({
+  const { error: auditError } = await supabase.from("audit_log").insert({
     user_id: userId,
     actor_type: "user",
     actor_id: userId,
@@ -205,6 +240,18 @@ export async function rotateOpenAiCredential(
     target_id: existing.id,
     metadata: { provider: OPENAI_PROVIDER },
   });
+  if (auditError !== null) {
+    logApiIntegrationError(
+      databaseError(auditError, "OPENAI_AUDIT_WRITE_FAILED", "rotateOpenAiCredential.audit"),
+      {
+        code: "OPENAI_AUDIT_WRITE_FAILED",
+        event: "database.audit_write_failed",
+        integration: "supabase",
+        operation: "rotateOpenAiCredential.audit",
+        requestId: crypto.randomUUID(),
+      },
+    );
+  }
 
   return { provider: "openai", configured: true, lastValidatedAt };
 }
@@ -219,7 +266,13 @@ export async function revokeOpenAiCredential(
   });
   const result = openAiCredentialRevocationResultSchema.safeParse(data);
   if (error !== null || !result.success) {
-    throw new Error("Failed to revoke OpenAI credential");
+    throw databaseError(
+      error ?? result.error,
+      "OPENAI_CREDENTIAL_REVOKE_FAILED",
+      "revokeOpenAiCredential",
+      undefined,
+      "Failed to revoke OpenAI credential",
+    );
   }
   return { revoked: result.data.revoked };
 }

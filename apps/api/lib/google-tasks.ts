@@ -1,8 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 
 import { decryptValue, encryptValue, parseKekKeyring } from "@relay/crypto";
+import { AppError, categoryForHttpStatus } from "@relay/observability";
 
 import type { Database } from "../../../supabase/database.generated";
+import { databaseError, logApiIntegrationError } from "./observability";
 
 // Google Tasks scope only. Relay's only configured operation is creating a task (see
 // docs/integrations/google-tasks.md); a broader profile/email scope is intentionally not
@@ -17,6 +19,22 @@ const GOOGLE_TASKLISTS_ENDPOINT = "https://tasks.googleapis.com/tasks/v1/users/@
 const PROVIDER = "google-tasks";
 
 export class ConnectionNotFoundError extends Error {}
+export class DuplicateGoogleTasksConnectionError extends Error {
+  constructor() {
+    super("Google Tasks is already connected");
+  }
+}
+
+function googleHttpError(response: Response, code: string, operation: string): AppError {
+  return new AppError("Google operation failed", {
+    category: categoryForHttpStatus(response.status),
+    cause: new Error(`Google returned status ${response.status.toString()}`),
+    code,
+    integration: "google",
+    operation,
+    statusCode: response.status,
+  });
+}
 
 type GoogleTasksEnv = {
   googleClientId: string;
@@ -212,7 +230,7 @@ export async function exchangeCodeForTokens(
     }),
   });
 
-  if (!response.ok) throw new Error("Token exchange failed");
+  if (!response.ok) throw googleHttpError(response, "GOOGLE_TOKEN_EXCHANGE_FAILED", "exchangeCode");
 
   const data = (await response.json()) as Record<string, unknown>;
   const accessToken = data.access_token;
@@ -226,7 +244,12 @@ export async function exchangeCodeForTokens(
     typeof expiresIn !== "number" ||
     typeof scope !== "string"
   ) {
-    throw new Error("Token exchange returned invalid response");
+    throw new AppError("Google token response was malformed", {
+      category: "malformed-response",
+      code: "GOOGLE_TOKEN_RESPONSE_INVALID",
+      integration: "google",
+      operation: "exchangeCode",
+    });
   }
 
   return { accessToken, refreshToken, expiresIn, scope };
@@ -244,12 +267,19 @@ async function refreshAccessToken(refreshToken: string, env: GoogleTasksEnv): Pr
     }),
   });
 
-  if (!response.ok) throw new Error("Access token refresh failed");
+  if (!response.ok) {
+    throw googleHttpError(response, "GOOGLE_TOKEN_REFRESH_FAILED", "refreshAccessToken");
+  }
 
   const data = (await response.json()) as Record<string, unknown>;
   const accessToken = data.access_token;
   if (typeof accessToken !== "string" || accessToken.length === 0) {
-    throw new Error("Access token refresh returned an invalid response");
+    throw new AppError("Google token response was malformed", {
+      category: "malformed-response",
+      code: "GOOGLE_TOKEN_RESPONSE_INVALID",
+      integration: "google",
+      operation: "refreshAccessToken",
+    });
   }
   return accessToken;
 }
@@ -315,10 +345,16 @@ export async function persistConnection(
     .single();
 
   if (error !== null) {
-    if (error.code === "23505") throw new Error("Google Tasks is already connected");
-    throw new Error("Failed to persist connection");
+    if (error.code === "23505") throw new DuplicateGoogleTasksConnectionError();
+    throw databaseError(error, "GOOGLE_TASKS_CONNECTION_STORE_FAILED", "persistConnection");
   }
-  if (data === null) throw new Error("Failed to persist connection");
+  if (data === null) {
+    throw databaseError(
+      new Error("Connection insert returned no row"),
+      "GOOGLE_TASKS_CONNECTION_RESPONSE_INVALID",
+      "persistConnection",
+    );
+  }
   return { id: data.id };
 }
 
@@ -333,7 +369,7 @@ async function loadConnectionCredential(
   env: GoogleTasksEnv,
 ): Promise<{ connectionId: string; refreshToken: string }> {
   const supabase = serviceClient(env);
-  const { data: row } = await supabase
+  const { data: row, error } = await supabase
     .from("connections")
     .select(
       "id, credential_ciphertext, credential_nonce, wrapped_data_key, wrap_nonce, key_version",
@@ -341,6 +377,9 @@ async function loadConnectionCredential(
     .eq("user_id", userId)
     .eq("provider", PROVIDER)
     .maybeSingle();
+  if (error !== null) {
+    throw databaseError(error, "GOOGLE_TASKS_CONNECTION_QUERY_FAILED", "loadConnectionCredential");
+  }
   if (row === null) throw new ConnectionNotFoundError("No Google Tasks connection is configured");
 
   const keyring = parseKekKeyring(env.kekKeyring);
@@ -370,7 +409,9 @@ export async function listTaskLists(
   const response = await fetch(GOOGLE_TASKLISTS_ENDPOINT, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) throw new Error("Failed to list Google Task lists");
+  if (!response.ok) {
+    throw googleHttpError(response, "GOOGLE_TASK_LISTS_FAILED", "listTaskLists");
+  }
 
   const data = (await response.json()) as Record<string, unknown>;
   const items = data.items;
@@ -397,15 +438,36 @@ export async function listTaskLists(
 // Disconnect
 // ---------------------------------------------------------------------------
 
-export async function revokeGoogleToken(token: string): Promise<boolean> {
+export async function revokeGoogleToken(
+  token: string,
+  requestId = crypto.randomUUID(),
+): Promise<boolean> {
   try {
     const response = await fetch(GOOGLE_REVOKE_ENDPOINT, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ token }),
     });
-    return response.ok;
-  } catch {
+    if (response.ok) return true;
+    logApiIntegrationError(
+      googleHttpError(response, "GOOGLE_TOKEN_REVOCATION_FAILED", "revokeToken"),
+      {
+        code: "GOOGLE_TOKEN_REVOCATION_FAILED",
+        event: "integration.token_revocation_failed",
+        integration: "google",
+        operation: "revokeToken",
+        requestId,
+      },
+    );
+    return false;
+  } catch (error: unknown) {
+    logApiIntegrationError(error, {
+      code: "GOOGLE_TOKEN_REVOCATION_FAILED",
+      event: "integration.token_revocation_failed",
+      integration: "google",
+      operation: "revokeToken",
+      requestId,
+    });
     // Revocation is best-effort; we still delete the local credential.
     return false;
   }
@@ -415,10 +477,11 @@ export async function disconnectGoogleTasks(
   userId: string,
   connectionId: string,
   env: GoogleTasksEnv,
+  requestId = crypto.randomUUID(),
 ): Promise<{ deleted: boolean; revoked: boolean }> {
   const supabase = serviceClient(env);
 
-  const { data: row } = await supabase
+  const { data: row, error: connectionError } = await supabase
     .from("connections")
     .select(
       "credential_ciphertext, credential_nonce, wrapped_data_key, wrap_nonce, key_version, provider",
@@ -430,6 +493,9 @@ export async function disconnectGoogleTasks(
 
   // Nothing to disconnect — report that plainly rather than a spurious success, since a delete
   // of zero matching rows below would otherwise report no error either way.
+  if (connectionError !== null && connectionError.code !== "PGRST116") {
+    throw databaseError(connectionError, "GOOGLE_TASKS_CONNECTION_QUERY_FAILED", "disconnect");
+  }
   if (row === null) return { deleted: false, revoked: false };
 
   let revoked = false;
@@ -448,26 +514,39 @@ export async function disconnectGoogleTasks(
       keyring,
       context,
     );
-    revoked = await revokeGoogleToken(refreshToken);
-  } catch {
+    revoked = await revokeGoogleToken(refreshToken, requestId);
+  } catch (error: unknown) {
+    logApiIntegrationError(error, {
+      code: "GOOGLE_TASKS_CREDENTIAL_DECRYPT_FAILED",
+      event: "integration.credential_revocation_failed",
+      integration: "google-tasks",
+      operation: "disconnectGoogleTasks",
+      requestId,
+    });
     // Revocation failure must not prevent credential deletion.
   }
 
   // action_rules.connection_id is ON DELETE RESTRICT, so a rule still pointing at this
   // connection would otherwise block deletion. Detach and disable those rules first — the
   // provider is gone, so an enabled rule with no connection could never run correctly.
-  const { data: dependentRules } = await supabase
+  const { data: dependentRules, error: rulesError } = await supabase
     .from("action_rules")
     .select("id")
     .eq("user_id", userId)
     .eq("connection_id", connectionId);
+  if (rulesError !== null) {
+    throw databaseError(rulesError, "GOOGLE_TASKS_RULE_QUERY_FAILED", "disconnect.rules");
+  }
   const dependentRuleIds = (dependentRules ?? []).map((rule) => rule.id);
   if (dependentRuleIds.length > 0) {
-    await supabase
+    const { error: updateRulesError } = await supabase
       .from("action_rules")
       .update({ enabled: false, connection_id: null })
       .eq("user_id", userId)
       .in("id", dependentRuleIds);
+    if (updateRulesError !== null) {
+      throw databaseError(updateRulesError, "GOOGLE_TASKS_RULE_UPDATE_FAILED", "disconnect.rules");
+    }
   }
 
   const { error } = await supabase
@@ -477,10 +556,13 @@ export async function disconnectGoogleTasks(
     .eq("user_id", userId)
     .eq("provider", PROVIDER);
 
-  const deleted = error === null;
+  if (error !== null) {
+    throw databaseError(error, "GOOGLE_TASKS_CONNECTION_DELETE_FAILED", "disconnect.delete");
+  }
+  const deleted = true;
 
   if (deleted) {
-    await supabase.from("audit_log").insert({
+    const { error: auditError } = await supabase.from("audit_log").insert({
       user_id: userId,
       actor_type: "user",
       actor_id: userId,
@@ -489,6 +571,18 @@ export async function disconnectGoogleTasks(
       target_id: connectionId,
       metadata: { provider: PROVIDER, revoked, disabledRuleCount: dependentRuleIds.length },
     });
+    if (auditError !== null) {
+      logApiIntegrationError(
+        databaseError(auditError, "GOOGLE_TASKS_AUDIT_WRITE_FAILED", "disconnect.audit"),
+        {
+          code: "GOOGLE_TASKS_AUDIT_WRITE_FAILED",
+          event: "database.audit_write_failed",
+          integration: "supabase",
+          operation: "disconnect.audit",
+          requestId,
+        },
+      );
+    }
   }
 
   return { deleted, revoked };

@@ -251,6 +251,11 @@ describe("Gmail Pub/Sub callback", () => {
     expect(text).not.toContain(sensitiveMailbox);
     expect(text).not.toContain(sensitiveToken);
     expect(text).not.toContain("private-value");
-    expect(errorLog).not.toHaveBeenCalled();
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    const serializedLog = String(errorLog.mock.calls[0]?.[0]);
+    expect(serializedLog).toContain("connector.push_publication_failed");
+    expect(serializedLog).not.toContain(sensitiveMailbox);
+    expect(serializedLog).not.toContain(sensitiveToken);
+    expect(serializedLog).not.toContain("private-value");
   });
 });

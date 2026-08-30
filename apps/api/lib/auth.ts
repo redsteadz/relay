@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 import { relayUserIdSchema } from "@relay/contracts";
+import { logApiError } from "./observability";
 
 type AuthResult = { userId: string; accessToken?: string } | { error: Response };
 
@@ -32,10 +33,44 @@ export async function authenticateRequest(request: Request): Promise<AuthResult>
   const supabase = createClient(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  const { data, error } = await supabase.auth.getUser(token);
+  let result: Awaited<ReturnType<typeof supabase.auth.getUser>>;
+  try {
+    result = await supabase.auth.getUser(token);
+  } catch (error: unknown) {
+    logApiError(request, error, {
+      category: "unavailable",
+      code: "AUTH_SERVICE_UNAVAILABLE",
+      event: "auth.verification_failed",
+      integration: "supabase-auth",
+      operation: "getUser",
+      retryable: true,
+      statusCode: 503,
+    });
+    return {
+      error: Response.json(
+        {
+          error: { code: "auth_unavailable", message: "Authentication is temporarily unavailable" },
+        },
+        { status: 503 },
+      ),
+    };
+  }
+  const { data, error } = result;
   const userId = relayUserIdSchema.safeParse(data.user?.id);
-  if (error !== null || !userId.success)
+  if (error !== null || !userId.success) {
+    if (error !== null) {
+      logApiError(request, error, {
+        category: "unauthorized",
+        code: "AUTH_TOKEN_REJECTED",
+        event: "auth.token_rejected",
+        integration: "supabase-auth",
+        operation: "getUser",
+        retryable: false,
+        statusCode: 401,
+      });
+    }
     return unauthorized("invalid_token", "Authentication failed");
+  }
 
   return { accessToken: token, userId: userId.data };
 }
