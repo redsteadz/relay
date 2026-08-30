@@ -11,6 +11,7 @@ import { AppText, LoadingState } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import {
   canEnterApp,
+  canEnterSignIn,
   localDevelopmentAccessEnabled,
   notificationCaptureMode,
 } from "@/lib/development-access";
@@ -95,7 +96,7 @@ function AuthenticatedStack() {
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />
         </Stack.Protected>
-        <Stack.Protected guard={!appAccessAllowed}>
+        <Stack.Protected guard={canEnterSignIn(session !== null)}>
           <Stack.Screen name="sign-in" />
         </Stack.Protected>
         <Stack.Protected guard={session === null}>

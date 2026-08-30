@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   canEnterApp,
+  canEnterSignIn,
   localDevelopmentAccessEnabled,
   notificationCaptureMode,
   notificationCaptureTenantId,
 } from "./development-access";
 
 describe("debug-only local access", () => {
+  it("keeps sign-in reachable while local development access opens the app shell", () => {
+    expect(canEnterApp(false, true)).toBe(true);
+    expect(canEnterSignIn(false)).toBe(true);
+    expect(canEnterSignIn(true)).toBe(false);
+  });
+
   it("enters the app and assigns a stable synthetic Android capture tenant in development", () => {
     const localAccess = localDevelopmentAccessEnabled(true, "development");
     expect(canEnterApp(false, localAccess)).toBe(true);
