@@ -2,6 +2,7 @@ import { deviceRegistrationRequestSchema } from "@relay/contracts";
 
 import { authenticateRequest } from "../../../../lib/auth";
 import { DeviceUnavailableError, registerDevice } from "../../../../lib/devices";
+import { loggedErrorResponse } from "../../../../lib/observability";
 
 export async function POST(request: Request) {
   const auth = await authenticateRequest(request);
@@ -22,9 +23,22 @@ export async function POST(request: Request) {
     return Response.json(device, { status: 200 });
   } catch (error) {
     const unavailable = error instanceof DeviceUnavailableError;
-    return Response.json(
+    const response = Response.json(
       { error: { code: unavailable ? "device_unavailable" : "device_registration_unavailable" } },
       { status: unavailable ? 403 : 503 },
     );
+    return unavailable
+      ? response
+      : loggedErrorResponse(
+          request,
+          error,
+          {
+            code: "DEVICE_REGISTRATION_FAILED",
+            event: "device.registration_failed",
+            integration: "supabase",
+            operation: "registerDevice",
+          },
+          response,
+        );
   }
 }

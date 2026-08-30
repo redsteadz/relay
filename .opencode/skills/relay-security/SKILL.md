@@ -10,6 +10,10 @@ Check each changed trust boundary:
 - Authentication and tenant identity are established before user-controlled identifiers are used.
 - Untrusted payloads are schema-validated and size-limited.
 - Raw content and credentials are encrypted before persistence and omitted from logs.
+- Failure paths use the existing runtime observability adapter, preserve the original cause, and
+  return only deterministic safe user messages.
+- Structured logs contain fixed allowlisted metadata, propagate bounded request IDs, remain safe in
+  DEBUG mode, and emit once at the terminal boundary without swallowing async rejection.
 - Data keys, nonces, wrapping keys, and key versions are complete and non-reused.
 - RLS denies cross-user reads and writes.
 - OpenAI receives only documented allowlisted fields after redaction.

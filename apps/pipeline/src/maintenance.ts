@@ -3,6 +3,7 @@ import type { Env } from "./env";
 import { listDueGmailConnections, scheduleGmailMaintenance } from "./gmail";
 import { executeKekRotationBatch } from "./key-rotation";
 import { recordPipelineMetric } from "./metrics";
+import { logPipelineError } from "./observability";
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 type MaintenanceName = "gmail" | "kek-rotation" | "retention";
@@ -15,8 +16,8 @@ function retentionBody(env: Env): string {
   let supabaseUrl: URL;
   try {
     supabaseUrl = new URL(env.SUPABASE_URL ?? "");
-  } catch {
-    throw new Error("Controlled retention time is invalid");
+  } catch (error: unknown) {
+    throw new Error("Controlled retention time is invalid", { cause: error });
   }
   if (
     env.RELAY_E2E_MODE !== "true" ||
@@ -40,6 +41,7 @@ async function attemptMaintenance(
   operation: (signal: AbortSignal) => Promise<void>,
 ): Promise<MaintenanceName | undefined> {
   const startedAt = performance.now();
+  const logStartedAt = Date.now();
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
@@ -51,8 +53,20 @@ async function attemptMaintenance(
   try {
     await Promise.race([operation(controller.signal), timeoutPromise]);
     return undefined;
-  } catch {
-    recordPipelineMetric(env.PIPELINE_METRICS, failureMetric, 1, performance.now() - startedAt);
+  } catch (error: unknown) {
+    recordPipelineMetric(
+      env.PIPELINE_METRICS,
+      failureMetric,
+      1,
+      performance.now() - startedAt,
+      env.DEBUG,
+    );
+    logPipelineError(env, "background.maintenance_task_failed", error, {
+      code: `MAINTENANCE_${name.replaceAll("-", "_").toUpperCase()}_FAILED`,
+      integration: name === "gmail" ? "google-gmail" : "supabase",
+      operation: name,
+      startedAt: logStartedAt,
+    });
     return name;
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
@@ -75,7 +89,12 @@ export async function runScheduledMaintenance(env: Env, fetcher: Fetcher = fetch
           signal,
         });
         if (!response.ok) throw new Error("Retention cleanup failed");
-        const purged = await response.json<unknown>().catch(() => undefined);
+        let purged: unknown;
+        try {
+          purged = await response.json<unknown>();
+        } catch (error: unknown) {
+          throw new Error("Retention cleanup response is invalid", { cause: error });
+        }
         if (typeof purged !== "number" || !Number.isSafeInteger(purged) || purged < 0) {
           throw new Error("Retention cleanup response is invalid");
         }
@@ -84,6 +103,7 @@ export async function runScheduledMaintenance(env: Env, fetcher: Fetcher = fetch
           "retention_purge",
           purged,
           performance.now() - retentionStartedAt,
+          env.DEBUG,
         );
       }),
       attemptMaintenance(env, "kek-rotation", "kek_rotation_failed", async (signal) => {

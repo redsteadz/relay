@@ -5,6 +5,7 @@ import {
 } from "@relay/contracts";
 
 import { authenticateRequest } from "../../../../lib/auth";
+import { apiRequestId, loggedErrorResponse } from "../../../../lib/observability";
 import { deleteAccount, getAccountDeletionStatus, loadPrivacyEnv } from "../../../../lib/privacy";
 
 function notConfigured() {
@@ -24,10 +25,20 @@ export async function GET(request: Request) {
   try {
     const deletion = await getAccountDeletionStatus(auth.userId, env);
     return Response.json(accountDeletionStatusResponseSchema.parse({ deletion }));
-  } catch {
-    return Response.json(
-      { error: { code: "privacy_unavailable", message: "Deletion status unavailable" } },
-      { status: 503 },
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "ACCOUNT_DELETION_STATUS_FAILED",
+        event: "privacy.deletion_status_failed",
+        integration: "supabase",
+        operation: "getAccountDeletionStatus",
+      },
+      Response.json(
+        { error: { code: "privacy_unavailable", message: "Deletion status unavailable" } },
+        { status: 503 },
+      ),
     );
   }
 }
@@ -66,7 +77,7 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    const result = await deleteAccount(auth.userId, env);
+    const result = await deleteAccount(auth.userId, env, apiRequestId(request));
     return Response.json(
       accountDeletionResponseSchema.parse({
         deleted: true,
@@ -75,11 +86,21 @@ export async function DELETE(request: Request) {
         revokedCredentials: result.revokedCredentials,
       }),
     );
-  } catch {
+  } catch (error: unknown) {
     // The deletion is resumable: the same call can be retried and each step is idempotent.
-    return Response.json(
-      { error: { code: "deletion_failed", message: "Account deletion did not complete" } },
-      { status: 503 },
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "ACCOUNT_DELETION_FAILED",
+        event: "privacy.account_deletion_failed",
+        integration: "supabase",
+        operation: "deleteAccount",
+      },
+      Response.json(
+        { error: { code: "deletion_failed", message: "Account deletion did not complete" } },
+        { status: 503 },
+      ),
     );
   }
 }

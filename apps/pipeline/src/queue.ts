@@ -8,6 +8,7 @@ import {
 
 import type { Env, IngressQueueMessage } from "./env";
 import { recordPipelineMetric } from "./metrics";
+import { logPipelineError } from "./observability";
 import { completeDeadLetterReplay, recordDeadLetterItem } from "./recovery";
 
 const REPLAY_REQUEST_FIELD_BYTES = 57;
@@ -80,7 +81,12 @@ export async function processIngressQueue(
           if (!response.ok) throw new Error("E2E dead-letter receipt failed");
         }
         message.ack();
-      } catch {
+      } catch (error: unknown) {
+        logPipelineError(env, "queue.dead_letter_persistence_failed", error, {
+          code: "DEAD_LETTER_PERSISTENCE_FAILED",
+          integration: "supabase",
+          operation: "recordDeadLetterItem",
+        });
         if (Date.parse(parsed.data.rawExpiresAt) <= Date.now()) {
           message.ack();
           continue;
@@ -90,8 +96,13 @@ export async function processIngressQueue(
             delaySeconds: DEAD_LETTER_RETRY_DELAY_SECONDS,
           });
           message.ack();
-        } catch {
-          recordPipelineMetric(env.PIPELINE_METRICS, "dead_letter_parking_failed", 1, 0);
+        } catch (parkingError: unknown) {
+          logPipelineError(env, "queue.dead_letter_parking_failed", parkingError, {
+            code: "DEAD_LETTER_PARKING_FAILED",
+            integration: "cloudflare-queue",
+            operation: "parkDeadLetterMessage",
+          });
+          recordPipelineMetric(env.PIPELINE_METRICS, "dead_letter_parking_failed", 1, 0, env.DEBUG);
           message.retry({ delaySeconds: DEAD_LETTER_FALLBACK_RETRY_DELAY_SECONDS });
         }
       }
@@ -115,7 +126,20 @@ export async function processIngressQueue(
         body: JSON.stringify(parsed.data),
       });
       if (response.ok) {
-        const result = await response.json<{ reason?: unknown }>().catch(() => undefined);
+        let result: { reason?: unknown } | undefined;
+        try {
+          result = await response.json<{ reason?: unknown }>();
+        } catch (error: unknown) {
+          logPipelineError(env, "queue.coordinator_response_invalid", error, {
+            code: "COORDINATOR_RESPONSE_INVALID",
+            integration: "tenant-coordinator",
+            operation: "processIngressMessage",
+          });
+        }
+        if (result?.reason !== "duplicate" && result?.reason !== "persisted") {
+          await routeFailedMessage(message, parsed.data, "coordinator_unavailable", env);
+          continue;
+        }
         const completion = result?.reason === "duplicate" ? "duplicate" : "succeeded";
         await completeDeadLetterReplay(env, parsed.data, completion);
         message.ack();
@@ -125,7 +149,16 @@ export async function processIngressQueue(
         }
         message.ack();
       } else {
-        const result = await response.json<{ failureCode?: unknown }>().catch(() => undefined);
+        let result: { failureCode?: unknown } | undefined;
+        try {
+          result = await response.json<{ failureCode?: unknown }>();
+        } catch (error: unknown) {
+          logPipelineError(env, "queue.coordinator_response_invalid", error, {
+            code: "COORDINATOR_RESPONSE_INVALID",
+            integration: "tenant-coordinator",
+            operation: "processIngressMessage",
+          });
+        }
         const failureCode = deadLetterFailureCodeSchema.safeParse(result?.failureCode);
         await routeFailedMessage(
           message,
@@ -134,10 +167,20 @@ export async function processIngressQueue(
           env,
         );
       }
-    } catch {
+    } catch (error: unknown) {
+      logPipelineError(env, "queue.ingress_processing_failed", error, {
+        code: "INGRESS_PROCESSING_FAILED",
+        integration: "tenant-coordinator",
+        operation: "processIngressMessage",
+      });
       try {
         await routeFailedMessage(message, parsed.data, "coordinator_unavailable", env);
-      } catch {
+      } catch (routingError: unknown) {
+        logPipelineError(env, "queue.failure_routing_failed", routingError, {
+          code: "INGRESS_FAILURE_ROUTING_FAILED",
+          integration: "cloudflare-queue",
+          operation: "routeFailedMessage",
+        });
         message.retry();
       }
     }

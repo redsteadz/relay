@@ -13,6 +13,7 @@ import {
 } from "@/lib/development-access";
 import { demoIngress, sendDemoIngress } from "@/lib/demo";
 import { registerInstallation } from "@/lib/device";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { useRelayTheme } from "@/theme";
 
@@ -53,7 +54,12 @@ export default function InboxScreen() {
       const result = await sendDemoIngress(session.access_token, device.id);
       setStatus(result.accepted ? `Queued ${result.id.slice(0, 8)}` : "Not accepted");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unknown ingestion error");
+      logMobileError("ui.demo_ingress_failed", error, {
+        code: "DEMO_INGRESS_FAILED",
+        integration: "relay-api",
+        operation: "simulateIngress",
+      });
+      setStatus("Could not queue the simulated notification. Check your connection and retry.");
     } finally {
       setSending(false);
     }

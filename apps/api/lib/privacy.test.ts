@@ -126,7 +126,10 @@ describe("account deletion provider cleanup", () => {
     expect(crypto.decryptValue.mock.calls[0]?.[2]).toBe(
       `connection:${userId}:${tasksConnectionId}:credential`,
     );
-    expect(googleTasks.revokeGoogleToken).toHaveBeenCalledWith("synthetic-tasks-refresh-token");
+    expect(googleTasks.revokeGoogleToken).toHaveBeenCalledWith(
+      "synthetic-tasks-refresh-token",
+      expect.any(String),
+    );
     expect(rpc.mock.calls.map(([name]) => name)).toEqual([
       "request_account_deletion",
       "mark_account_connectors_revoked",

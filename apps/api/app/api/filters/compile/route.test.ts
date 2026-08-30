@@ -45,11 +45,14 @@ describe("POST /api/filters/compile", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(publishFilterCompilation).toHaveBeenCalledWith({
-      userId,
-      name: "Receipts",
-      intent: "from gmail",
-    });
+    expect(publishFilterCompilation).toHaveBeenCalledWith(
+      {
+        userId,
+        name: "Receipts",
+        intent: "from gmail",
+      },
+      expect.any(String),
+    );
     await expect(response.json()).resolves.toEqual(responseBody);
   });
 

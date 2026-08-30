@@ -30,7 +30,9 @@ describe("publishIngress", () => {
 
     expect(response.status).toBe(202);
     expect(openNext.getCloudflareContext).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/internal/ingest", {
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe("http://127.0.0.1:8787/internal/ingest");
+    expect(init).toMatchObject({
       body: JSON.stringify(message),
       headers: {
         "content-type": "application/json",
@@ -38,12 +40,15 @@ describe("publishIngress", () => {
       },
       method: "POST",
     });
+    expect(new Headers(init?.headers).get("x-relay-request-id")).toMatch(/^[0-9a-f-]+$/i);
   });
 
   it("routes Gmail disconnect through private Pipeline binding without local success stub", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("RELAY_INGEST_SHARED_SECRET", "synthetic-secret");
-    const pipelineFetch = vi.fn(() => Promise.resolve(Response.json({ disconnected: true })));
+    const pipelineFetch = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ disconnected: true })),
+    );
     openNext.getCloudflareContext.mockReturnValue({
       env: { PIPELINE: { fetch: pipelineFetch } },
     });
@@ -57,18 +62,18 @@ describe("publishIngress", () => {
     const response = await publishGmailDisconnect(message, signal);
 
     expect(response.status).toBe(200);
-    expect(pipelineFetch).toHaveBeenCalledWith(
-      "https://pipeline.internal/internal/gmail/disconnect",
-      {
-        body: JSON.stringify(message),
-        headers: {
-          "content-type": "application/json",
-          "x-relay-internal-secret": "synthetic-secret",
-        },
-        method: "POST",
-        signal,
+    const [input, init] = pipelineFetch.mock.calls[0] ?? [];
+    expect(input).toBe("https://pipeline.internal/internal/gmail/disconnect");
+    expect(init).toMatchObject({
+      body: JSON.stringify(message),
+      headers: {
+        "content-type": "application/json",
+        "x-relay-internal-secret": "synthetic-secret",
       },
-    );
+      method: "POST",
+      signal,
+    });
+    expect(new Headers(init?.headers).get("x-relay-request-id")).toMatch(/^[0-9a-f-]+$/i);
   });
 });
 
@@ -94,7 +99,9 @@ describe("publishFilterCompilation", () => {
     const response = await publishFilterCompilation(request);
 
     expect(response.status).toBe(201);
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/internal/filters/compile", {
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe("http://127.0.0.1:8787/internal/filters/compile");
+    expect(init).toMatchObject({
       body: JSON.stringify(request),
       headers: {
         "content-type": "application/json",
@@ -102,5 +109,6 @@ describe("publishFilterCompilation", () => {
       },
       method: "POST",
     });
+    expect(new Headers(init?.headers).get("x-relay-request-id")).toMatch(/^[0-9a-f-]+$/i);
   });
 });

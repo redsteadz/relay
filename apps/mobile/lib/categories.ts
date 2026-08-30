@@ -5,6 +5,9 @@ import {
   type CategoryUpdateRequest,
 } from "@relay/contracts";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { AppError } from "@relay/observability";
+
+import { logMobileError } from "./observability";
 
 // Categories are tenant-owned and reachable directly under row-level security, so this module talks
 // to PostgREST rather than the Relay API. Every invariant it surfaces is enforced by the database
@@ -16,10 +19,37 @@ const categoryColumns =
 export type CategoryFailure =
   "archive-required" | "duplicate-name" | "protected-system-category" | "unavailable";
 
-export class CategoryError extends Error {
-  constructor(readonly reason: CategoryFailure) {
-    super("Category request failed");
+export class CategoryError extends AppError {
+  constructor(
+    readonly reason: CategoryFailure,
+    cause?: unknown,
+    operation?: string,
+  ) {
+    super("Category request failed", {
+      category:
+        reason === "duplicate-name" || reason === "archive-required"
+          ? "validation"
+          : reason === "protected-system-category"
+            ? "forbidden"
+            : "database",
+      cause,
+      code: `CATEGORY_${reason.replaceAll("-", "_").toUpperCase()}`,
+      integration: "supabase-postgrest",
+      operation,
+      retryable: reason === "unavailable",
+    });
+    this.name = "CategoryError";
   }
+}
+
+function categoryError(error: { code?: string }, operation: string): CategoryError {
+  const normalized = new CategoryError(categoryFailureFor(error.code), error, operation);
+  logMobileError("database.category_operation_failed", normalized, {
+    code: normalized.code,
+    integration: "supabase-postgrest",
+    operation,
+  });
+  return normalized;
 }
 
 type CategoryRow = {
@@ -70,7 +100,7 @@ export async function listCategories(
   const { data, error } = await query
     .order("sort_order", { ascending: true })
     .order("id", { ascending: true });
-  if (error !== null) throw new CategoryError(categoryFailureFor(error.code));
+  if (error !== null) throw categoryError(error, "listCategories");
   return (data as CategoryRow[]).map(toCategory);
 }
 
@@ -91,7 +121,7 @@ export async function createCategory(
     })
     .select(categoryColumns)
     .single();
-  if (error !== null) throw new CategoryError(categoryFailureFor(error.code));
+  if (error !== null) throw categoryError(error, "createCategory");
   return toCategory(data);
 }
 
@@ -114,7 +144,7 @@ export async function updateCategory(
     .eq("id", id)
     .select(categoryColumns)
     .single();
-  if (error !== null) throw new CategoryError(categoryFailureFor(error.code));
+  if (error !== null) throw categoryError(error, "updateCategory");
   return toCategory(data);
 }
 
@@ -124,5 +154,5 @@ export async function updateCategory(
  */
 export async function deleteCategory(client: SupabaseClient, id: string): Promise<void> {
   const { error } = await client.from("categories").delete().eq("id", id);
-  if (error !== null) throw new CategoryError(categoryFailureFor(error.code));
+  if (error !== null) throw categoryError(error, "deleteCategory");
 }

@@ -1,11 +1,13 @@
 import {
   buildCallbackUrl,
   clearOAuthCookie,
+  DuplicateGoogleTasksConnectionError,
   exchangeCodeForTokens,
   loadGoogleTasksEnv,
   parseOAuthCookie,
   persistConnection,
 } from "../../../../../lib/google-tasks";
+import { loggedErrorResponse } from "../../../../../lib/observability";
 
 export async function GET(request: Request) {
   const env = loadGoogleTasksEnv();
@@ -32,7 +34,7 @@ export async function GET(request: Request) {
       {
         error: {
           code: "google_tasks_oauth_denied",
-          message: `Authorization denied: ${errorParam}`,
+          message: "Google Tasks authorization was denied",
         },
       },
       { status: 400, headers: { "set-cookie": clearOAuthCookie() } },
@@ -67,12 +69,25 @@ export async function GET(request: Request) {
   let tokens;
   try {
     tokens = await exchangeCodeForTokens(code, oauthSession.codeVerifier, redirectUri, env);
-  } catch {
-    return Response.json(
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
       {
-        error: { code: "token_exchange_failed", message: "Failed to exchange authorization code" },
+        code: "GOOGLE_TASKS_TOKEN_EXCHANGE_FAILED",
+        event: "connector.oauth_exchange_failed",
+        integration: "google-tasks",
+        operation: "exchangeCodeForTokens",
       },
-      { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+      Response.json(
+        {
+          error: {
+            code: "token_exchange_failed",
+            message: "Failed to exchange authorization code",
+          },
+        },
+        { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+      ),
     );
   }
 
@@ -87,12 +102,29 @@ export async function GET(request: Request) {
       env,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to store connection";
-    const isDuplicate = message === "Google Tasks is already connected";
-    return Response.json(
-      { error: { code: isDuplicate ? "duplicate_connection" : "connection_failed", message } },
+    const isDuplicate = error instanceof DuplicateGoogleTasksConnectionError;
+    const response = Response.json(
+      {
+        error: {
+          code: isDuplicate ? "duplicate_connection" : "connection_failed",
+          message: isDuplicate ? "Google Tasks is already connected" : "Failed to store connection",
+        },
+      },
       { status: isDuplicate ? 409 : 500, headers: { "set-cookie": clearOAuthCookie() } },
     );
+    return isDuplicate
+      ? response
+      : loggedErrorResponse(
+          request,
+          error,
+          {
+            code: "GOOGLE_TASKS_CONNECTION_FAILED",
+            event: "connector.connection_failed",
+            integration: "supabase",
+            operation: "persistGoogleTasksConnection",
+          },
+          response,
+        );
   }
 
   return Response.json(

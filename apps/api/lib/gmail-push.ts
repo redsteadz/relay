@@ -7,6 +7,7 @@ import {
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 
 import { publishGmailCursor } from "./pipeline";
+import { apiRequestId, logApiError } from "./observability";
 
 const GOOGLE_JWKS_URL = new URL("https://www.googleapis.com/oauth2/v3/certs");
 const GOOGLE_ISSUERS = ["accounts.google.com", "https://accounts.google.com"] as const;
@@ -130,12 +131,15 @@ function errorResponse(code: string, message: string, status: number): Response 
 
 export async function handleGmailPush(
   request: Request,
-  dependencies: GmailPushDependencies = {
-    parseRequest: parseVerifiedGmailPush,
-    publish: publishGmailCursor,
-    verify: verifyPubSubBearerJwt,
-  },
+  dependencies?: GmailPushDependencies,
 ): Promise<Response> {
+  const resolvedDependencies =
+    dependencies ??
+    ({
+      parseRequest: parseVerifiedGmailPush,
+      publish: (cursor) => publishGmailCursor(cursor, apiRequestId(request)),
+      verify: verifyPubSubBearerJwt,
+    } satisfies GmailPushDependencies);
   const configuration = loadGmailPushConfiguration();
   if (configuration === null) {
     return errorResponse("gmail_push_not_configured", "Gmail push is not configured", 503);
@@ -150,22 +154,37 @@ export async function handleGmailPush(
     return errorResponse("gmail_push_unauthorized", "Gmail push authentication failed", 401);
   }
   try {
-    await dependencies.verify(match[1], configuration);
-  } catch {
+    await resolvedDependencies.verify(match[1], configuration);
+  } catch (error: unknown) {
+    logApiError(request, error, {
+      category: "unauthorized",
+      code: "GMAIL_PUSH_AUTHENTICATION_FAILED",
+      event: "connector.push_authentication_failed",
+      integration: "google-pubsub",
+      operation: "verifyPubSubBearerJwt",
+      retryable: false,
+      statusCode: 401,
+    });
     return errorResponse("gmail_push_unauthorized", "Gmail push authentication failed", 401);
   }
 
   let cursor: VerifiedGmailCursor;
   try {
-    cursor = await dependencies.parseRequest(request);
+    cursor = await resolvedDependencies.parseRequest(request);
   } catch {
     return errorResponse("gmail_push_invalid", "Gmail push request is invalid", 400);
   }
 
   let pipelineResponse: Response;
   try {
-    pipelineResponse = await dependencies.publish(cursor);
-  } catch {
+    pipelineResponse = await resolvedDependencies.publish(cursor);
+  } catch (error: unknown) {
+    logApiError(request, error, {
+      code: "GMAIL_PUSH_PUBLICATION_FAILED",
+      event: "connector.push_publication_failed",
+      integration: "relay-pipeline",
+      operation: "publishGmailCursor",
+    });
     return errorResponse("gmail_push_unavailable", "Gmail push is temporarily unavailable", 503);
   }
   if (pipelineResponse.ok) return new Response(null, { status: 204 });

@@ -53,7 +53,9 @@ describe("privacy API boundary", () => {
         }),
       ),
     );
-    await expect(getDisclosureHistory("token")).rejects.toMatchObject({ reason: "unavailable" });
+    await expect(getDisclosureHistory("token")).rejects.toMatchObject({
+      reason: "malformed-response",
+    });
   });
 
   it("uses destructive HTTP methods and the exact account confirmation", async () => {

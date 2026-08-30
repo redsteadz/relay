@@ -39,8 +39,9 @@ export class GmailProviderError extends Error {
       | "response-too-large"
       | "stale-history"
       | "unavailable",
+    cause?: unknown,
   ) {
-    super("Gmail provider operation failed");
+    super("Gmail provider operation failed", cause === undefined ? undefined : { cause });
   }
 }
 
@@ -75,10 +76,12 @@ export function readGmailProviderConfiguration(env: Env): GmailProviderConfigura
 function responseError(error: unknown): GmailProviderError {
   if (error instanceof GmailProviderError) return error;
   if (error instanceof BoundedJsonError) {
-    if (error.code === "response-too-large") return new GmailProviderError("response-too-large");
-    if (error.code === "response-unavailable") return new GmailProviderError("unavailable");
+    if (error.code === "response-too-large") {
+      return new GmailProviderError("response-too-large", error);
+    }
+    if (error.code === "response-unavailable") return new GmailProviderError("unavailable", error);
   }
-  return new GmailProviderError("invalid-response");
+  return new GmailProviderError("invalid-response", error);
 }
 
 function providerJson(
@@ -257,8 +260,8 @@ function decodeBase64Url(value: string): Uint8Array {
   try {
     const binary = atob(padded);
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  } catch {
-    throw new GmailProviderError("invalid-response");
+  } catch (error: unknown) {
+    throw new GmailProviderError("invalid-response", error);
   }
 }
 
@@ -520,8 +523,8 @@ export async function fetchCanonicalGmailEnvelope(
   let occurredAt: string;
   try {
     occurredAt = new Date(Number(milliseconds)).toISOString();
-  } catch {
-    throw new GmailProviderError("invalid-response");
+  } catch (error: unknown) {
+    throw new GmailProviderError("invalid-response", error);
   }
   const payload = objectValue(data.payload);
   const sender = headerValue(payload.headers, "from", 1024);
@@ -591,8 +594,8 @@ export async function createGmailWatch(
   let expiration: string;
   try {
     expiration = new Date(Number(expirationMs)).toISOString();
-  } catch {
-    throw new GmailProviderError("invalid-response");
+  } catch (error: unknown) {
+    throw new GmailProviderError("invalid-response", error);
   }
   const expirationMilliseconds = Date.parse(expiration);
   if (
@@ -633,13 +636,14 @@ export async function revokeGoogleRefreshToken(
     ...(signal === undefined ? {} : { signal }),
   });
   if (response.ok) return;
+  let providerResponseError: unknown;
   if (response.status === 400) {
     try {
       const data = objectValue(await providerJson(response, MAX_TOKEN_RESPONSE_BYTES, signal));
       if (data.error === "invalid_token") return;
-    } catch {
-      // A malformed provider error is not proof that credential revocation completed.
+    } catch (error: unknown) {
+      providerResponseError = error;
     }
   }
-  throw new GmailProviderError("unavailable");
+  throw new GmailProviderError("unavailable", providerResponseError);
 }

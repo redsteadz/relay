@@ -6,6 +6,7 @@ import { Page } from "@/components/Page";
 import { Panel } from "@/components/Panel";
 import { AppButton, AppText, AppTextInput, StatusMessage } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
+import { reportUnexpectedUiError } from "@/lib/observability";
 
 export default function SignInScreen() {
   const { reason } = useLocalSearchParams<{ reason?: string }>();
@@ -38,7 +39,12 @@ export default function SignInScreen() {
       await requestMagicLink(candidate);
       setStatusTone("success");
       setStatus("Check your email. The link returns only to Relay.");
-    } catch {
+    } catch (error: unknown) {
+      reportUnexpectedUiError(error, "ui.magic_link_request_failed", {
+        code: "AUTH_MAGIC_LINK_UI_FAILED",
+        integration: "supabase-auth",
+        operation: "requestMagicLink",
+      });
       setStatusTone("error");
       setStatus("Could not request a sign-in link.");
     } finally {

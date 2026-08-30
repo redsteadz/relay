@@ -3,6 +3,7 @@ import {
   ingressEnvelopeSchema,
   type IngressEnvelope,
 } from "@relay/contracts";
+import { logMobileError } from "./observability";
 
 export const CAPTURE_QUEUE_MAX_ATTEMPTS = 8;
 export const CAPTURE_QUEUE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -64,7 +65,13 @@ export async function drainCaptureQueue(
         if (terminal) result.failed += 1;
         else result.pending += 1;
       }
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("background.capture_transport_failed", error, {
+        code: "CAPTURE_TRANSPORT_FAILED",
+        integration: "relay-api",
+        metadata: { attempt: entry.attempts + 1 },
+        operation: "uploadCapture",
+      });
       await store.fail(
         tenantId,
         parsedEnvelope.data.id,

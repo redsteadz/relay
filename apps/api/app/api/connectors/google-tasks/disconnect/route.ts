@@ -1,5 +1,6 @@
 import { authenticateRequest } from "../../../../../lib/auth";
 import { disconnectGoogleTasks, loadGoogleTasksEnv } from "../../../../../lib/google-tasks";
+import { apiRequestId, loggedErrorResponse } from "../../../../../lib/observability";
 
 export async function POST(request: Request) {
   const env = loadGoogleTasksEnv();
@@ -38,7 +39,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await disconnectGoogleTasks(auth.userId, connectionId, env);
+    const result = await disconnectGoogleTasks(
+      auth.userId,
+      connectionId,
+      env,
+      apiRequestId(request),
+    );
     if (!result.deleted) {
       return Response.json(
         { error: { code: "connection_not_found", message: "Connection not found" } },
@@ -51,10 +57,20 @@ export async function POST(request: Request) {
       connectionId,
       tokenRevoked: result.revoked,
     });
-  } catch {
-    return Response.json(
-      { error: { code: "disconnect_failed", message: "Failed to disconnect Google Tasks" } },
-      { status: 500 },
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "GOOGLE_TASKS_DISCONNECT_FAILED",
+        event: "connector.disconnect_failed",
+        integration: "google-tasks",
+        operation: "disconnectGoogleTasks",
+      },
+      Response.json(
+        { error: { code: "disconnect_failed", message: "Failed to disconnect Google Tasks" } },
+        { status: 500 },
+      ),
     );
   }
 }

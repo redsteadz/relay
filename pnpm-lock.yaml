@@ -44,6 +44,9 @@ importers:
       '@relay/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@relay/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@supabase/supabase-js':
         specifier: 2.112.3
         version: 2.112.3
@@ -90,6 +93,9 @@ importers:
       '@relay/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@relay/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@supabase/supabase-js':
         specifier: 2.112.3
         version: 2.112.3
@@ -178,6 +184,9 @@ importers:
       '@relay/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@relay/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 5.20260823.1
@@ -216,6 +225,12 @@ importers:
       '@relay/contracts':
         specifier: workspace:*
         version: link:../contracts
+    devDependencies:
+      '@relay/config':
+        specifier: workspace:*
+        version: link:../config
+
+  packages/observability:
     devDependencies:
       '@relay/config':
         specifier: workspace:*

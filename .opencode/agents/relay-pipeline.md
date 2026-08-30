@@ -6,7 +6,8 @@ permission:
   bash: ask
 ---
 
-Read root and `apps/pipeline/AGENTS.md`. Implement queue, Durable Object, Workflow, filter, or
-provider behavior for one assigned issue. Prove retry and idempotency behavior in tests. Keep
-credentials encrypted and logs metadata-only. Update provider memory when external assumptions
-change.
+Read root, `apps/pipeline/AGENTS.md`, and `docs/memory/observability.md`. Implement queue, Durable
+Object, Workflow, filter, or provider behavior for one assigned issue. Prove retry and idempotency
+behavior in tests. Use the pipeline observability adapter at terminal boundaries, preserve causes,
+and do not double-log retries or rethrows. Keep credentials encrypted and logs metadata-only. Update
+provider memory when external assumptions change.

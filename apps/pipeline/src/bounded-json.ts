@@ -1,8 +1,11 @@
 import { withOperationDeadline } from "./deadline";
 
 export class BoundedJsonError extends Error {
-  constructor(readonly code: "invalid-response" | "response-too-large" | "response-unavailable") {
-    super("Remote response is invalid");
+  constructor(
+    readonly code: "invalid-response" | "response-too-large" | "response-unavailable",
+    cause?: unknown,
+  ) {
+    super("Remote response is invalid", cause === undefined ? undefined : { cause });
   }
 }
 
@@ -29,8 +32,16 @@ export async function readBoundedJson(
   const readBody = async (signal?: AbortSignal): Promise<Uint8Array[]> => {
     const chunks: Uint8Array[] = [];
     let length = 0;
+    let cancellationError: unknown;
+    const cancelReader = async (): Promise<void> => {
+      try {
+        await reader.cancel();
+      } catch (error: unknown) {
+        cancellationError = error;
+      }
+    };
     const cancel = (): void => {
-      void reader.cancel().catch(() => undefined);
+      void cancelReader();
     };
     signal?.addEventListener("abort", cancel, { once: true });
     try {
@@ -39,8 +50,15 @@ export async function readBoundedJson(
         if (next.done) break;
         length += next.value.byteLength;
         if (length > maximumBytes) {
-          await reader.cancel().catch(() => undefined);
-          throw new BoundedJsonError("response-too-large");
+          await cancelReader();
+          const error = new BoundedJsonError("response-too-large");
+          if (cancellationError === undefined) throw error;
+          throw new BoundedJsonError(
+            "response-too-large",
+            new AggregateError([cancellationError], "Response cancellation failed", {
+              cause: error,
+            }),
+          );
         }
         chunks.push(next.value);
       }
@@ -57,9 +75,22 @@ export async function readBoundedJson(
         ? await readBody(options.signal)
         : await withOperationDeadline(readBody, options.timeoutMs, options.signal);
   } catch (error) {
-    void reader.cancel().catch(() => undefined);
-    if (error instanceof BoundedJsonError) throw error;
-    throw new BoundedJsonError("response-unavailable");
+    let cancellationError: unknown;
+    try {
+      await reader.cancel();
+    } catch (cancelError: unknown) {
+      cancellationError = cancelError;
+    }
+    const code = error instanceof BoundedJsonError ? error.code : "response-unavailable";
+    if (cancellationError === undefined && error instanceof BoundedJsonError) throw error;
+    throw new BoundedJsonError(
+      code,
+      cancellationError === undefined
+        ? error
+        : new AggregateError([cancellationError], "Response cancellation failed", {
+            cause: error,
+          }),
+    );
   }
 
   const length = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
@@ -71,7 +102,7 @@ export async function readBoundedJson(
   }
   try {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
-  } catch {
-    throw new BoundedJsonError("invalid-response");
+  } catch (error: unknown) {
+    throw new BoundedJsonError("invalid-response", error);
   }
 }
