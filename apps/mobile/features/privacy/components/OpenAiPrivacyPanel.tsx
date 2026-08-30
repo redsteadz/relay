@@ -1,8 +1,13 @@
 import type { OpenAiCredentialStatus } from "@relay/contracts";
 import { useState } from "react";
 
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, ConfirmationDialog, StatusMessage } from "@/components/ui";
+import {
+  AppButton,
+  AppText,
+  ConfirmationDialog,
+  EditorialSurface,
+  StatusMessage,
+} from "@/components/ui";
 
 import { formatPrivacyDate, privacyErrorMessage } from "../models/privacyPresentation";
 
@@ -43,7 +48,7 @@ export function OpenAiPrivacyPanel({
   }
 
   return (
-    <Panel title="OpenAI key" meta={meta}>
+    <EditorialSurface icon="key-outline" title="OpenAI key" meta={meta}>
       <AppText tone="muted">
         Relay stores the key encrypted and uses it only after deterministic filters cannot decide.
         Revoking deletes Relay's stored credential.
@@ -75,6 +80,6 @@ export function OpenAiPrivacyPanel({
         title="Revoke OpenAI key?"
         visible={confirming}
       />
-    </Panel>
+    </EditorialSurface>
   );
 }

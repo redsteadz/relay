@@ -41,7 +41,7 @@ export function DisclosureCard({ disclosure }: { disclosure: PrivacyDisclosure }
         ))}
       </View>
       <AppText tone="muted" variant="caption">
-        Relay records field names and purpose only—not the prompt or source content.
+        Relay records field names and purpose only. It never stores the prompt or source content.
       </AppText>
     </Surface>
   );
