@@ -72,6 +72,15 @@ Pipeline application metrics use fixed operation names plus count and latency nu
 not contain tenant, device, envelope, source, provider, ciphertext, URL, error, credential, or raw
 content values. Decrypted JSON parse failures become a fixed invalid outcome before platform
 observability can receive parser text.
+
+Application failure logs are structured and metadata-only. They may contain a generated request ID,
+fixed event/integration/operation names, fixed Relay error codes, HTTP status, retryability, timing,
+and retry attempt. They never contain tenant or source identifiers, request/response bodies, URLs,
+mailboxes, credentials, tokens, cookies, authorization headers, ciphertext, or arbitrary provider
+messages. `DEBUG=relay:api,relay:pipeline` and `EXPO_PUBLIC_DEBUG=relay:mobile` add sanitized stack
+frames and cause types/codes; they do not relax those exclusions and are unset by default. Sensitive
+keys are recursively redacted before serialization. Relay propagates only bounded generated or
+validated `x-relay-request-id` values across Mobile, API, and Pipeline for correlation.
 Authenticated Gmail push and provider paths also exclude mailbox, tenant, connection, push/provider
 body, URL, credential, bearer/access/refresh token, and authorization header from responses, logs, and
 metrics. Canonicalized Gmail sender/subject/plain text is deterministically bounded before generic
