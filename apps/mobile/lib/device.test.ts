@@ -39,11 +39,17 @@ describe("registerInstallation", () => {
     await registerInstallation("638ce145-a77d-4c32-b798-cb398e881fc9", "synthetic-token");
 
     expect(storage.get("relay-device:638ce145-a77d-4c32-b798-cb398e881fc9")).toBe(installationId);
-    expect(fetchMock).toHaveBeenLastCalledWith("http://localhost:3000/api/devices/register", {
+    const [, init] = fetchMock.mock.lastCall ?? [];
+    expect(fetchMock.mock.lastCall?.[0]).toBe("http://localhost:3000/api/devices/register");
+    expect(init).toMatchObject({
       method: "POST",
-      headers: { authorization: "Bearer synthetic-token", "content-type": "application/json" },
+      headers: {
+        authorization: "Bearer synthetic-token",
+        "content-type": "application/json",
+      },
       body: JSON.stringify({ id: installationId, platform: "android" }),
     });
+    expect(new Headers(init?.headers).get("x-relay-request-id")).toMatch(/^[0-9a-f-]+$/i);
   });
 
   it("clears encrypted tenant data after device revocation", async () => {

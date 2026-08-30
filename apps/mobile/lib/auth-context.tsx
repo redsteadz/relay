@@ -16,6 +16,7 @@ import {
   requestMagicLink,
 } from "./auth";
 import { createRelaySupabaseClient } from "./supabase";
+import { logMobileError } from "./observability";
 import RelayDeviceIngress from "../modules/relay-device-ingress";
 
 type AuthContextValue = {
@@ -34,7 +35,12 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 function createConfiguredClient(): SupabaseClient | undefined {
   try {
     return createRelaySupabaseClient();
-  } catch {
+  } catch (error: unknown) {
+    logMobileError("auth.configuration_failed", error, {
+      code: "AUTH_CONFIGURATION_FAILED",
+      integration: "supabase-auth",
+      operation: "createRelaySupabaseClient",
+    });
     return undefined;
   }
 }
@@ -63,7 +69,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
           setInitialized(true);
         });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        logMobileError("auth.session_restore_failed", error, {
+          code: "AUTH_SESSION_RESTORE_FAILED",
+          integration: "supabase-auth",
+          operation: "getSession",
+        });
         if (!active) return;
         startTransition(() => {
           setSession(null);
@@ -116,7 +127,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (tenantId !== undefined) {
       try {
         await RelayDeviceIngress.clearCaptureQueue(tenantId);
-      } catch {
+      } catch (error: unknown) {
+        logMobileError("auth.deleted_account_queue_cleanup_failed", error, {
+          code: "AUTH_LOCAL_QUEUE_CLEANUP_FAILED",
+          integration: "relay-device-ingress",
+          operation: "clearCaptureQueue",
+        });
         cleanupFailed = true;
       }
     }
@@ -125,6 +141,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       try {
         await clearRelaySession(client);
       } catch {
+        // clearRelaySession logs the underlying Supabase failure once.
         cleanupFailed = true;
       }
     }

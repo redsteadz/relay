@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RelayApiError, requestRelayApi } from "./relay-api";
+import { requestRelayApi } from "./relay-api";
 
 describe("requestRelayApi", () => {
   beforeEach(() => vi.stubEnv("EXPO_PUBLIC_API_URL", "https://api.relay.test/"));
@@ -11,7 +11,7 @@ describe("requestRelayApi", () => {
 
   it("binds bearer authority and JSON without tenant-controlled headers", async () => {
     const fetchMock = vi
-      .fn()
+      .fn<typeof fetch>()
       .mockResolvedValue(Response.json({ purged: true, purgedCount: 2 }, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -20,7 +20,9 @@ describe("requestRelayApi", () => {
       method: "DELETE",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://api.relay.test/api/privacy/raw-payloads", {
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe("https://api.relay.test/api/privacy/raw-payloads");
+    expect(init).toMatchObject({
       body: JSON.stringify({ requested: true }),
       headers: {
         authorization: "Bearer synthetic-access-token",
@@ -28,6 +30,7 @@ describe("requestRelayApi", () => {
       },
       method: "DELETE",
     });
+    expect(new Headers(init?.headers).get("x-relay-request-id")).toMatch(/^[0-9a-f-]+$/i);
   });
 
   it("fails closed when the Relay API URL is missing or invalid", async () => {
@@ -35,14 +38,14 @@ describe("requestRelayApi", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     vi.stubEnv("EXPO_PUBLIC_API_URL", "");
-    await expect(requestRelayApi("token", "/api/privacy")).rejects.toEqual(
-      new RelayApiError("not-configured"),
-    );
+    await expect(requestRelayApi("token", "/api/privacy")).rejects.toMatchObject({
+      reason: "not-configured",
+    });
 
     vi.stubEnv("EXPO_PUBLIC_API_URL", "file:///relay-api");
-    await expect(requestRelayApi("token", "/api/privacy")).rejects.toEqual(
-      new RelayApiError("not-configured"),
-    );
+    await expect(requestRelayApi("token", "/api/privacy")).rejects.toMatchObject({
+      reason: "not-configured",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -59,18 +62,18 @@ describe("requestRelayApi", () => {
         ),
     );
 
-    await expect(requestRelayApi("token", "/api/privacy")).rejects.toEqual(
-      new RelayApiError("not-configured"),
-    );
+    await expect(requestRelayApi("token", "/api/privacy")).rejects.toMatchObject({
+      reason: "not-configured",
+    });
     await expect(requestRelayApi("token", "/api/privacy")).rejects.toSatisfy(
       (error: Error) => !error.message.includes("database detail"),
     );
   });
 
-  it("turns malformed success payloads into an unavailable response", async () => {
+  it("turns malformed success payloads into a deterministic malformed response", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not-json", { status: 200 })));
     await expect(requestRelayApi("token", "/api/privacy")).rejects.toMatchObject({
-      reason: "unavailable",
+      reason: "malformed-response",
     });
   });
 });
