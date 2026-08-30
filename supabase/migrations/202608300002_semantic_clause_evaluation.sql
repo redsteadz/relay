@@ -59,7 +59,11 @@ alter table public.ai_disclosures
   add column disclosed boolean not null default true,
   add column confidence numeric(4, 3),
   add column rationale text,
-  add column failure_reason text;
+  add column failure_reason text,
+  -- The endpoint is configurable, so `provider = 'openai'` records the wire protocol and credential
+  -- type, not where the data went. The host is the part that says that, and it is the only part of
+  -- the endpoint kept: no scheme, port, path, query, or credential.
+  add column endpoint_host text;
 
 alter table public.ai_disclosures
   add constraint ai_disclosures_decision_known check (
@@ -71,10 +75,24 @@ alter table public.ai_disclosures
   add constraint ai_disclosures_rationale_bounded check (
     rationale is null or (btrim(rationale) <> '' and char_length(rationale) <= 500)
   ),
+  add constraint ai_disclosures_endpoint_host_bounded check (
+    endpoint_host is null
+    or (
+      btrim(endpoint_host) = endpoint_host
+      and char_length(endpoint_host) between 1 and 255
+      and endpoint_host !~ '[[:space:]/?#@]'
+    )
+  ),
+  -- Present exactly when something was sent: a disclosure has to say where it went, and an attempt
+  -- that sent nothing must not name a host it never contacted.
+  add constraint ai_disclosures_disclosed_names_endpoint check (
+    (endpoint_host is not null) = disclosed
+  ),
   add constraint ai_disclosures_failure_reason_known check (
     failure_reason is null or failure_reason in (
       'credential-missing',
       'credential-revoked',
+      'endpoint-invalid',
       'invalid-response',
       'no-disclosable-fields',
       'quota-exhausted',
@@ -157,6 +175,7 @@ create function public.record_semantic_disclosure_v1(
   p_disclosed boolean,
   p_disclosed_fields text[],
   p_redactions jsonb,
+  p_endpoint_host text,
   p_confidence numeric default null,
   p_rationale text default null,
   p_failure_reason text default null
@@ -204,7 +223,8 @@ begin
     redactions,
     confidence,
     rationale,
-    failure_reason
+    failure_reason,
+    endpoint_host
   ) values (
     p_user_id,
     p_source_item_id,
@@ -218,7 +238,8 @@ begin
     coalesce(p_redactions, '[]'::jsonb),
     p_confidence,
     p_rationale,
-    p_failure_reason
+    p_failure_reason,
+    nullif(btrim(coalesce(p_endpoint_host, '')), '')
   ) returning id into disclosure_id;
 
   -- Metadata only: counts and fixed enum values, never a field value, prompt, or rationale.
@@ -236,7 +257,8 @@ begin
       'disclosed', p_disclosed,
       'disclosedFieldCount', coalesce(array_length(p_disclosed_fields, 1), 0),
       'redactionCount', coalesce(jsonb_array_length(p_redactions), 0),
-      'failureReason', p_failure_reason
+      'failureReason', p_failure_reason,
+      'endpointHost', nullif(btrim(coalesce(p_endpoint_host, '')), '')
     )
   );
 
@@ -245,10 +267,10 @@ end;
 $$;
 
 revoke all on function public.record_semantic_disclosure_v1(
-  uuid, uuid, uuid, text, text, text, boolean, text[], jsonb, numeric, text, text
+  uuid, uuid, uuid, text, text, text, boolean, text[], jsonb, text, numeric, text, text
 ) from public, anon, authenticated;
 grant execute on function public.record_semantic_disclosure_v1(
-  uuid, uuid, uuid, text, text, text, boolean, text[], jsonb, numeric, text, text
+  uuid, uuid, uuid, text, text, text, boolean, text[], jsonb, text, numeric, text, text
 ) to service_role;
 
 comment on column public.ai_disclosures.decision is
@@ -261,3 +283,5 @@ comment on column public.ai_disclosures.failure_reason is
   'Fixed reason a semantic evaluation produced no usable answer. Always paired with undecided.';
 comment on column public.ai_disclosures.redactions is
   'Metadata-only redaction summary: field, class, and count. Never a removed value.';
+comment on column public.ai_disclosures.endpoint_host is
+  'Host the request was sent to. Present whenever anything actually left the runtime.';

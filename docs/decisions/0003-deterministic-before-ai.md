@@ -28,4 +28,9 @@ select actions, providers, endpoints, operations, or credentials.
 Some intentions cannot compile completely and remain visibly semantic. Low-confidence results do not
 trigger automatic effects. AI provider expansion is deferred behind same boundary.
 
+[ADR-0011](0011-openai-compatible-semantic-endpoint.md) refines the provider wording above: the
+endpoint is configurable and OpenAI-compatible rather than OpenAI specifically. Every other
+constraint in this decision -- deterministic first, field allowlists, redaction, strict output,
+confidence threshold, disclosure audit -- is unchanged and applies wherever the request is sent.
+
 Related: [filter model](../architecture/filter-model.md), [privacy](../security/privacy.md).

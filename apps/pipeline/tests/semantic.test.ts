@@ -8,10 +8,15 @@ import { base64ToPostgresBytea, connectionCredentialEncryptionContext } from "..
 import {
   evaluateFilterWithSemantics,
   evaluateSemanticClause,
+  parseSemanticBaseUrl,
+  readEndpointOverrides,
+  readSemanticEndpointDefaults,
   recordSemanticDisclosure,
+  resolveSemanticEndpoint,
   SEMANTIC_RESPONSE_JSON_SCHEMA,
   SEMANTIC_SYSTEM_INSTRUCTIONS,
   semanticEvaluationRequestBody,
+  type SemanticEndpoint,
 } from "../src/semantic";
 import injectionFixture from "../../../packages/domain/tests/fixtures/semantic-injection.json" with { type: "json" };
 
@@ -78,6 +83,13 @@ async function connectionRow() {
   };
 }
 
+const openAiEndpoint: SemanticEndpoint = {
+  baseUrl: "https://api.openai.com/v1",
+  host: "api.openai.com",
+  model: "gpt-4.1-mini",
+  responseFormat: "json-schema",
+};
+
 function completion(payload: Record<string, unknown>): Response {
   return Response.json({
     choices: [{ finish_reason: "stop", message: { content: JSON.stringify(payload) } }],
@@ -119,11 +131,15 @@ function messages(body: Record<string, unknown>): { role: string; content: strin
 
 describe("request construction", () => {
   it("puts the fixed instructions in the system message and everything else in data", () => {
-    const body = semanticEvaluationRequestBody(clauseOf(plan()), {
-      fields: [{ field: "subject", value: "Your invoice is ready", truncated: false }],
-      disclosedFields: ["subject"],
-      redactions: [],
-    });
+    const body = semanticEvaluationRequestBody(
+      clauseOf(plan()),
+      {
+        fields: [{ field: "subject", value: "Your invoice is ready", truncated: false }],
+        disclosedFields: ["subject"],
+        redactions: [],
+      },
+      openAiEndpoint,
+    );
     const [system, user] = messages(body);
     expect(system).toEqual({ role: "system", content: SEMANTIC_SYSTEM_INSTRUCTIONS });
     expect(user?.role).toBe("user");
@@ -133,11 +149,15 @@ describe("request construction", () => {
   });
 
   it("requests a strict structured response that admits only the contract's three keys", () => {
-    const body = semanticEvaluationRequestBody(clauseOf(plan()), {
-      fields: [{ field: "subject", value: "s", truncated: false }],
-      disclosedFields: ["subject"],
-      redactions: [],
-    });
+    const body = semanticEvaluationRequestBody(
+      clauseOf(plan()),
+      {
+        fields: [{ field: "subject", value: "s", truncated: false }],
+        disclosedFields: ["subject"],
+        redactions: [],
+      },
+      openAiEndpoint,
+    );
     const format = body.response_format as { json_schema: { strict: boolean; schema: unknown } };
     expect(format.json_schema.strict).toBe(true);
     expect(SEMANTIC_RESPONSE_JSON_SCHEMA.additionalProperties).toBe(false);
@@ -155,14 +175,257 @@ describe("request construction", () => {
   });
 
   it("sends no tools, so the model has nothing to select", () => {
-    const body = semanticEvaluationRequestBody(clauseOf(plan()), {
-      fields: [{ field: "subject", value: "s", truncated: false }],
-      disclosedFields: ["subject"],
-      redactions: [],
-    });
+    const body = semanticEvaluationRequestBody(
+      clauseOf(plan()),
+      {
+        fields: [{ field: "subject", value: "s", truncated: false }],
+        disclosedFields: ["subject"],
+        redactions: [],
+      },
+      openAiEndpoint,
+    );
     expect(body.tools).toBeUndefined();
     expect(body.tool_choice).toBeUndefined();
     expect(body.functions).toBeUndefined();
+  });
+});
+
+describe("endpoint configuration", () => {
+  it("defaults to OpenAI when nothing is configured", () => {
+    const endpoint = resolveSemanticEndpoint("production");
+    expect(endpoint).toEqual({
+      baseUrl: "https://api.openai.com/v1",
+      host: "api.openai.com",
+      model: "gpt-4.1-mini",
+      responseFormat: "json-schema",
+    });
+  });
+
+  it("takes an operator base URL, model, and response format", () => {
+    const endpoint = resolveSemanticEndpoint("production", {
+      baseUrl: "https://openrouter.ai/api/v1/",
+      model: "anthropic/claude-sonnet-4",
+      responseFormat: "json-object",
+    });
+    expect(endpoint).toEqual({
+      baseUrl: "https://openrouter.ai/api/v1",
+      host: "openrouter.ai",
+      model: "anthropic/claude-sonnet-4",
+      responseFormat: "json-object",
+    });
+  });
+
+  it("lets a tenant override the operator default, because the key is theirs", () => {
+    const endpoint = resolveSemanticEndpoint(
+      "production",
+      { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
+      { baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+    );
+    expect(endpoint.host).toBe("api.together.xyz");
+    expect(endpoint.model).toBe("meta-llama/Llama-3.3-70B-Instruct-Turbo");
+  });
+
+  it("ignores tenant metadata that carries no endpoint fields", () => {
+    // `metadata` is shared with the connector lifecycle, which stores `lastValidatedAt` there.
+    const overrides = readEndpointOverrides({ lastValidatedAt: "2026-08-30T00:00:00.000Z" });
+    expect(overrides).toEqual({});
+    const endpoint = resolveSemanticEndpoint("production", { model: "gpt-4o" }, overrides);
+    expect(endpoint.host).toBe("api.openai.com");
+    expect(endpoint.model).toBe("gpt-4o");
+  });
+
+  it.each([
+    ["a non-object", "https://gateway.example.test/v1"],
+    ["an array", ["https://gateway.example.test/v1"]],
+    ["null", null],
+  ])("reads no overrides from %s metadata", (_name, metadata) => {
+    expect(readEndpointOverrides(metadata)).toEqual({});
+  });
+
+  it("reads operator defaults from the worker environment", () => {
+    expect(
+      readSemanticEndpointDefaults({
+        RELAY_SEMANTIC_BASE_URL: "https://api.groq.com/openai/v1",
+        RELAY_SEMANTIC_MODEL: "llama-3.3-70b-versatile",
+      }),
+    ).toEqual({
+      baseUrl: "https://api.groq.com/openai/v1",
+      model: "llama-3.3-70b-versatile",
+    });
+    expect(readSemanticEndpointDefaults({})).toEqual({});
+  });
+
+  it.each([
+    ["a private address", "https://10.0.0.5/v1"],
+    ["a link-local address", "https://169.254.169.254/v1"],
+    ["loopback over https", "https://127.0.0.1/v1"],
+    ["a carrier-grade NAT address", "https://100.64.0.1/v1"],
+    ["an IPv6 literal", "https://[::1]/v1"],
+    ["an internal name", "https://models.internal/v1"],
+    ["a .local name", "https://box.local/v1"],
+    ["plain http to a public host", "http://api.openai.com/v1"],
+    ["embedded credentials", "https://user:secret@gateway.example.test/v1"],
+    ["a query string", "https://gateway.example.test/v1?key=secret"],
+    ["a fragment", "https://gateway.example.test/v1#token"],
+    ["a non-URL", "not-a-url"],
+  ])("refuses %s as a base URL", (_name, value) => {
+    expect(() => parseSemanticBaseUrl(value, "production")).toThrow();
+  });
+
+  it("allows plain http to loopback in development, for a locally hosted model", () => {
+    const endpoint = resolveSemanticEndpoint("development", {
+      baseUrl: "http://127.0.0.1:11434/v1",
+      model: "llama3.3",
+    });
+    expect(endpoint.baseUrl).toBe("http://127.0.0.1:11434/v1");
+    expect(endpoint.host).toBe("127.0.0.1");
+  });
+
+  it("still refuses loopback in production", () => {
+    expect(() => parseSemanticBaseUrl("http://127.0.0.1:11434/v1", "production")).toThrow();
+  });
+
+  it.each([
+    ["a space", "gpt 4"],
+    ["a newline", "gpt-4\nmodel"],
+    ["a leading slash", "/etc/passwd"],
+    ["an empty string", ""],
+  ])("refuses %s as a model identifier", (_name, model) => {
+    expect(() => resolveSemanticEndpoint("production", { model })).toThrow();
+  });
+
+  it("refuses an unknown response format rather than guessing one", () => {
+    expect(() => resolveSemanticEndpoint("production", { responseFormat: "xml" })).toThrow();
+  });
+});
+
+describe("response format modes", () => {
+  const disclosure = {
+    fields: [{ field: "subject" as const, value: "s", truncated: false }],
+    disclosedFields: ["subject" as const],
+    redactions: [],
+  };
+
+  it("asks the provider to enforce the schema by default", () => {
+    const body = semanticEvaluationRequestBody(clauseOf(plan()), disclosure, openAiEndpoint);
+    expect(body.response_format).toEqual({
+      type: "json_schema",
+      json_schema: {
+        name: "relay_semantic_decision",
+        strict: true,
+        schema: SEMANTIC_RESPONSE_JSON_SCHEMA,
+      },
+    });
+  });
+
+  it("falls back to plain JSON for endpoints that only support json_object", () => {
+    const body = semanticEvaluationRequestBody(clauseOf(plan()), disclosure, {
+      ...openAiEndpoint,
+      responseFormat: "json-object",
+    });
+    expect(body.response_format).toEqual({ type: "json_object" });
+  });
+
+  it("omits the field entirely for endpoints that reject it", () => {
+    const body = semanticEvaluationRequestBody(clauseOf(plan()), disclosure, {
+      ...openAiEndpoint,
+      responseFormat: "none",
+    });
+    expect("response_format" in body).toBe(false);
+  });
+
+  it("keeps the instruction block identical in every mode", () => {
+    for (const responseFormat of ["json-schema", "json-object", "none"] as const) {
+      const body = semanticEvaluationRequestBody(clauseOf(plan()), disclosure, {
+        ...openAiEndpoint,
+        responseFormat,
+      });
+      expect(messages(body)[0]!.content).toBe(SEMANTIC_SYSTEM_INSTRUCTIONS);
+    }
+  });
+});
+
+describe("evaluating against a configured endpoint", () => {
+  it("sends the request to the configured host and records where it went", async () => {
+    const { fetcher } = await stubFetcher(() =>
+      completion({ decision: "match", confidence: 0.95, rationale: "Due next week." }),
+    );
+    const outcome = await evaluateSemanticClause(clauseOf(plan()), item, {
+      configuration,
+      userId,
+      fetcher,
+      endpoint: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4" },
+    });
+
+    const call = fetcher.mock.calls.find(([input]) => input.startsWith("https://openrouter.ai"));
+    expect(call?.[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(outcome.decision).toBe("match");
+    expect(outcome.model).toBe("anthropic/claude-sonnet-4");
+    expect(outcome.endpointHost).toBe("openrouter.ai");
+  });
+
+  it("still validates the answer strictly when the provider enforces nothing", async () => {
+    // `none` relaxes only what the endpoint is asked to enforce. An answer carrying an extra key is
+    // still refused, because the contract schema is what actually gates it.
+    const { fetcher } = await stubFetcher(() =>
+      completion({ decision: "match", confidence: 1, rationale: "ok", provider: "webhook" }),
+    );
+    const outcome = await evaluateSemanticClause(clauseOf(plan()), item, {
+      configuration,
+      userId,
+      fetcher,
+      endpoint: { responseFormat: "none" },
+    });
+    expect(outcome.decision).toBe("undecided");
+    expect(outcome.failureReason).toBe("invalid-response");
+  });
+
+  it("prefers the endpoint stored beside the tenant's own key", async () => {
+    const row = await connectionRow();
+    const { fetcher } = await stubFetcher(
+      () => completion({ decision: "no-match", confidence: 0.9, rationale: "Not urgent." }),
+      [{ ...row, metadata: { baseUrl: "https://api.together.xyz/v1", model: "zai-org/GLM-4.6" } }],
+    );
+    const outcome = await evaluateSemanticClause(clauseOf(plan()), item, {
+      configuration,
+      userId,
+      fetcher,
+      endpoint: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4" },
+    });
+    expect(outcome.endpointHost).toBe("api.together.xyz");
+    expect(outcome.model).toBe("zai-org/GLM-4.6");
+    expect(fetcher.mock.calls.some(([input]) => input.startsWith("https://api.together.xyz"))).toBe(
+      true,
+    );
+  });
+
+  it("refuses a tenant endpoint that fails validation rather than falling back", async () => {
+    const row = await connectionRow();
+    const { calls, fetcher } = await stubFetcher(
+      () => completion({}),
+      [{ ...row, metadata: { baseUrl: "http://169.254.169.254/v1" } }],
+    );
+    const outcome = await evaluateSemanticClause(clauseOf(plan()), item, {
+      configuration,
+      userId,
+      fetcher,
+    });
+    expect(outcome.decision).toBe("undecided");
+    expect(outcome.failureReason).toBe("endpoint-invalid");
+    expect(outcome.disclosed).toBe(false);
+    expect(calls.some((call) => call.startsWith("http://169.254"))).toBe(false);
+  });
+
+  it("refuses a misconfigured operator endpoint before loading a credential", async () => {
+    const { calls, fetcher } = await stubFetcher(() => completion({}));
+    const outcome = await evaluateSemanticClause(clauseOf(plan()), item, {
+      configuration,
+      userId,
+      fetcher,
+      endpoint: { baseUrl: "https://10.0.0.5/v1" },
+    });
+    expect(outcome.failureReason).toBe("endpoint-invalid");
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -180,6 +443,7 @@ describe("prompt-injection fixtures", () => {
           disclosedFields: ["subject", "body"],
           redactions: [],
         },
+        openAiEndpoint,
       );
       const [system, user] = messages(body);
       // The instruction block is byte-identical no matter what the message said. Nothing the source
@@ -440,6 +704,7 @@ describe("recordSemanticDisclosure", () => {
           decision: "match",
           provider: "openai",
           model: "gpt-4.1-mini",
+          endpointHost: "api.openai.com",
           purpose: "filter-semantic-clause",
           disclosedFields: ["subject", "body"],
           redactions: [{ field: "body", kind: "email-address", count: 2 }],
@@ -462,6 +727,7 @@ describe("recordSemanticDisclosure", () => {
       p_disclosed_fields: ["subject", "body"],
       p_confidence: 0.94,
       p_failure_reason: null,
+      p_endpoint_host: "api.openai.com",
     });
     expect(body.p_redactions).toEqual([{ field: "body", kind: "email-address", count: 2 }]);
     expect(JSON.stringify(body.p_redactions)).not.toContain("@");
@@ -478,6 +744,7 @@ describe("recordSemanticDisclosure", () => {
           decision: "undecided",
           provider: "openai",
           model: "gpt-4.1-mini",
+          // No host: this attempt sent nothing, so there is no endpoint to name.
           purpose: "filter-semantic-clause",
           disclosedFields: [],
           redactions: [],
@@ -495,6 +762,7 @@ describe("recordSemanticDisclosure", () => {
       p_confidence: null,
       p_rationale: null,
       p_failure_reason: "credential-revoked",
+      p_endpoint_host: null,
     });
   });
 
@@ -510,6 +778,7 @@ describe("recordSemanticDisclosure", () => {
             decision: "match",
             provider: "openai",
             model: "gpt-4.1-mini",
+            endpointHost: "api.openai.com",
             purpose: "filter-semantic-clause",
             disclosedFields: ["subject"],
             redactions: [],

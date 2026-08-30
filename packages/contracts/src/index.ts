@@ -1183,6 +1183,7 @@ export type SemanticEvaluation = z.infer<typeof semanticEvaluationSchema>;
 export const semanticFailureReasonSchema = z.enum([
   "credential-missing",
   "credential-revoked",
+  "endpoint-invalid",
   "invalid-response",
   "no-disclosable-fields",
   "quota-exhausted",
@@ -1196,8 +1197,51 @@ export type SemanticFailureReason = z.infer<typeof semanticFailureReasonSchema>;
 /** Fixed purpose recorded on every semantic-clause disclosure. */
 export const SEMANTIC_DISCLOSURE_PURPOSE = "filter-semantic-clause";
 
-/** OpenAI model used for semantic clauses. Pinned so a disclosure record names an exact model. */
-export const SEMANTIC_EVALUATION_MODEL = "gpt-4.1-mini";
+/**
+ * Model identifier for a semantic clause.
+ *
+ * Bounded and restricted to the characters real identifiers use, which covers a bare OpenAI name
+ * (`gpt-4.1-mini`, `o3`) and the namespaced form gateways use (`anthropic/claude-sonnet-4`,
+ * `meta-llama/Llama-3.3-70B-Instruct-Turbo`). It is recorded verbatim on every disclosure, so it has
+ * to be something a person can read back later.
+ */
+export const semanticModelSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u, "Model identifier contains unsupported characters");
+
+/** Default model when neither the tenant nor the operator names one. */
+export const DEFAULT_SEMANTIC_MODEL = "gpt-4.1-mini";
+
+/**
+ * How much of the answer shape the provider itself is asked to enforce.
+ *
+ * Relay always validates the answer against `semanticEvaluationSchema`, which is `.strict()`, so the
+ * guarantee that a reply carries exactly `decision`, `confidence`, and `rationale` never depends on
+ * the provider. This setting only chooses how much the provider is asked to enforce on its side:
+ *
+ * - `json-schema` sends OpenAI structured outputs with `strict` set, so a non-conforming answer is
+ *   refused before it is billed or returned. The default, and what api.openai.com supports.
+ * - `json-object` asks only for valid JSON. Gateways and local servers that implement the older
+ *   `json_object` mode use this.
+ * - `none` sends no response-format hint at all, for endpoints that reject the field outright. The
+ *   instruction block still states the exact answer shape.
+ *
+ * Relaxing this never relaxes what Relay accepts; it only changes how often a bad answer costs a
+ * round trip instead of being refused at the provider.
+ */
+export const semanticResponseFormatSchema = z.enum(["json-schema", "json-object", "none"]);
+export type SemanticResponseFormat = z.infer<typeof semanticResponseFormatSchema>;
+
+/**
+ * Host that a semantic request was sent to, recorded on the disclosure.
+ *
+ * Once the endpoint is configurable, "OpenAI received this" stops being true by construction, so the
+ * disclosure history has to say where the data actually went. Only the host is kept: no path, no
+ * query, no credential.
+ */
+export const semanticEndpointHostSchema = z.string().min(1).max(255);
 
 /**
  * The outcome of resolving one semantic clause, whether or not the provider answered.
@@ -1211,7 +1255,8 @@ export const semanticOutcomeSchema = z
   .object({
     decision: z.enum(["match", "no-match", "undecided"]),
     provider: z.literal("openai"),
-    model: z.string().min(1).max(128),
+    model: semanticModelSchema,
+    endpointHost: semanticEndpointHostSchema.optional(),
     purpose: z.literal(SEMANTIC_DISCLOSURE_PURPOSE),
     disclosedFields: z.array(filterFieldSchema).max(filterFieldSchema.options.length),
     redactions: z.array(semanticRedactionSchema).max(64),
@@ -1232,7 +1277,12 @@ export const semanticOutcomeSchema = z
       outcome.disclosed ||
       (outcome.disclosedFields.length === 0 && outcome.redactions.length === 0),
     { message: "An undisclosed evaluation cannot report disclosed fields or redactions" },
-  );
+  )
+  // Present exactly when something was sent. An evaluation that reached an endpoint must say which
+  // one; an evaluation that never left must not name a host it did not contact.
+  .refine((outcome) => (outcome.endpointHost !== undefined) === outcome.disclosed, {
+    message: "An endpoint host is recorded exactly when a request left the runtime",
+  });
 export type SemanticOutcome = z.infer<typeof semanticOutcomeSchema>;
 
 export const actionProviderSchema = z.enum(["google-tasks", "nextcloud-budget", "webhook"]);

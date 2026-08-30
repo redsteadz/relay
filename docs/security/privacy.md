@@ -90,7 +90,15 @@ Malformed or over-limit provider messages retain only fixed terminal reason, ten
 SHA-256 message-ID digest, and timestamps. Their audit rows contain no source headers, body, mailbox,
 provider response, token, or reversible message ID.
 
-OpenAI receives only semantic-clause allowlisted fields after redaction. Relay stores disclosure
+The semantic endpoint is configurable and OpenAI-compatible under
+[ADR-0011](../decisions/0011-openai-compatible-semantic-endpoint.md), defaulting to OpenAI; a tenant
+may point it at a gateway or a locally hosted model, in which case content never leaves their
+machine. Wherever it is sent, the same rules hold, and each disclosure records the host it actually
+reached rather than assuming OpenAI. The endpoint is validated before use -- HTTPS, no embedded
+credentials, and private, loopback, and link-local addresses refused -- so a configurable URL cannot
+become a way to probe the runtime's network.
+
+The configured endpoint receives only semantic-clause allowlisted fields after redaction. Relay stores disclosure
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and
 cannot choose tools or action configuration.
 

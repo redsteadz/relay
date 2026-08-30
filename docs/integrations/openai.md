@@ -40,10 +40,36 @@ role, decrypts the key in memory under the connection's own AAD context, and dis
 request. More than one active row for a tenant is ambiguous consent, so evaluation fails closed
 rather than choosing one.
 
-Requests go to `POST /v1/chat/completions` on a pinned model (`gpt-4.1-mini`) with `temperature` 0,
-a 200-token completion cap, a 15-second deadline, a 32 KB bounded response read, and no tools. The
-key travels only as a bearer header. Responses use structured outputs with `strict` set, so the
-model can return exactly `decision`, `confidence`, and `rationale`.
+Requests go to `POST {baseUrl}/chat/completions` with `temperature` 0, a 200-token completion cap, a
+15-second deadline, a 32 KB bounded response read, and no tools. The key travels only as a bearer
+header. Responses use structured outputs with `strict` set, so the model can return exactly
+`decision`, `confidence`, and `rationale`.
+
+### Choosing an endpoint and model
+
+The endpoint is OpenAI-compatible rather than OpenAI-specific, under
+[ADR-0011](../decisions/0011-openai-compatible-semantic-endpoint.md). Operator defaults come from the
+Pipeline environment, and all three are optional -- absent means OpenAI with `gpt-4.1-mini`, so an
+existing deployment is unchanged:
+
+| Variable                         | Default                     | Notes                                                             |
+| -------------------------------- | --------------------------- | ----------------------------------------------------------------- |
+| `RELAY_SEMANTIC_BASE_URL`        | `https://api.openai.com/v1` | Validated: HTTPS, public host, no credentials, query, or fragment |
+| `RELAY_SEMANTIC_MODEL`           | `gpt-4.1-mini`              | Bare or namespaced (`anthropic/claude-sonnet-4`)                  |
+| `RELAY_SEMANTIC_RESPONSE_FORMAT` | `json-schema`               | `json-schema`, `json-object`, or `none`                           |
+
+A tenant may override any of these in their connection's `metadata` (`baseUrl`, `model`,
+`responseFormat`), which takes precedence: a key issued by a gateway is only valid at that gateway,
+so the endpoint has to be able to travel with the credential. Pipeline reads the override today;
+`apps/api` does not yet expose a way to set it, which is tracked as follow-up below.
+
+`json-object` and `none` reduce only what the _endpoint_ is asked to enforce. Relay parses every
+answer through the same `.strict()` contract schema, so a weaker endpoint cannot widen what is
+accepted -- it just costs a round trip when the model answers badly.
+
+Plain HTTP is refused except to a loopback address in development, which is how a locally hosted
+model under Ollama or vLLM is reached (`http://127.0.0.1:11434/v1`). In that configuration content
+never leaves the machine, and the disclosure history records `127.0.0.1` as the host.
 
 Provider conditions map to a fixed reason and always resolve the filter to `undecided`:
 `credential-revoked` for 401 and 403, `quota-exhausted` for a 429 whose `error.code` is
@@ -55,6 +81,12 @@ The full minimization, redaction, delimiting, and disclosure-record rules live w
 [filter model](../architecture/filter-model.md); this page covers only the provider mechanics.
 
 ### Known follow-up
+
+`apps/api` has no field for the per-tenant endpoint override yet. Pipeline reads `baseUrl`, `model`,
+and `responseFormat` from the connection's `metadata`, but the only way to set them today is
+directly in the database, so in practice a deployment uses the operator defaults. Adding them to the
+`POST`/`PATCH` connector payload -- including validating the key against the chosen endpoint rather
+than always against `api.openai.com` -- belongs with the BYOK settings UI in #80.
 
 Relay does not deduplicate evaluations across Queue redelivery. A redelivered item with the same
 semantic clause is evaluated again, which means a second request to OpenAI and a second disclosure

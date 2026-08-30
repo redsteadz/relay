@@ -1,14 +1,17 @@
 import {
   canonicalUuidSchema,
+  DEFAULT_SEMANTIC_MODEL,
   openAiApiKeySchema,
   SEMANTIC_DISCLOSURE_PURPOSE,
-  SEMANTIC_EVALUATION_MODEL,
   semanticEvaluationSchema,
+  semanticModelSchema,
   semanticOutcomeSchema,
+  semanticResponseFormatSchema,
   type FilterPlan,
   type SemanticDisclosure,
   type SemanticFailureReason,
   type SemanticOutcome,
+  type SemanticResponseFormat,
 } from "@relay/contracts";
 import { decryptValue } from "@relay/crypto";
 import {
@@ -26,11 +29,185 @@ import { connectionCredentialEncryptionContext, postgresByteaToBase64 } from "./
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 type SemanticClause = NonNullable<FilterPlan["semantic"]>;
 
-const OPENAI_CHAT_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+const DEFAULT_SEMANTIC_BASE_URL = "https://api.openai.com/v1";
 const OPENAI_PROVIDER = "openai";
 const MAX_OPENAI_RESPONSE_BYTES = 32_768;
 const MAX_COMPLETION_TOKENS = 200;
 export const SEMANTIC_EVALUATION_TIMEOUT_MS = 15_000;
+
+/**
+ * Where a semantic clause is evaluated.
+ *
+ * Relay speaks one wire format -- OpenAI chat completions with a bearer key -- and any endpoint that
+ * implements it can serve this: OpenAI itself, a gateway such as OpenRouter or Together, an Azure
+ * OpenAI deployment, or a model running locally under Ollama or vLLM. Only the base URL, the model,
+ * and how much of the answer shape the provider is asked to enforce differ.
+ */
+export type SemanticEndpoint = {
+  baseUrl: string;
+  host: string;
+  model: string;
+  responseFormat: SemanticResponseFormat;
+};
+
+/**
+ * Addresses that must never be reachable from a configured endpoint.
+ *
+ * A base URL is operator or tenant supplied, so it is an SSRF surface: without this, pointing it at
+ * a link-local or private address would turn semantic evaluation into a probe of whatever the Worker
+ * can reach. Numeric forms are rejected outright rather than resolved, and names that conventionally
+ * denote a local network are rejected too.
+ */
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/u, "");
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".home.arpa")
+  ) {
+    return true;
+  }
+  // Any IPv6 literal, including ::1 and the IPv4-mapped forms that would otherwise slip past the
+  // dotted-quad check below.
+  if (host.includes(":")) return true;
+
+  const octets = host.split(".").map(Number);
+  if (
+    octets.length !== 4 ||
+    !octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
+  ) {
+    return false;
+  }
+  const [first = 0, second = 0] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    first >= 224 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && (second === 0 || second === 168)) ||
+    (first === 198 && (second === 18 || second === 19 || second === 51)) ||
+    (first === 203 && second === 0)
+  );
+}
+
+function isLoopback(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/u, "");
+  return host === "127.0.0.1" || host === "localhost" || host === "[::1]" || host === "::1";
+}
+
+/**
+ * Validates and normalizes a semantic base URL.
+ *
+ * Requires HTTPS, no embedded credentials, and no query or fragment, and rejects private and
+ * link-local addresses. Plain HTTP to a loopback address is allowed only in development, which is
+ * how a locally hosted model is reached; the same exception `readPersistenceConfiguration` already
+ * makes for a local Supabase, and for the same reason -- the traffic never leaves the machine.
+ *
+ * The trailing slash is stripped so `${baseUrl}/chat/completions` composes predictably.
+ */
+export function parseSemanticBaseUrl(
+  value: string,
+  environment: PersistenceConfiguration["environment"],
+): { baseUrl: string; host: string } {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new SemanticEvaluationError("endpoint-invalid");
+  }
+
+  const loopback = isLoopback(url.hostname);
+  const secure = url.protocol === "https:";
+  const developmentLoopback = environment === "development" && loopback && url.protocol === "http:";
+  if (
+    (!secure && !developmentLoopback) ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    (isPrivateHost(url.hostname) && !developmentLoopback)
+  ) {
+    throw new SemanticEvaluationError("endpoint-invalid");
+  }
+
+  return { baseUrl: url.toString().replace(/\/$/u, ""), host: url.hostname.toLowerCase() };
+}
+
+type EndpointOverrides = {
+  baseUrl?: unknown;
+  model?: unknown;
+  responseFormat?: unknown;
+};
+
+/**
+ * Resolves the endpoint for one evaluation.
+ *
+ * Precedence is tenant, then operator, then the OpenAI default. The tenant layer matters because the
+ * key is the tenant's: a key issued by a gateway is only valid at that gateway, so the endpoint has
+ * to be able to travel with the credential rather than being fixed for the whole deployment. It is
+ * read from the connection's `metadata`, which `apps/api` owns.
+ *
+ * An override that does not validate is an error rather than a silent fallback. Quietly sending a
+ * tenant's data somewhere other than where they asked would be the worst possible resolution.
+ */
+export function resolveSemanticEndpoint(
+  environment: PersistenceConfiguration["environment"],
+  operator: SemanticEndpointDefaults = {},
+  tenant: EndpointOverrides = {},
+): SemanticEndpoint {
+  const rawBaseUrl =
+    typeof tenant.baseUrl === "string" && tenant.baseUrl.length > 0
+      ? tenant.baseUrl
+      : (operator.baseUrl ?? DEFAULT_SEMANTIC_BASE_URL);
+  const { baseUrl, host } = parseSemanticBaseUrl(rawBaseUrl, environment);
+
+  const rawModel =
+    typeof tenant.model === "string" && tenant.model.length > 0
+      ? tenant.model
+      : (operator.model ?? DEFAULT_SEMANTIC_MODEL);
+  const model = semanticModelSchema.safeParse(rawModel);
+  if (!model.success) throw new SemanticEvaluationError("endpoint-invalid");
+
+  const rawResponseFormat =
+    typeof tenant.responseFormat === "string" && tenant.responseFormat.length > 0
+      ? tenant.responseFormat
+      : (operator.responseFormat ?? "json-schema");
+  const responseFormat = semanticResponseFormatSchema.safeParse(rawResponseFormat);
+  if (!responseFormat.success) throw new SemanticEvaluationError("endpoint-invalid");
+
+  return { baseUrl, host, model: model.data, responseFormat: responseFormat.data };
+}
+
+export type SemanticEndpointDefaults = {
+  baseUrl?: string;
+  model?: string;
+  responseFormat?: string;
+};
+
+/**
+ * Reads the operator-level endpoint defaults from the Worker environment.
+ *
+ * Absent variables leave the OpenAI defaults in place, so an existing deployment keeps behaving
+ * exactly as it did. A present but invalid value is an error, not a fallback.
+ */
+export function readSemanticEndpointDefaults(env: {
+  RELAY_SEMANTIC_BASE_URL?: string;
+  RELAY_SEMANTIC_MODEL?: string;
+  RELAY_SEMANTIC_RESPONSE_FORMAT?: string;
+}): SemanticEndpointDefaults {
+  return {
+    ...(env.RELAY_SEMANTIC_BASE_URL === undefined ? {} : { baseUrl: env.RELAY_SEMANTIC_BASE_URL }),
+    ...(env.RELAY_SEMANTIC_MODEL === undefined ? {} : { model: env.RELAY_SEMANTIC_MODEL }),
+    ...(env.RELAY_SEMANTIC_RESPONSE_FORMAT === undefined
+      ? {}
+      : { responseFormat: env.RELAY_SEMANTIC_RESPONSE_FORMAT }),
+  };
+}
 
 /**
  * The fixed instruction block. Byte-identical for every evaluation.
@@ -81,7 +258,26 @@ export class SemanticEvaluationError extends Error {
 export type LoadedOpenAiCredential = {
   apiKey: string;
   connectionId: string;
+  /** Tenant endpoint overrides stored beside the key, if any. */
+  endpoint: EndpointOverrides;
 };
+
+/**
+ * Reads endpoint overrides from a connection's `metadata`.
+ *
+ * `apps/api` owns that column and already stores `lastValidatedAt` there. Anything unexpected is
+ * ignored here and then validated by `resolveSemanticEndpoint`, which refuses rather than falls
+ * back, so a malformed override cannot silently redirect a tenant's data to the default endpoint.
+ */
+export function readEndpointOverrides(metadata: unknown): EndpointOverrides {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return {};
+  const record = metadata as Record<string, unknown>;
+  return {
+    ...(record.baseUrl === undefined ? {} : { baseUrl: record.baseUrl }),
+    ...(record.model === undefined ? {} : { model: record.model }),
+    ...(record.responseFormat === undefined ? {} : { responseFormat: record.responseFormat }),
+  };
+}
 
 function exactRow(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -117,6 +313,7 @@ export async function loadOpenAiCredential(
       "wrap_nonce",
       "key_version",
       "encryption_environment",
+      "metadata",
     ].join(","),
   );
   url.searchParams.set("user_id", `eq.${userId}`);
@@ -176,7 +373,7 @@ export async function loadOpenAiCredential(
   if (!openAiApiKeySchema.safeParse(apiKey).success) {
     throw new SemanticEvaluationError("credential-missing");
   }
-  return { apiKey, connectionId };
+  return { apiKey, connectionId, endpoint: readEndpointOverrides(row.metadata) };
 }
 
 /**
@@ -185,15 +382,13 @@ export async function loadOpenAiCredential(
  * Exported so a test can assert the instruction block and the data boundary directly, without
  * reaching a network.
  */
-export function semanticEvaluationRequestBody(
-  clause: SemanticClause,
-  disclosure: SemanticDisclosure,
-  model: string = SEMANTIC_EVALUATION_MODEL,
-): Record<string, unknown> {
+function responseFormatField(format: SemanticResponseFormat): Record<string, unknown> {
+  // Relay validates every answer against `semanticEvaluationSchema` regardless. This only chooses
+  // how much the endpoint is asked to enforce, so a server that rejects the newer field can still
+  // be used without weakening what Relay accepts.
+  if (format === "none") return {};
+  if (format === "json-object") return { response_format: { type: "json_object" } };
   return {
-    model,
-    temperature: 0,
-    max_completion_tokens: MAX_COMPLETION_TOKENS,
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -202,6 +397,19 @@ export function semanticEvaluationRequestBody(
         schema: SEMANTIC_RESPONSE_JSON_SCHEMA,
       },
     },
+  };
+}
+
+export function semanticEvaluationRequestBody(
+  clause: SemanticClause,
+  disclosure: SemanticDisclosure,
+  endpoint: SemanticEndpoint,
+): Record<string, unknown> {
+  return {
+    model: endpoint.model,
+    temperature: 0,
+    max_completion_tokens: MAX_COMPLETION_TOKENS,
+    ...responseFormatField(endpoint.responseFormat),
     messages: [
       { role: "system", content: SEMANTIC_SYSTEM_INSTRUCTIONS },
       {
@@ -234,6 +442,7 @@ function providerFailure(status: number, body: unknown): SemanticFailureReason {
 }
 
 async function requestEvaluation(
+  endpoint: SemanticEndpoint,
   apiKey: string,
   body: Record<string, unknown>,
   fetcher: Fetcher,
@@ -241,7 +450,7 @@ async function requestEvaluation(
 ): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetcher(OPENAI_CHAT_COMPLETIONS_ENDPOINT, {
+    response = await fetcher(`${endpoint.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -307,22 +516,32 @@ export function parseSemanticEvaluation(payload: unknown) {
 export type SemanticEvaluationOptions = {
   configuration: PersistenceConfiguration;
   userId: string;
+  /** Operator defaults, normally from `readSemanticEndpointDefaults(env)`. */
+  endpoint?: SemanticEndpointDefaults;
   fetcher?: Fetcher;
-  model?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
 };
 
+/**
+ * Builds an undecided outcome.
+ *
+ * A `disclosure` argument means the request left the runtime, which is also what makes the endpoint
+ * host meaningful: it is recorded only in that case, so an attempt that sent nothing never names a
+ * host it did not contact. `endpoint` may be undefined when configuration itself failed, in which
+ * case no configured model can be trusted either.
+ */
 function undecided(
   reason: SemanticFailureReason,
-  model: string,
+  endpoint: SemanticEndpoint | undefined,
   disclosure?: SemanticDisclosure,
 ): SemanticOutcome {
   const disclosed = disclosure !== undefined;
   return semanticOutcomeSchema.parse({
     decision: "undecided",
     provider: OPENAI_PROVIDER,
-    model,
+    model: endpoint?.model ?? DEFAULT_SEMANTIC_MODEL,
+    ...(disclosed && endpoint !== undefined ? { endpointHost: endpoint.host } : {}),
     purpose: SEMANTIC_DISCLOSURE_PURPOSE,
     disclosedFields: disclosure?.disclosedFields ?? [],
     redactions: disclosure?.redactions ?? [],
@@ -332,26 +551,38 @@ function undecided(
 }
 
 /**
- * Resolves one semantic clause through the tenant's OpenAI key.
+ * Resolves one semantic clause through the tenant's key, at the configured endpoint.
  *
  * Returns rather than throws for every provider condition. A revoked key, a rate limit, an
- * exhausted quota, a timeout, an oversized body, and a malformed answer all produce `undecided`, so
- * no failure mode can be mistaken for a match and none can reach an automatic effect.
+ * exhausted quota, a timeout, an oversized body, a malformed answer, and an endpoint that fails
+ * validation all produce `undecided`, so no failure mode can be mistaken for a match and none can
+ * reach an automatic effect.
  *
  * `disclosed` reports whether the request actually left the runtime. It is set before the response
- * is known, because a request that failed in flight may still have been received.
+ * is known, because a request that failed in flight may still have been received. The outcome names
+ * the host it reached, so the disclosure record says where the data went rather than assuming.
  */
 export async function evaluateSemanticClause(
   clause: SemanticClause,
   item: Record<string, unknown>,
   options: SemanticEvaluationOptions,
 ): Promise<SemanticOutcome> {
-  const model = options.model ?? SEMANTIC_EVALUATION_MODEL;
   const fetcher = options.fetcher ?? fetch;
   const timeoutMs = options.timeoutMs ?? SEMANTIC_EVALUATION_TIMEOUT_MS;
+  const environment = options.configuration.environment;
+
+  // Resolved before the credential is loaded and before anything is minimized, so a misconfigured
+  // endpoint fails without touching a key. Falls back to the operator defaults, which fall back to
+  // OpenAI, so an unconfigured deployment behaves exactly as it did.
+  let endpoint: SemanticEndpoint;
+  try {
+    endpoint = resolveSemanticEndpoint(environment, options.endpoint);
+  } catch {
+    return undecided("endpoint-invalid", undefined);
+  }
 
   const disclosure = minimizeSemanticDisclosure(clause, item);
-  if (disclosure.fields.length === 0) return undecided("no-disclosable-fields", model);
+  if (disclosure.fields.length === 0) return undecided("no-disclosable-fields", endpoint);
 
   let credential: LoadedOpenAiCredential;
   try {
@@ -364,14 +595,22 @@ export async function evaluateSemanticClause(
   } catch (error) {
     return undecided(
       error instanceof SemanticEvaluationError ? error.reason : "unavailable",
-      model,
+      endpoint,
     );
   }
 
-  const body = semanticEvaluationRequestBody(clause, disclosure, model);
+  // The tenant's own overrides win. A key issued by a gateway is only valid at that gateway, so the
+  // endpoint has to be able to travel with the credential rather than being fixed deployment-wide.
+  try {
+    endpoint = resolveSemanticEndpoint(environment, options.endpoint, credential.endpoint);
+  } catch {
+    return undecided("endpoint-invalid", endpoint);
+  }
+
+  const body = semanticEvaluationRequestBody(clause, disclosure, endpoint);
   try {
     const payload = await withOperationDeadline(
-      (signal) => requestEvaluation(credential.apiKey, body, fetcher, signal),
+      (signal) => requestEvaluation(endpoint, credential.apiKey, body, fetcher, signal),
       timeoutMs,
       options.signal,
     );
@@ -379,7 +618,8 @@ export async function evaluateSemanticClause(
     return semanticOutcomeSchema.parse({
       decision: resolveSemanticDecision(clause, evaluation),
       provider: OPENAI_PROVIDER,
-      model,
+      model: endpoint.model,
+      endpointHost: endpoint.host,
       purpose: SEMANTIC_DISCLOSURE_PURPOSE,
       disclosedFields: disclosure.disclosedFields,
       redactions: disclosure.redactions,
@@ -388,9 +628,12 @@ export async function evaluateSemanticClause(
       rationale: evaluation.rationale,
     });
   } catch (error) {
-    if (error instanceof SemanticEvaluationError) return undecided(error.reason, model, disclosure);
-    if (error instanceof OperationDeadlineError) return undecided("timed-out", model, disclosure);
-    return undecided("unavailable", model, disclosure);
+    if (error instanceof SemanticEvaluationError) {
+      return undecided(error.reason, endpoint, disclosure);
+    }
+    if (error instanceof OperationDeadlineError)
+      return undecided("timed-out", endpoint, disclosure);
+    return undecided("unavailable", endpoint, disclosure);
   }
 }
 
@@ -446,6 +689,7 @@ export async function recordSemanticDisclosure(
           p_disclosed: outcome.disclosed,
           p_disclosed_fields: outcome.disclosedFields,
           p_redactions: outcome.redactions,
+          p_endpoint_host: outcome.disclosed ? outcome.endpointHost : null,
           p_confidence: outcome.confidence ?? null,
           p_rationale: outcome.rationale ?? null,
           p_failure_reason: outcome.failureReason ?? null,

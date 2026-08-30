@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(25);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at
@@ -68,6 +68,7 @@ select lives_ok(
     true,
     array['subject', 'body'],
     '[{"field":"body","kind":"email-address","count":2}]'::jsonb,
+    'api.openai.com',
     0.940,
     'Invoice is due next week.',
     null
@@ -76,15 +77,15 @@ select lives_ok(
 );
 
 select results_eq(
-  $$select provider, model, purpose, decision, disclosed, disclosed_fields, confidence, rationale,
-           failure_reason
+  $$select provider, model, endpoint_host, purpose, decision, disclosed, disclosed_fields,
+           confidence, rationale, failure_reason
     from public.ai_disclosures
     where user_id = '80000000-0000-4000-8000-000000000001'$$,
   $$values (
-    'openai', 'gpt-4.1-mini', 'filter-semantic-clause', 'match', true,
+    'openai', 'gpt-4.1-mini', 'api.openai.com', 'filter-semantic-clause', 'match', true,
     array['subject', 'body'], 0.940::numeric(4,3), 'Invoice is due next week.', null::text
   )$$,
-  'the disclosure records provider, model, purpose, fields, confidence, and rationale'
+  'the disclosure records provider, model, endpoint, purpose, fields, confidence, and rationale'
 );
 
 select results_eq(
@@ -111,6 +112,7 @@ select lives_ok(
     '[]'::jsonb,
     null,
     null,
+    null,
     'credential-revoked'
   )$$,
   'a failed attempt that sent nothing is recorded as undecided'
@@ -126,7 +128,8 @@ select throws_ok(
     'match',
     true,
     array['subject'],
-    '[]'::jsonb
+    '[]'::jsonb,
+    'api.openai.com'
   )$$,
   'P0002',
   null,
@@ -260,6 +263,42 @@ select throws_ok(
   'a failure reason must be one of the fixed reasons'
 );
 
+select throws_ok(
+  $$insert into public.ai_disclosures (
+      user_id, source_item_id, model, purpose, disclosed_fields, disclosed, endpoint_host
+    ) values (
+      '80000000-0000-4000-8000-000000000001', '80100000-0000-4000-8000-000000000001',
+      'm', 'p', array['subject'], true, null
+    )$$,
+  '23514',
+  null,
+  'a disclosure that sent something must say where it went'
+);
+
+select throws_ok(
+  $$insert into public.ai_disclosures (
+      user_id, source_item_id, model, purpose, disclosed_fields, disclosed, endpoint_host
+    ) values (
+      '80000000-0000-4000-8000-000000000001', '80100000-0000-4000-8000-000000000001',
+      'm', 'p', array[]::text[], false, 'api.openai.com'
+    )$$,
+  '23514',
+  null,
+  'an attempt that sent nothing cannot name a host it never contacted'
+);
+
+select throws_ok(
+  $$insert into public.ai_disclosures (
+      user_id, source_item_id, model, purpose, disclosed_fields, disclosed, endpoint_host
+    ) values (
+      '80000000-0000-4000-8000-000000000001', '80100000-0000-4000-8000-000000000001',
+      'm', 'p', array['subject'], true, 'https://api.openai.com/v1?key=secret'
+    )$$,
+  '23514',
+  null,
+  'only a bare host is recorded, never a URL that could carry a credential'
+);
+
 -- Immutability ----------------------------------------------------------------------------------
 
 select throws_ok(
@@ -311,11 +350,19 @@ select lives_ok(
     true,
     array['subject'],
     '[]'::jsonb,
+    'openrouter.ai',
     0.910,
     'Not time sensitive.',
     null
   )$$,
   'a disclosure can name the filter revision that caused it'
+);
+
+select results_eq(
+  $$select endpoint_host from public.ai_disclosures
+    where user_id = '80000000-0000-4000-8000-000000000002'$$,
+  $$values ('openrouter.ai'::text)$$,
+  'a disclosure sent elsewhere records the host it actually reached'
 );
 
 reset role;

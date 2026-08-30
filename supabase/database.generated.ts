@@ -169,6 +169,7 @@ export type Database = {
           decision: string;
           disclosed: boolean;
           disclosed_fields: string[];
+          endpoint_host: string | null;
           failure_reason: string | null;
           filter_rule_id: string | null;
           id: string;
@@ -186,6 +187,7 @@ export type Database = {
           decision?: string;
           disclosed?: boolean;
           disclosed_fields: string[];
+          endpoint_host?: string | null;
           failure_reason?: string | null;
           filter_rule_id?: string | null;
           id?: string;
@@ -203,6 +205,7 @@ export type Database = {
           decision?: string;
           disclosed?: boolean;
           disclosed_fields?: string[];
+          endpoint_host?: string | null;
           failure_reason?: string | null;
           filter_rule_id?: string | null;
           id?: string;
@@ -1418,6 +1421,7 @@ export type Database = {
           p_decision: string;
           p_disclosed: boolean;
           p_disclosed_fields: string[];
+          p_endpoint_host: string;
           p_failure_reason?: string;
           p_filter_rule_id: string;
           p_model: string;

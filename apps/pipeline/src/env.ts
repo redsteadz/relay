@@ -20,6 +20,11 @@ export interface Env {
   RELAY_ENVIRONMENT: string;
   RELAY_INGEST_SHARED_SECRET: string;
   RELAY_RECOVERY_SHARED_SECRET: string;
+  // Semantic evaluation endpoint. Absent means OpenAI with the default model, so an existing
+  // deployment is unaffected. See `readSemanticEndpointDefaults`.
+  RELAY_SEMANTIC_BASE_URL?: string;
+  RELAY_SEMANTIC_MODEL?: string;
+  RELAY_SEMANTIC_RESPONSE_FORMAT?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_URL?: string;
   TENANT_COORDINATOR: DurableObjectNamespace;

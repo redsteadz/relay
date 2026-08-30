@@ -93,6 +93,21 @@ disclosed at all, exactly as the deterministic evaluator treats it.
 The recorded `redactions` carry a field, a class, and a count. They never carry a removed value or
 its position, and the database enforces that shape so the rule cannot drift.
 
+### The Endpoint
+
+Evaluation speaks one wire format -- chat completions with a bearer key -- against a configurable
+OpenAI-compatible endpoint under
+[ADR-0011](../decisions/0011-openai-compatible-semantic-endpoint.md). Base URL, model, and how much
+of the answer shape the endpoint is asked to enforce are configuration, defaulting to OpenAI and
+`gpt-4.1-mini`. A tenant override stored beside their key wins over the operator default, because a
+key issued by a gateway is only valid at that gateway.
+
+The base URL is validated before anything is sent: HTTPS only, no embedded credentials, no query or
+fragment, and private, loopback, and link-local addresses refused, so a configurable URL is not an
+SSRF primitive. Plain HTTP to loopback is allowed only in development, which is how a locally hosted
+model is reached. An override that fails validation yields `endpoint-invalid` and sends nothing; it
+never falls back to an endpoint the tenant did not choose.
+
 ### The Request
 
 The system message holds a fixed instruction block that is byte-identical for every evaluation. It
@@ -101,8 +116,11 @@ travel as JSON values in the user message, under `question` and `untrustedSource
 `JSON.stringify` is the delimiter: a body containing quotes, braces, or a forged conversation turn
 becomes one escaped string value and cannot continue as message structure.
 
-Relay sends no tools. The response uses OpenAI structured outputs with `strict` set and
-`additionalProperties` false, admitting exactly `decision`, `confidence`, and `rationale`. A reply
+Relay sends no tools. By default the response uses OpenAI structured outputs with `strict` set and
+`additionalProperties` false, admitting exactly `decision`, `confidence`, and `rationale`. Endpoints
+that implement only the older `json_object` mode, or none at all, can be configured accordingly --
+that changes what the _provider_ enforces, never what Relay accepts, because every answer is parsed
+through the same strict contract schema either way. A reply
 that also names a provider, endpoint, credential, or operation is rejected by the provider schema
 and rejected again by `semanticEvaluationSchema`, which is `.strict()` for the same reason. A reply
 carrying a `tool_calls` array, a refusal, or a non-`stop` finish reason is not an answer and is
