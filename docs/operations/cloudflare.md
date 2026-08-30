@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 ---
 
 # Cloudflare Hosted Runtime Operations
@@ -46,6 +46,20 @@ Maintainers own shared runtime. Hosted changes require reviewed `dev` to `main` 
 operator. Never deploy feature branches or `dev` remotely. Store Cloudflare account IDs and tokens in
 operator or CI secret stores, not repository. Resource names never contain tenant IDs, provider
 accounts, credentials, or source content.
+
+## Workers Builds
+
+Keep Workers Builds disconnected from both hosted Workers until issue #49 adds and verifies protected
+release-PR gates plus ordered Pipeline-to-API automation. A no-op deploy command is not sufficient:
+repository-controlled build code can invoke `wrangler` with the build token. If a Workers Builds check
+appears before those gates exist, disconnect the Git integration instead of refreshing its token or
+enabling another branch.
+
+Validate clean Worker builds locally with `pnpm --filter @relay/pipeline build` and, after loading only
+the two hosted public Supabase build values, `pnpm --filter @relay/api build:worker`. Both commands
+compile transitive Relay workspace packages before bundling. Runtime credentials remain Worker
+secrets and must never become build variables. Hosted activation remains the ordered, operator-run
+Pipeline then API `deploy:hosted` flow below.
 
 ## First Provisioning
 
@@ -312,6 +326,10 @@ rolls back.
 - [Cloudflare Workflows](https://developers.cloudflare.com/workflows/)
 - [OpenNext Cloudflare CLI](https://opennext.js.org/cloudflare/cli)
 - [Worker rollbacks](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
+- [Workers Builds configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
+- [Workers Builds branch control](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)
+- [Workers Builds monorepos](https://developers.cloudflare.com/workers/ci-cd/builds/advanced-setups/#monorepos)
+- [Cloudflare OpenNext adapter](https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/)
 
 Related: [shared hosted runtime](../decisions/0007-shared-hosted-runtime.md),
 [Cloudflare processing boundary](../decisions/0002-cloudflare-processing-boundary.md),
