@@ -38,7 +38,8 @@
       "distribution": "internal",
       "environment": "preview",
       "env": {
-        "RELAY_BUILD_VARIANT": "sideload"
+        "RELAY_BUILD_VARIANT": "sideload",
+        "EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS": "disabled"
       },
       "android": {
         "buildType": "apk"

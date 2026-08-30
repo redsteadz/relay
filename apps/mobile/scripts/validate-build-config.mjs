@@ -117,7 +117,10 @@ assert.deepEqual(eas, {
       developmentClient: true,
       distribution: "internal",
       environment: "preview",
-      env: { RELAY_BUILD_VARIANT: buildVariants.sideload },
+      env: {
+        RELAY_BUILD_VARIANT: buildVariants.sideload,
+        EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS: "disabled",
+      },
       android: { buildType: "apk" },
     },
   },
@@ -128,6 +131,9 @@ assert.deepEqual(eas, {
 // fall back to the emulator-local base environment.
 assert.equal(eas.build.diagnostic.env.RELAY_BUILD_VARIANT, buildVariants.sideload);
 assert.equal(eas.build.diagnostic.developmentClient, true);
+// Diagnostic builds must never enter unauthenticated local capture, which prepares the synthetic
+// tenant and clears the signed-in tenant's queue. They reproduce the release runtime exactly.
+assert.equal(eas.build.diagnostic.env.EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS, "disabled");
 assert.notEqual(eas.build.diagnostic.environment, eas.build.base.environment);
 
 // Sideload APKs run on physical devices, so they must not inherit the base

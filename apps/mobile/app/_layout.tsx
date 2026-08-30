@@ -23,6 +23,7 @@ import {
   canEnterApp,
   canEnterSignIn,
   localDevelopmentAccessEnabled,
+  localDiagnosticsDisabled,
   notificationCaptureMode,
 } from "@/lib/development-access";
 import { syncDeviceCaptures } from "@/lib/device-capture-sync";
@@ -42,6 +43,7 @@ function AuthenticatedStack() {
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
+    localDiagnosticsDisabled(),
   );
   const captureMode = notificationCaptureMode(
     session?.user.id,

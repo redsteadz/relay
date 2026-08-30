@@ -4,7 +4,11 @@ import { useCallback, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
 
 import { useAuth } from "@/lib/auth-context";
-import { localDevelopmentAccessEnabled, notificationCaptureMode } from "@/lib/development-access";
+import {
+  localDevelopmentAccessEnabled,
+  localDiagnosticsDisabled,
+  notificationCaptureMode,
+} from "@/lib/development-access";
 import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress, { type DeviceCapabilities } from "@/modules/relay-device-ingress";
 
@@ -18,6 +22,7 @@ export function useDeviceCaptureMode() {
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
+    localDiagnosticsDisabled(),
   );
   return notificationCaptureMode(session?.user.id, localDevelopmentAccess, Platform.OS);
 }

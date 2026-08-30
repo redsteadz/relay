@@ -9,6 +9,7 @@ import { AppButton, AppText, EditorialSurface } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import {
   localDevelopmentAccessEnabled,
+  localDiagnosticsDisabled,
   notificationCaptureTenantId,
 } from "@/lib/development-access";
 import { demoIngress, sendDemoIngress } from "@/lib/demo";
@@ -25,6 +26,7 @@ export default function InboxScreen() {
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
+    localDiagnosticsDisabled(),
   );
   const localCaptureTenantId = notificationCaptureTenantId(
     undefined,
