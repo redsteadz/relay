@@ -52,6 +52,19 @@ issue that names both conflicting sources.
   attributes to its human author only. This applies regardless of any assistant harness's default
   commit/PR template.
 
+## Error Handling And Observability
+
+- Read the canonical [error handling and observability guide](docs/memory/observability.md) before
+  changing integrations, API handlers, authentication, database access, background work, retries, or
+  user-visible error handling.
+- Use `@relay/observability` and the owning runtime adapter. Do not add ad hoc loggers, serializers,
+  DEBUG switches, or competing error types.
+- Catch as `unknown`, preserve the original failure as `cause`, return deterministic safe messages,
+  and emit one structured log at the terminal boundary.
+- Never pass bodies, source data, identifiers, URLs, headers, SDK/provider objects, or secrets to a
+  logger. Central redaction is defense in depth, not permission to log sensitive inputs.
+- Every intentional fire-and-forget promise must have an explicit observable rejection path.
+
 ## Memory Rules
 
 - Put each durable fact in one canonical Markdown document.

@@ -7,6 +7,9 @@
 - Never expose service-role keys, connector credentials, or Cloudflare internal secrets to clients.
 - Do not use Next.js Edge runtime; OpenNext requires Node runtime compatibility.
 - Keep route responses stable and machine-readable.
+- Use `lib/observability.ts` for terminal route/integration failures, propagate
+  `x-relay-request-id`, and never serialize internal errors into responses.
 
 Canonical context: [system architecture](../../docs/architecture/system.md) and
-[Gmail integration](../../docs/integrations/gmail.md).
+[Gmail integration](../../docs/integrations/gmail.md). Error handling must follow the canonical
+[observability guide](../../docs/memory/observability.md).
