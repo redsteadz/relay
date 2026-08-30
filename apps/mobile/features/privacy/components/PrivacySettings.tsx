@@ -1,6 +1,12 @@
 import { router } from "expo-router";
 
-import { AppButton, AppText, EditorialSurface, StatusMessage } from "@/components/ui";
+import {
+  AppButton,
+  AppText,
+  ContextualNotice,
+  EditorialSurface,
+  StatusMessage,
+} from "@/components/ui";
 
 import { usePrivacySettings } from "../hooks/usePrivacySettings";
 import { AccountDeletionPanel } from "./AccountDeletionPanel";
@@ -30,12 +36,23 @@ export function PrivacySettings({
         icon="shield-lock-outline"
         title="Privacy controls"
         meta={configurationError ? "Not configured" : "Sign-in required"}
+        titleAccessory={
+          configurationError ? undefined : (
+            <ContextualNotice
+              accessibilityLabel="Why privacy controls require sign-in"
+              tone="warning"
+            >
+              Sign in to inspect retention, purge raw payloads, review AI disclosures, revoke
+              credentials, and delete the account.
+            </ContextualNotice>
+          )
+        }
       >
-        <StatusMessage tone={configurationError ? "error" : "warning"}>
-          {configurationError
-            ? "Relay account services are unavailable in this build."
-            : "Sign in to inspect retention, purge raw payloads, review AI disclosures, revoke credentials, and delete the account."}
-        </StatusMessage>
+        {configurationError ? (
+          <StatusMessage tone="error">
+            Relay account services are unavailable in this build.
+          </StatusMessage>
+        ) : null}
         <AppText tone="muted">
           Your privacy controls remain in Settings and are scoped to your Relay account.
         </AppText>

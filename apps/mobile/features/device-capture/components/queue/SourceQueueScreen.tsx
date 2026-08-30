@@ -2,7 +2,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
 
 import { AppScreen } from "@/components/AppScreen";
-import { AppText, FeedbackState, LoadingState, StatusMessage } from "@/components/ui";
+import { AppText, ContextualNotice, FeedbackState, LoadingState } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import {
@@ -64,12 +64,16 @@ export function SourceQueueScreen({
         query={query}
       />
       <View style={styles.resultHeading}>
-        <AppText variant="label">Queue results</AppText>
+        <View style={[styles.resultTitle, { gap: theme.relay.spacing.xxs }]}>
+          <AppText variant="label">Queue results</AppText>
+          <ContextualNotice accessibilityLabel="About the encrypted queue">
+            {offlineMessage}
+          </ContextualNotice>
+        </View>
         <AppText tone="accent" variant="caption">
           {filteredItems.length.toString()} items
         </AppText>
       </View>
-      <StatusMessage tone="info">{offlineMessage}</StatusMessage>
       <FlatList
         contentContainerStyle={[
           { paddingBottom: theme.relay.spacing.lg },
@@ -115,4 +119,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  resultTitle: { alignItems: "center", flexDirection: "row" },
 });

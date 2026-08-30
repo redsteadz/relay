@@ -9,6 +9,7 @@ import {
   AppButton,
   AppText,
   ConfirmationDialog,
+  ContextualNotice,
   EditorialSurface,
   FeedbackState,
   LoadingState,
@@ -82,10 +83,17 @@ export default function CategoriesScreen() {
       eyebrow="Tenant-owned taxonomy"
       onBack={() => router.back()}
       title="Categories"
+      titleAccessory={
+        session === null ? (
+          <ContextualNotice
+            accessibilityLabel="Why category management is unavailable"
+            tone="warning"
+          >
+            Sign in to manage account categories.
+          </ContextualNotice>
+        ) : undefined
+      }
     >
-      {session === null ? (
-        <StatusMessage tone="warning">Sign in to manage account categories.</StatusMessage>
-      ) : null}
       {errorMessage === undefined || editorCategory !== undefined ? null : (
         <View style={{ gap: theme.relay.spacing.sm }}>
           <StatusMessage tone="error">{errorMessage}</StatusMessage>

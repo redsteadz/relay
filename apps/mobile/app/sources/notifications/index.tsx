@@ -3,9 +3,11 @@ import { useState } from "react";
 
 import { AppScreen } from "@/components/AppScreen";
 import {
+  ActionRow,
   AppButton,
   AppIconButton,
   AppText,
+  ContextualNotice,
   EditorialSurface,
   StatusMessage,
 } from "@/components/ui";
@@ -40,29 +42,41 @@ export default function NotificationSourceScreen() {
 
   return (
     <AppScreen
-      action={
-        <AppIconButton
-          accessibilityHint="Opens notification source controls"
-          accessibilityLabel="Android notification settings"
-          disabled={capabilities === undefined || controller.busy || unsupported}
-          icon="cog-outline"
-          onPress={() => setSettingsVisible(true)}
-        />
-      }
       backLabel="Back to Sources"
       detail="Capture visible notification fields from only the Android apps you approve."
       onBack={() => router.back()}
       title="Android notifications"
       titleAccessory={
-        <AppIconButton
-          accessibilityHint="Explains notification privacy boundaries"
-          accessibilityLabel="Android notification privacy information"
-          icon="information-outline"
-          onPress={() => setDisclosureVisible(true)}
-        />
+        <ActionRow compact wrap={false}>
+          <AppIconButton
+            accessibilityHint="Explains notification privacy boundaries"
+            accessibilityLabel="Android notification privacy information"
+            compact
+            icon="information-outline"
+            onPress={() => setDisclosureVisible(true)}
+          />
+          <AppIconButton
+            accessibilityHint="Opens notification source controls"
+            accessibilityLabel="Android notification settings"
+            compact
+            disabled={capabilities === undefined || controller.busy || unsupported}
+            icon="cog-outline"
+            onPress={() => setSettingsVisible(true)}
+          />
+        </ActionRow>
       }
     >
-      <SourceStatusLabel status={notificationStatus(capabilities)} />
+      <ActionRow compact wrap={false}>
+        <SourceStatusLabel status={notificationStatus(capabilities)} />
+        {unsupported ? (
+          <ContextualNotice
+            accessibilityLabel="Why notification capture is unavailable"
+            tone="warning"
+          >
+            Notification capture requires Android. This device can review the source boundary only.
+          </ContextualNotice>
+        ) : null}
+      </ActionRow>
       {controller.error === undefined ? null : (
         <StatusMessage tone="error">{controller.error}</StatusMessage>
       )}
@@ -77,11 +91,6 @@ export default function NotificationSourceScreen() {
           {controller.message}
         </StatusMessage>
       )}
-      {unsupported ? (
-        <StatusMessage tone="warning">
-          Notification capture requires Android. This device can review the source boundary only.
-        </StatusMessage>
-      ) : null}
       <EditorialSurface icon="apps" meta={`${allowedCount.toString()} SELECTED`} title="Allowlist">
         <AppText tone="muted">
           Installed app labels and the full launchable-app list remain on this device.

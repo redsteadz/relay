@@ -3,11 +3,12 @@ import { useState } from "react";
 
 import { AppScreen } from "@/components/AppScreen";
 import {
+  ActionRow,
   AppButton,
   AppIconButton,
   AppText,
+  ContextualNotice,
   EditorialSurface,
-  StatusMessage,
 } from "@/components/ui";
 import { SourceDisclosureDialog } from "@/features/device-capture/components/source/SourceDisclosureDialog";
 import { SourceSettingsDialog } from "@/features/device-capture/components/source/SourceSettingsDialog";
@@ -22,32 +23,39 @@ export default function GmailSourceScreen() {
 
   return (
     <AppScreen
-      action={
-        <AppIconButton
-          accessibilityHint="Opens Gmail source controls"
-          accessibilityLabel="Gmail settings"
-          icon="cog-outline"
-          onPress={() => setSettingsVisible(true)}
-        />
-      }
       backLabel="Back to Sources"
       detail="Restricted-scope mailbox events with minimized delivery."
       onBack={() => router.back()}
       title="Gmail"
       titleAccessory={
-        <AppIconButton
-          accessibilityHint="Explains Gmail privacy boundaries"
-          accessibilityLabel="Gmail privacy information"
-          icon="information-outline"
-          onPress={() => setDisclosureVisible(true)}
-        />
+        <ActionRow compact wrap={false}>
+          <AppIconButton
+            accessibilityHint="Explains Gmail privacy boundaries"
+            accessibilityLabel="Gmail privacy information"
+            compact
+            icon="information-outline"
+            onPress={() => setDisclosureVisible(true)}
+          />
+          <AppIconButton
+            accessibilityHint="Opens Gmail source controls"
+            accessibilityLabel="Gmail settings"
+            compact
+            icon="cog-outline"
+            onPress={() => setSettingsVisible(true)}
+          />
+        </ActionRow>
       }
     >
       <SourceStatusLabel status={gmailStatus} />
-      <StatusMessage tone="info">
-        Gmail connection is coming later. No mailbox permission is requested in this build.
-      </StatusMessage>
-      <EditorialSurface icon="shield-lock-outline" title="Restricted-scope design">
+      <EditorialSurface
+        icon="shield-lock-outline"
+        title="Restricted-scope design"
+        titleAccessory={
+          <ContextualNotice accessibilityLabel="Gmail connection availability">
+            Gmail connection is coming later. No mailbox permission is requested in this build.
+          </ContextualNotice>
+        }
+      >
         <AppText>
           Google Pub/Sub delivers mailbox cursors to Relay, not message bodies. A future connection
           flow will show the exact requested scope before authorization.

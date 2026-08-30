@@ -3,9 +3,11 @@ import { useState } from "react";
 
 import { AppScreen } from "@/components/AppScreen";
 import {
+  ActionRow,
   AppButton,
   AppIconButton,
   AppText,
+  ContextualNotice,
   EditorialSurface,
   StatusMessage,
 } from "@/components/ui";
@@ -39,29 +41,38 @@ export default function SmsSourceScreen() {
 
   return (
     <AppScreen
-      action={
-        <AppIconButton
-          accessibilityHint="Opens SMS source controls"
-          accessibilityLabel="Android SMS settings"
-          disabled={!available || controller.busy}
-          icon="cog-outline"
-          onPress={() => setSettingsVisible(true)}
-        />
-      }
       backLabel="Back to Sources"
       detail="Capture incoming SMS from contacts you explicitly select."
       onBack={() => router.back()}
       title="Android SMS"
       titleAccessory={
-        <AppIconButton
-          accessibilityHint="Explains SMS privacy boundaries"
-          accessibilityLabel="Android SMS privacy information"
-          icon="information-outline"
-          onPress={() => setDisclosureVisible(true)}
-        />
+        <ActionRow compact wrap={false}>
+          <AppIconButton
+            accessibilityHint="Explains SMS privacy boundaries"
+            accessibilityLabel="Android SMS privacy information"
+            compact
+            icon="information-outline"
+            onPress={() => setDisclosureVisible(true)}
+          />
+          <AppIconButton
+            accessibilityHint="Opens SMS source controls"
+            accessibilityLabel="Android SMS settings"
+            compact
+            disabled={!available || controller.busy}
+            icon="cog-outline"
+            onPress={() => setSettingsVisible(true)}
+          />
+        </ActionRow>
       }
     >
-      <SourceStatusLabel status={smsStatus(capabilities)} />
+      <ActionRow compact wrap={false}>
+        <SourceStatusLabel status={smsStatus(capabilities)} />
+        {capabilities !== undefined && !available ? (
+          <ContextualNotice accessibilityLabel="Why SMS capture is unavailable" tone="warning">
+            NOT IN THIS BUILD. Install the reviewed sideload APK to test SMS capture.
+          </ContextualNotice>
+        ) : null}
+      </ActionRow>
       {controller.error === undefined ? null : (
         <StatusMessage tone="error">{controller.error}</StatusMessage>
       )}
@@ -76,11 +87,6 @@ export default function SmsSourceScreen() {
           {controller.message}
         </StatusMessage>
       )}
-      {capabilities !== undefined && !available ? (
-        <StatusMessage tone="warning">
-          NOT IN THIS BUILD. Install the reviewed sideload APK to test SMS capture.
-        </StatusMessage>
-      ) : null}
       <EditorialSurface
         icon="account-multiple-outline"
         meta={`${selectedCount.toString()} SELECTED`}
