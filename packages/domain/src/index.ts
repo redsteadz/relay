@@ -1,85 +1,14 @@
-import type { FilterExpression, FilterPlan, IngressEnvelope } from "@relay/contracts";
+import type { IngressEnvelope } from "@relay/contracts";
 
 export * from "./facts.js";
 export * from "./filter-compiler.js";
+export * from "./filter-evaluator.js";
 
-export type FilterDecision = "match" | "no-match" | "undecided";
-
+// Shared by contentFingerprint and normalizeCategoryName. The filter evaluator keeps its own copy
+// so the two can be versioned independently: this one feeds persisted fingerprints and category
+// uniqueness, and changing it would invalidate stored values.
 function normalizeText(value: string): string {
-  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
-}
-
-function readField(item: Record<string, unknown>, path: string): unknown {
-  return path.split(".").reduce<unknown>((current, segment) => {
-    if (typeof current !== "object" || current === null || !(segment in current)) {
-      return undefined;
-    }
-
-    return (current as Record<string, unknown>)[segment];
-  }, item);
-}
-
-function evaluateExpression(expression: FilterExpression, item: Record<string, unknown>): boolean {
-  if ("never" in expression) {
-    return false;
-  }
-
-  if ("all" in expression) {
-    return expression.all.every((child) => evaluateExpression(child, item));
-  }
-
-  if ("any" in expression) {
-    return expression.any.some((child) => evaluateExpression(child, item));
-  }
-
-  if ("not" in expression) {
-    return !evaluateExpression(expression.not, item);
-  }
-
-  const actual = readField(item, expression.field);
-  if (expression.operator === "exists") {
-    return actual !== undefined && actual !== null && actual !== "";
-  }
-
-  if (typeof actual !== "string") {
-    return false;
-  }
-
-  const normalizedActual = normalizeText(actual);
-  if (expression.operator === "in") {
-    return (
-      Array.isArray(expression.value) &&
-      expression.value.some((value) => normalizeText(value) === normalizedActual)
-    );
-  }
-
-  if (typeof expression.value !== "string") {
-    return false;
-  }
-
-  const normalizedExpected = normalizeText(expression.value);
-  switch (expression.operator) {
-    case "equals":
-      return normalizedActual === normalizedExpected;
-    case "contains":
-      return normalizedActual.includes(normalizedExpected);
-    case "starts-with":
-      return normalizedActual.startsWith(normalizedExpected);
-    default:
-      return false;
-  }
-}
-
-export function evaluateFilter(plan: FilterPlan, item: Record<string, unknown>): FilterDecision {
-  if (plan.deterministic !== undefined && !evaluateExpression(plan.deterministic, item)) {
-    return "no-match";
-  }
-
-  if (plan.semantic !== undefined) {
-    return "undecided";
-  }
-
-  return "match";
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
 }
 
 export function sourceIdentity(item: IngressEnvelope): string {
