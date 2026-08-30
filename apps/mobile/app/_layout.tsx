@@ -1,13 +1,23 @@
 import "react-native-gesture-handler";
 
+import { Inter_400Regular } from "@expo-google-fonts/inter/400Regular";
+import { Inter_500Medium } from "@expo-google-fonts/inter/500Medium";
+import { Inter_700Bold } from "@expo-google-fonts/inter/700Bold";
+import { SpaceGrotesk_600SemiBold } from "@expo-google-fonts/space-grotesk/600SemiBold";
+import { SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk/700Bold";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import Constants from "expo-constants";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
-import { AppState, Platform, StyleSheet, View } from "react-native";
+import { AppState, Platform, StyleSheet } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { AppText, LoadingState } from "@/components/ui";
+import { FeedbackState, LoadingState } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import {
   canEnterApp,
@@ -17,6 +27,8 @@ import {
 import { syncDeviceCaptures } from "@/lib/device-capture-sync";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { RelayThemeProvider, useRelayTheme } from "@/theme";
+
+void SplashScreen.preventAutoHideAsync();
 
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
@@ -76,11 +88,11 @@ function AuthenticatedStack() {
       );
     }
     return (
-      <View style={styles.loading}>
-        <AppText style={styles.loadingError} tone="danger">
-          Could not prepare secure device capture. Restart Relay to retry.
-        </AppText>
-      </View>
+      <FeedbackState
+        detail="Restart Relay to retry the encrypted device boundary."
+        kind="error"
+        title="Could not prepare secure device capture"
+      />
     );
   }
 
@@ -92,6 +104,7 @@ function AuthenticatedStack() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Protected guard={appAccessAllowed}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />
         </Stack.Protected>
@@ -133,6 +146,14 @@ function ThemedRoot() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    ...MaterialCommunityIcons.font,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_700Bold,
+    SpaceGrotesk_600SemiBold,
+    SpaceGrotesk_700Bold,
+  });
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -142,21 +163,26 @@ export default function RootLayout() {
         },
       }),
   );
+
+  useEffect(() => {
+    if (fontsLoaded || fontError !== null) void SplashScreen.hideAsync();
+  }, [fontError, fontsLoaded]);
+
+  if (!fontsLoaded && fontError === null) return null;
+
   return (
-    <RelayThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <ThemedRoot />
-      </QueryClientProvider>
-    </RelayThemeProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <RelayThemeProvider>
+          <QueryClientProvider client={queryClient}>
+            <ThemedRoot />
+          </QueryClientProvider>
+        </RelayThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  loading: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  loadingError: { maxWidth: 320, textAlign: "center" },
+  root: { flex: 1 },
 });
