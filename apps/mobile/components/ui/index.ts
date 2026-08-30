@@ -7,6 +7,8 @@ export { AppSwitch } from "./AppSwitch";
 export { AppText } from "./AppText";
 export { AppTextInput } from "./AppTextInput";
 export { ConfirmationDialog } from "./ConfirmationDialog";
+export { ContextualNotice } from "./ContextualNotice";
+export type { ContextualNoticeTone } from "./ContextualNotice";
 export { EditorialSurface } from "./EditorialSurface";
 export type { EditorialSurfaceVariant } from "./EditorialSurface";
 export { EmptyState, FeedbackState, LoadingState } from "./FeedbackState";

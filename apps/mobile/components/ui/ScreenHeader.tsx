@@ -57,17 +57,25 @@ export function ScreenHeader({
           { flexDirection: layout.headerDirection, gap: theme.relay.spacing.lg },
         ]}
       >
-        <View style={[styles.copy, { gap: theme.relay.spacing.sm }]}>
+        <View
+          style={[
+            styles.copy,
+            layout.headerDirection === "column" ? styles.narrowCopy : styles.wideCopy,
+            { gap: theme.relay.spacing.sm },
+          ]}
+        >
           {eyebrow === undefined ? null : (
             <AppText tone="accent" variant="eyebrow">
               {eyebrow.toUpperCase()}
             </AppText>
           )}
-          <View style={[styles.titleRow, { gap: theme.relay.spacing.sm }]}>
+          <View style={[styles.titleRow, { gap: theme.relay.spacing.xxs }]}>
             <AppText accessibilityRole="header" style={styles.title} variant="hero">
               {title}
             </AppText>
-            {titleAccessory}
+            {titleAccessory === undefined ? null : (
+              <View style={{ marginLeft: -theme.relay.spacing.xs }}>{titleAccessory}</View>
+            )}
           </View>
           <AppText style={{ maxWidth: theme.relay.sizes.readingWidth }} tone="muted">
             {detail}
@@ -80,8 +88,15 @@ export function ScreenHeader({
 }
 
 const styles = StyleSheet.create({
-  copy: { flexShrink: 1 },
+  copy: { flexShrink: 1, minWidth: 0 },
   header: { alignItems: "flex-start", justifyContent: "space-between" },
-  title: { flexShrink: 1 },
-  titleRow: { alignItems: "center", flexDirection: "row", flexWrap: "wrap" },
+  narrowCopy: { width: "100%" },
+  title: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  titleRow: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    flexDirection: "row",
+    maxWidth: "100%",
+  },
+  wideCopy: { flex: 1 },
 });

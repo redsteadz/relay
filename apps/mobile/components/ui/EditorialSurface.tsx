@@ -1,4 +1,4 @@
-import type { PropsWithChildren } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Icon, Surface } from "react-native-paper";
 
@@ -12,6 +12,7 @@ type EditorialSurfaceProps = PropsWithChildren<{
   icon?: string | undefined;
   meta?: string | undefined;
   title: string;
+  titleAccessory?: ReactNode;
   variant?: EditorialSurfaceVariant;
 }>;
 
@@ -20,6 +21,7 @@ export function EditorialSurface({
   icon,
   meta,
   title,
+  titleAccessory,
   variant = "plain",
 }: EditorialSurfaceProps) {
   const theme = useRelayTheme();
@@ -50,7 +52,7 @@ export function EditorialSurface({
       ]}
     >
       <View style={[styles.heading, { gap: theme.relay.spacing.sm }]}>
-        <View style={[styles.titleRow, { gap: theme.relay.spacing.sm }]}>
+        <View style={[styles.titleRow, { gap: theme.relay.spacing.xxs }]}>
           {icon === undefined ? null : (
             <Icon
               color={accent ? colors.onAccentSubtle : colors.accent}
@@ -61,6 +63,9 @@ export function EditorialSurface({
           <AppText style={[styles.title, { color: foreground }]} variant="title">
             {title}
           </AppText>
+          {titleAccessory === undefined ? null : (
+            <View style={{ marginLeft: -theme.relay.spacing.xs }}>{titleAccessory}</View>
+          )}
         </View>
         {meta === undefined ? null : (
           <AppText style={{ color: muted }} variant="caption">

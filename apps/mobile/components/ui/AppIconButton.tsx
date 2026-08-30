@@ -5,6 +5,7 @@ import { useRelayTheme } from "@/theme";
 type AppIconButtonProps = {
   accessibilityHint?: string | undefined;
   accessibilityLabel: string;
+  compact?: boolean;
   disabled?: boolean;
   icon: string;
   onPress: () => void;
@@ -14,6 +15,7 @@ type AppIconButtonProps = {
 export function AppIconButton({
   accessibilityHint,
   accessibilityLabel,
+  compact = false,
   disabled = false,
   icon,
   onPress,
@@ -21,6 +23,7 @@ export function AppIconButton({
 }: AppIconButtonProps) {
   const theme = useRelayTheme();
   const danger = variant === "danger";
+  const touchSize = compact ? theme.relay.sizes.compactTouchTarget : theme.relay.sizes.touchTarget;
   return (
     <IconButton
       {...(accessibilityHint === undefined ? {} : { accessibilityHint })}
@@ -28,15 +31,16 @@ export function AppIconButton({
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled }}
       disabled={disabled}
+      hitSlop={compact ? theme.relay.spacing.xs : undefined}
       icon={icon}
       iconColor={danger ? theme.relay.colors.danger : theme.relay.colors.action}
       mode={variant === "back" ? "outlined" : "contained-tonal"}
       onPress={onPress}
       size={theme.relay.sizes.icon.md}
       style={{
-        height: theme.relay.sizes.touchTarget,
+        height: touchSize,
         margin: 0,
-        width: theme.relay.sizes.touchTarget,
+        width: touchSize,
       }}
     />
   );
