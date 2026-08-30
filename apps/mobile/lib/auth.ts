@@ -10,6 +10,11 @@ type AutoRefreshAuth = {
   stopAutoRefresh: () => Promise<void>;
 };
 
+type DeletedAccountLocalCleanup = {
+  clearCaptureQueue?: (() => Promise<void>) | undefined;
+  clearSession?: (() => Promise<void>) | undefined;
+};
+
 export function createAutoRefreshController(auth: AutoRefreshAuth) {
   let operation = Promise.resolve();
   return {
@@ -101,5 +106,56 @@ export async function clearRelaySession(client: SupabaseClient): Promise<void> {
       operation: "signOut",
     });
     throw normalized;
+  }
+}
+
+export async function clearDeletedAccountLocalState({
+  clearCaptureQueue,
+  clearSession,
+}: DeletedAccountLocalCleanup): Promise<void> {
+  let cleanupFailed = false;
+  let cleanupCause: unknown;
+
+  if (clearCaptureQueue !== undefined) {
+    try {
+      await clearCaptureQueue();
+    } catch (error: unknown) {
+      logMobileError("auth.deleted_account_queue_cleanup_failed", error, {
+        code: "AUTH_LOCAL_QUEUE_CLEANUP_FAILED",
+        integration: "relay-device-ingress",
+        operation: "clearCaptureQueue",
+      });
+      cleanupFailed = true;
+      cleanupCause = error;
+    }
+  }
+
+  if (clearSession === undefined) {
+    cleanupFailed = true;
+    cleanupCause ??= new AppError("Auth configuration is unavailable", {
+      category: "configuration",
+      code: "AUTH_CONFIGURATION_FAILED",
+      integration: "supabase-auth",
+      operation: "createRelaySupabaseClient",
+      retryable: false,
+    });
+  } else {
+    try {
+      await clearSession();
+    } catch (error: unknown) {
+      // clearRelaySession logs the underlying Supabase failure once.
+      cleanupFailed = true;
+      cleanupCause ??= error;
+    }
+  }
+
+  if (cleanupFailed) {
+    throw new AppError("Deleted account local cleanup was incomplete", {
+      category: "internal",
+      cause: cleanupCause,
+      code: "AUTH_DELETED_ACCOUNT_CLEANUP_FAILED",
+      operation: "clearDeletedAccountSession",
+      retryable: false,
+    });
   }
 }

@@ -20,7 +20,10 @@ export function useTransactionalSelection(savedValues: readonly string[]) {
     add: (value: string) => dispatch({ type: "add", value }),
     cancel: () => dispatch({ type: "cancel" }),
     changed: selectionChanged(state),
-    confirm: () => dispatch({ type: "confirm" }),
+    confirm: (values?: readonly string[]) =>
+      dispatch(
+        values === undefined ? { type: "confirm" } : { type: "confirm", values: [...values] },
+      ),
     draft: state.draft,
     remove: (value: string) => dispatch({ type: "remove", value }),
     toggle: (value: string) => dispatch({ type: "toggle", value }),

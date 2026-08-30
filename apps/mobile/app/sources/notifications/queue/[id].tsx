@@ -73,7 +73,7 @@ export default function NotificationQueueItemScreen() {
             { label: "Captured at", value: item.capturedAt },
             { label: "Processing state", value: "Pending" },
             { label: "Attempts", value: item.attempts.toString() },
-            { label: "Relay action ID", value: item.envelopeId },
+            { label: "Capture envelope ID", value: item.envelopeId },
           ]}
         />
       )}

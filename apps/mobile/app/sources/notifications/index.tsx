@@ -168,7 +168,7 @@ export default function NotificationSourceScreen() {
           {
             key: "android-settings",
             label: "Open Android access settings",
-            onPress: () => afterSettings(controller.openSystemSettings),
+            onPress: () => afterSettings(() => void controller.openSystemSettings()),
           },
         ]}
         detail="Pause capture immediately or manage Relay's notification-listener access in Android settings."

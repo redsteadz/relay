@@ -30,7 +30,11 @@ import { logMobileError, runInBackground } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { RelayThemeProvider, useRelayTheme } from "@/theme";
 
-void SplashScreen.preventAutoHideAsync();
+runInBackground(SplashScreen.preventAutoHideAsync(), "ui.splash_prevent_auto_hide_failed", {
+  code: "SPLASH_PREVENT_AUTO_HIDE_FAILED",
+  integration: "expo-splash-screen",
+  operation: "preventAutoHideAsync",
+});
 
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
@@ -177,7 +181,13 @@ export default function RootLayout() {
   );
 
   useEffect(() => {
-    if (fontsLoaded || fontError !== null) void SplashScreen.hideAsync();
+    if (fontsLoaded || fontError !== null) {
+      runInBackground(SplashScreen.hideAsync(), "ui.splash_hide_failed", {
+        code: "SPLASH_HIDE_FAILED",
+        integration: "expo-splash-screen",
+        operation: "hideAsync",
+      });
+    }
   }, [fontError, fontsLoaded]);
 
   if (!fontsLoaded && fontError === null) return null;
