@@ -32,3 +32,29 @@ export function isValidSmsSenderAllowlist(senders: string[]): boolean {
     )
   );
 }
+
+type EnableSmsCaptureDependencies = {
+  configure: (paused: boolean) => Promise<void>;
+  permissionGranted: boolean;
+  requestPermissions: () => Promise<boolean>;
+  syncInbox: () => Promise<number>;
+};
+
+export type EnableSmsCaptureResult =
+  { captured: number; granted: true } | { captured: 0; granted: false };
+
+/** Keeps provider reads paused until both Android SMS permissions have been granted. */
+export async function enableSmsCapture({
+  configure,
+  permissionGranted,
+  requestPermissions,
+  syncInbox,
+}: EnableSmsCaptureDependencies): Promise<EnableSmsCaptureResult> {
+  if (!permissionGranted) {
+    await configure(true);
+    if (!(await requestPermissions())) return { captured: 0, granted: false };
+  }
+
+  await configure(false);
+  return { captured: await syncInbox(), granted: true };
+}

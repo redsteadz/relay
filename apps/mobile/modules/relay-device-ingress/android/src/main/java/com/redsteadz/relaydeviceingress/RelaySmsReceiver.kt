@@ -11,8 +11,18 @@ import android.provider.Telephony
 class RelaySmsReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-    if (!SmsPermissions.areDeclared(context) || !SmsPermissions.areGranted(context)) return
-    val configuration = SmsCaptureSettings(context).read() ?: return
+    SmsDebugDiagnostics.event("receiver invoked")
+    val permissionsDeclared = SmsPermissions.areDeclared(context)
+    val permissionsGranted = SmsPermissions.areGranted(context)
+    SmsDebugDiagnostics.event(
+      "permissions declared=$permissionsDeclared runtimeGranted=$permissionsGranted"
+    )
+    if (!permissionsDeclared || !permissionsGranted) return
+
+    val configuration = SmsCaptureSettings(context).read()
+    SmsDebugDiagnostics.event("configuration found=${configuration != null}")
+    if (configuration == null) return
+    SmsDebugDiagnostics.event("capture paused=${configuration.paused}")
     if (configuration.paused) return
 
     val scheduler = context.getSystemService(JobScheduler::class.java)
@@ -23,7 +33,16 @@ class RelaySmsReceiver : BroadcastReceiver() {
       .setMinimumLatency(1_000)
       .setOverrideDeadline(15_000)
       .build()
-    scheduler.schedule(job)
+    val result = try {
+      scheduler.schedule(job)
+    } catch (error: RuntimeException) {
+      SmsDebugDiagnostics.failure("job scheduling threw an exception", error)
+      JobScheduler.RESULT_FAILURE
+    }
+    SmsDebugDiagnostics.event("job scheduling result=$result")
+    if (result != JobScheduler.RESULT_SUCCESS) {
+      SmsDebugDiagnostics.failure("job scheduling failed result=$result")
+    }
   }
 
   private companion object {

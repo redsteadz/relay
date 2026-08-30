@@ -2,7 +2,6 @@ package com.redsteadz.relaydeviceingress
 
 import java.nio.charset.StandardCharsets
 import java.time.Instant
-import java.util.Locale
 import java.util.UUID
 import org.json.JSONObject
 
@@ -12,20 +11,6 @@ internal data class SmsProviderMessage(
   val body: String,
   val occurredAt: Long
 )
-
-internal object SmsSender {
-  private val phoneLike = Regex("^\\+?[0-9\\s().-]+$")
-  private val phoneSeparators = Regex("[\\s().-]")
-
-  fun normalize(sender: String): String {
-    val trimmed = sender.trim()
-    return if (phoneLike.matches(trimmed)) {
-      trimmed.replace(phoneSeparators, "")
-    } else {
-      trimmed.lowercase(Locale.ROOT)
-    }
-  }
-}
 
 internal object SmsEnvelopeFactory {
   private const val MAX_BODY_LENGTH = 32_768

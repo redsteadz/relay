@@ -7,7 +7,7 @@ import {
   notificationCaptureTenantId,
 } from "./development-access";
 
-describe("development-only local access", () => {
+describe("debug-only local access", () => {
   it("enters the app and assigns a stable synthetic Android capture tenant in development", () => {
     const localAccess = localDevelopmentAccessEnabled(true, "development");
     expect(canEnterApp(false, localAccess)).toBe(true);
@@ -22,8 +22,16 @@ describe("development-only local access", () => {
     expect(notificationCaptureTenantId(undefined, localAccess, "android")).toBeUndefined();
   });
 
-  it("does not bypass authentication in sideload debug builds", () => {
+  it("uses the same local diagnostic tenant in sideload debug builds", () => {
     const localAccess = localDevelopmentAccessEnabled(true, "sideload");
+    expect(canEnterApp(false, localAccess)).toBe(true);
+    expect(notificationCaptureTenantId(undefined, localAccess, "android")).toBe(
+      "relay-synthetic-local-development-notification-capture",
+    );
+  });
+
+  it("does not bypass authentication in sideload release builds", () => {
+    const localAccess = localDevelopmentAccessEnabled(false, "sideload");
     expect(canEnterApp(false, localAccess)).toBe(false);
     expect(notificationCaptureTenantId(undefined, localAccess, "android")).toBeUndefined();
   });

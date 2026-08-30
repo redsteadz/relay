@@ -1,8 +1,12 @@
 package com.redsteadz.relaydeviceingress
 
 import android.content.Intent
+import android.net.Uri
+import android.provider.ContactsContract
 import android.provider.Settings
 import android.view.WindowManager
+import expo.modules.kotlin.activityresult.AppContextActivityResultLauncher
+import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -32,6 +36,24 @@ private fun notificationCapturePreview(row: Map<String, Any>): Map<String, Any>?
   }
 }
 
+private fun smsCapturePreview(row: Map<String, Any>): Map<String, Any>? {
+  val envelopeJson = row["envelopeJson"] as? String ?: return null
+
+  return try {
+    val envelope = JSONObject(envelopeJson)
+    val source = envelope.optJSONObject("source") ?: return null
+    if (source.stringValue("kind") != "sms") return null
+    val capturedAt = envelope.stringValue("capturedAt") ?: return null
+    val preview = mutableMapOf<String, Any>("capturedAt" to capturedAt)
+
+    envelope.stringValue("sender")?.let { preview["sender"] = it }
+    envelope.stringValue("body")?.let { preview["body"] = it }
+    preview
+  } catch (_: JSONException) {
+    null
+  }
+}
+
 private fun requirePreparedCaptureTenant(tenantId: String, generation: Double) {
   check(
     NotificationCaptureStateLock.preparedTenantId == tenantId &&
@@ -40,7 +62,9 @@ private fun requirePreparedCaptureTenant(tenantId: String, generation: Double) {
 }
 
 class RelayDeviceIngressModule : Module() {
-  private fun setNotificationCapturePreviewSecure(enabled: Boolean) {
+  private lateinit var phoneNumberPicker: AppContextActivityResultLauncher<String, String?>
+
+  private fun setCapturePreviewSecure(enabled: Boolean) {
     val activity = appContext.currentActivity
     require(activity != null || !enabled) { "activity_unavailable" }
     val window = activity?.window ?: return
@@ -56,6 +80,10 @@ class RelayDeviceIngressModule : Module() {
 
     val queue by lazy {
       CaptureQueueStore(requireNotNull(appContext.reactContext).applicationContext)
+    }
+
+    RegisterActivityContracts {
+      phoneNumberPicker = registerForActivityResult(PickPhoneNumberContract())
     }
 
     AsyncFunction("getCapabilities") {
@@ -202,12 +230,62 @@ class RelayDeviceIngressModule : Module() {
       tenantId: String, now: Double, generation: Double ->
       synchronized(NotificationCaptureStateLock) {
         requirePreparedCaptureTenant(tenantId, generation)
-        queue.ready(tenantId, now.toLong(), false).mapNotNull(::notificationCapturePreview)
+        queue.readyBySource(tenantId, now.toLong(), "notification")
+          .mapNotNull(::notificationCapturePreview)
       }
     }
 
-    AsyncFunction("setNotificationCapturePreviewSecure") { enabled: Boolean ->
-      setNotificationCapturePreviewSecure(enabled)
+    AsyncFunction("pickSmsSender") Coroutine { ->
+      val selectedUri = phoneNumberPicker.launch("sms-sender") ?: return@Coroutine null
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      context.contentResolver.query(
+        Uri.parse(selectedUri),
+        arrayOf(
+          ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,
+          ContactsContract.CommonDataKinds.Phone.NUMBER,
+          ContactsContract.CommonDataKinds.Phone.NORMALIZED_NUMBER
+        ),
+        null,
+        null,
+        null
+      )?.use { cursor ->
+        if (!cursor.moveToFirst()) return@Coroutine null
+        val numberColumn = cursor.getColumnIndexOrThrow(
+          ContactsContract.CommonDataKinds.Phone.NUMBER
+        )
+        val labelColumn = cursor.getColumnIndex(
+          ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY
+        )
+        val normalizedNumberColumn = cursor.getColumnIndex(
+          ContactsContract.CommonDataKinds.Phone.NORMALIZED_NUMBER
+        )
+        val normalizedNumber = if (normalizedNumberColumn >= 0) {
+          cursor.getString(normalizedNumberColumn).orEmpty()
+        } else {
+          ""
+        }
+        val selectedNumber = normalizedNumber.ifBlank {
+          cursor.getString(numberColumn).orEmpty()
+        }
+        val sender = SmsSender.normalize(selectedNumber, SmsCountryIso.resolve(context))
+        if (sender.isBlank()) null else mapOf(
+          "label" to if (labelColumn >= 0) cursor.getString(labelColumn).orEmpty().ifBlank { sender }
+            else sender,
+          "sender" to sender
+        )
+      }
+    }
+
+    AsyncFunction("getSmsCapturePreviews") {
+      tenantId: String, now: Double, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.readyBySource(tenantId, now.toLong(), "sms").mapNotNull(::smsCapturePreview)
+      }
+    }
+
+    AsyncFunction("setCapturePreviewSecure") { enabled: Boolean ->
+      setCapturePreviewSecure(enabled)
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("acknowledgeCapture") {
@@ -241,7 +319,7 @@ class RelayDeviceIngressModule : Module() {
 
     OnDestroy {
       appContext.currentActivity?.runOnUiThread {
-        setNotificationCapturePreviewSecure(false)
+        setCapturePreviewSecure(false)
       }
     }
   }

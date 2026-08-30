@@ -1,5 +1,5 @@
-import { StyleSheet, View } from "react-native";
-import { Checkbox, TouchableRipple } from "react-native-paper";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Checkbox } from "react-native-paper";
 
 import { useRelayTheme } from "@/theme";
 
@@ -15,16 +15,16 @@ export function AppCheckbox({ checked, label, onChange }: AppCheckboxProps) {
   const theme = useRelayTheme();
 
   return (
-    <TouchableRipple
+    <Pressable
       accessibilityLabel={label}
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
-      borderless={false}
       onPress={() => onChange(!checked)}
-      style={{
+      style={({ pressed }) => ({
         borderRadius: theme.relay.radii.sm,
         minHeight: theme.relay.interaction.minimumTarget,
-      }}
+        opacity: pressed ? theme.relay.interaction.pressedOpacity : 1,
+      })}
     >
       <View style={[styles.row, { gap: theme.relay.spacing.sm }]}>
         <View importantForAccessibility="no-hide-descendants" pointerEvents="none">
@@ -34,7 +34,7 @@ export function AppCheckbox({ checked, label, onChange }: AppCheckboxProps) {
           {label}
         </AppText>
       </View>
-    </TouchableRipple>
+    </Pressable>
   );
 }
 

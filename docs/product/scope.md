@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: product
-last_verified: 2026-08-28
+last_verified: 2026-08-29
 ---
 
 # MVP Scope
@@ -12,7 +12,8 @@ last_verified: 2026-08-28
 - Gmail testing-user ingestion through OAuth, History API, and Google Cloud Pub/Sub.
 - Android notification capture and explicit rule-controlled dismissal.
 - Android inbox SMS capture for explicitly consented sideload testing, limited by exact sender
-  allowlists and independently pausable/deletable device queues.
+  allowlists and independently pausable/deletable device queues. Debug sideloads may preview their
+  encrypted local SMS queue without authentication or upload.
 - Supabase magic-link identity and tenant-isolated records.
 - Dedupe, categories, facts, tasks, reminders, and calendar-like events.
 - Natural-language filters compiled to typed predicates with explicit semantic fallback.

@@ -13,8 +13,8 @@ const buildConstants = JSON.parse(
 );
 const { app, buildVariants, sms } = buildConstants;
 
-function expoConfig(buildVariant) {
-  const result = spawnSync(process.execPath, [expoCli, "config", "--type", "public", "--json"], {
+function expoConfig(buildVariant, type = "public") {
+  const result = spawnSync(process.execPath, [expoCli, "config", "--type", type, "--json"], {
     cwd: appRoot,
     encoding: "utf8",
     env: { ...process.env, RELAY_BUILD_VARIANT: buildVariant },
@@ -28,6 +28,8 @@ function expoConfig(buildVariant) {
 
 const development = expoConfig(buildVariants.development);
 const sideload = expoConfig(buildVariants.sideload);
+const sideloadManifest = expoConfig(buildVariants.sideload, "introspect")._internal.modResults
+  .android.manifest.manifest;
 const eas = JSON.parse(readFileSync(resolve(appRoot, "eas.json"), "utf8"));
 const packageJson = JSON.parse(readFileSync(resolve(appRoot, "package.json"), "utf8"));
 const gitignore = readFileSync(resolve(repositoryRoot, ".gitignore"), "utf8");
@@ -49,6 +51,40 @@ assert.deepEqual(sideload.android.permissions, sms.permissions);
 assert.equal(sideload.android.blockedPermissions, undefined);
 assert.equal(sideload.extra.relayBuildVariant, buildVariants.sideload);
 assert.equal(sideload.extra.eas.projectId, app.projectId);
+
+function permissionNames(manifest) {
+  return new Set((manifest["uses-permission"] ?? []).map((entry) => entry.$["android:name"]));
+}
+
+function mainApplication(manifest) {
+  assert.equal(manifest.application.length, 1);
+  return manifest.application[0];
+}
+
+function component(application, kind, className) {
+  return (application[kind] ?? []).find((entry) => entry.$["android:name"] === className);
+}
+
+const sideloadPermissions = permissionNames(sideloadManifest);
+const sideloadApplication = mainApplication(sideloadManifest);
+for (const permission of sms.permissions) {
+  assert.equal(sideloadPermissions.has(permission), true);
+}
+assert.equal(sideloadPermissions.has("android.permission.READ_CONTACTS"), false);
+
+const smsReceiver = component(sideloadApplication, "receiver", sms.receiverClass);
+assert.notEqual(smsReceiver, undefined);
+assert.equal(smsReceiver.$["android:enabled"], "true");
+assert.equal(smsReceiver.$["android:exported"], "true");
+assert.equal(smsReceiver.$["android:permission"], sms.broadcastPermission);
+assert.deepEqual(smsReceiver["intent-filter"], [
+  { action: [{ $: { "android:name": sms.receivedAction } }] },
+]);
+
+const smsSyncService = component(sideloadApplication, "service", sms.syncServiceClass);
+assert.notEqual(smsSyncService, undefined);
+assert.equal(smsSyncService.$["android:exported"], "false");
+assert.equal(smsSyncService.$["android:permission"], sms.jobServicePermission);
 
 assert.deepEqual(eas, {
   cli: {

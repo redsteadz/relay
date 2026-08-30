@@ -6,6 +6,7 @@ export default tseslint.config(
     ignores: [
       "**/.expo/**",
       "**/.next/**",
+      "**/android/build/**",
       "**/coverage/**",
       "**/dist/**",
       "**/graphify-out/**",

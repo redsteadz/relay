@@ -11,11 +11,15 @@ internal data class SmsCaptureConfiguration(
   val allowedSenders: Set<String>,
   val paused: Boolean,
   val lastProviderId: Long,
-  val sourceAccountId: String
+  val sourceAccountId: String,
+  val countryIso: String
 )
 
 internal object SmsPermissions {
-  private val required = arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)
+  internal val required = setOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)
+
+  internal fun areAllDeclared(requestedPermissions: Set<String>): Boolean =
+    required.all(requestedPermissions::contains)
 
   fun areDeclared(context: Context): Boolean {
     @Suppress("DEPRECATION")
@@ -23,7 +27,7 @@ internal object SmsPermissions {
       context.packageName,
       PackageManager.GET_PERMISSIONS
     ).requestedPermissions.orEmpty().toSet()
-    return required.all(requested::contains)
+    return areAllDeclared(requested)
   }
 
   fun areGranted(context: Context): Boolean = required.all {
@@ -44,31 +48,49 @@ internal class SmsCaptureSettings(context: Context) {
 
   fun read(): SmsCaptureConfiguration? {
     val tenantId = preferences.getString("tenant_id", null) ?: return null
+    val countryIso = preferences.getString("country_iso", null)
+      ?: SmsCountryIso.resolve(applicationContext)
     return SmsCaptureConfiguration(
       tenantId = tenantId,
-      allowedSenders = preferences.getStringSet("allowed_senders", emptySet()).orEmpty(),
+      allowedSenders = preferences.getStringSet("allowed_senders", emptySet()).orEmpty()
+        .map { SmsSender.normalize(it, countryIso) }
+        .filter(String::isNotBlank)
+        .toSet(),
       paused = preferences.getBoolean("paused", true),
       lastProviderId = preferences.getLong("last_provider_id", 0),
-      sourceAccountId = sourceAccountId()
+      sourceAccountId = sourceAccountId(),
+      countryIso = countryIso
     )
   }
 
   fun write(tenantId: String, allowedSenders: Set<String>, paused: Boolean) {
     require(tenantId.isNotBlank()) { "tenant_required" }
     require(allowedSenders.isNotEmpty()) { "sms_sender_required" }
-    val normalized = allowedSenders.map(SmsSender::normalize).filter(String::isNotBlank).toSet()
+    val countryIso = SmsCountryIso.resolve(applicationContext)
+    val normalized = allowedSenders
+      .map { SmsSender.normalize(it, countryIso) }
+      .filter(String::isNotBlank)
+      .toSet()
     require(normalized.isNotEmpty()) { "sms_sender_required" }
     val currentTenant = preferences.getString("tenant_id", null)
-    val lastProviderId = if (currentTenant == tenantId) {
-      preferences.getLong("last_provider_id", 0)
-    } else {
-      0
-    }
+    val storedCountryIso = preferences.getString("country_iso", null) ?: countryIso
+    val currentAllowedSenders = preferences.getStringSet("allowed_senders", emptySet()).orEmpty()
+      .map { SmsSender.normalize(it, storedCountryIso) }
+      .filter(String::isNotBlank)
+      .toSet()
+    val lastProviderId = SmsInboxCursor.afterAllowlistUpdate(
+      currentTenantId = currentTenant,
+      currentAllowedSenders = currentAllowedSenders,
+      nextTenantId = tenantId,
+      nextAllowedSenders = normalized,
+      lastProviderId = preferences.getLong("last_provider_id", 0)
+    )
     preferences.edit()
       .putString("tenant_id", tenantId)
       .putStringSet("allowed_senders", normalized)
       .putBoolean("paused", paused)
       .putLong("last_provider_id", lastProviderId)
+      .putString("country_iso", countryIso)
       .commit()
   }
 

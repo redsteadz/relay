@@ -77,15 +77,37 @@ internal class CaptureQueueStore(context: Context) :
 
   fun ready(tenantId: String, now: Long, includeSms: Boolean): List<Map<String, Any>> {
     expire(writableDatabase, now)
-    val result = mutableListOf<Map<String, Any>>()
     val selection = if (includeSms) {
       "tenant_id=? AND state='pending' AND expires_at>?"
     } else {
       "tenant_id=? AND state='pending' AND expires_at>? AND source_kind!='sms'"
     }
+    return readyRows(tenantId, selection, arrayOf(tenantId, now.toString()))
+  }
+
+  fun readyBySource(
+    tenantId: String,
+    now: Long,
+    sourceKind: String
+  ): List<Map<String, Any>> {
+    require(sourceKind == "notification" || sourceKind == "sms") { "capture_source_invalid" }
+    expire(writableDatabase, now)
+    return readyRows(
+      tenantId,
+      "tenant_id=? AND state='pending' AND expires_at>? AND source_kind=?",
+      arrayOf(tenantId, now.toString(), sourceKind)
+    )
+  }
+
+  private fun readyRows(
+    tenantId: String,
+    selection: String,
+    selectionArgs: Array<String>
+  ): List<Map<String, Any>> {
+    val result = mutableListOf<Map<String, Any>>()
     writableDatabase.query(
       "capture_queue", arrayOf("envelope_id", "attempts", "nonce", "ciphertext"),
-      selection, arrayOf(tenantId, now.toString()),
+      selection, selectionArgs,
       null, null, "captured_at ASC", "50"
     ).use { cursor ->
       while (cursor.moveToNext()) {
