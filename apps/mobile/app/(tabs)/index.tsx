@@ -2,10 +2,10 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import { useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { Chip } from "react-native-paper";
 
-import { Page } from "@/components/Page";
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText } from "@/components/ui";
+import { AppScreen } from "@/components/AppScreen";
+import { AppButton, AppText, EditorialSurface } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import {
   localDevelopmentAccessEnabled,
@@ -60,12 +60,12 @@ export default function InboxScreen() {
   }
 
   return (
-    <Page
+    <AppScreen
       eyebrow="Signal over noise"
       title="Inbox"
       detail="Important facts remain visible. Everything else stays searchable without demanding attention."
       action={
-        <View style={styles.score}>
+        <View style={[styles.score, { paddingTop: theme.relay.spacing.xs }]}>
           <AppText tone="accent" variant="hero">
             3
           </AppText>
@@ -75,52 +75,43 @@ export default function InboxScreen() {
         </View>
       }
     >
-      <Panel title="Card purchase approved" meta="NOW · TRANSACTION">
+      <EditorialSurface
+        icon="credit-card-check-outline"
+        title="Card purchase approved"
+        meta="Now · Transaction"
+        variant="accent"
+      >
         <AppText variant="heading">$14.20 at North Station</AppText>
         <AppText tone="muted">
           Possible transit expense · awaiting Google Tasks action approval
         </AppText>
-        <View style={styles.tags}>
+        <View style={[styles.tags, { gap: theme.relay.spacing.sm }]}>
           {["Example Bank", "92% confidence"].map((tag) => (
-            <AppText
-              key={tag}
-              style={[
-                styles.tag,
-                {
-                  backgroundColor: theme.relay.colors.surfaceRaised,
-                  borderRadius: theme.relay.radii.pill,
-                  paddingHorizontal: theme.relay.spacing.md,
-                  paddingVertical: theme.relay.spacing.sm,
-                },
-              ]}
-              tone="accent"
-              variant="caption"
-            >
+            <Chip compact key={tag} textStyle={theme.relay.typography.caption}>
               {tag}
-            </AppText>
+            </Chip>
           ))}
         </View>
-      </Panel>
+      </EditorialSurface>
 
-      <Panel title="Local walking skeleton" meta="DEVELOPMENT">
+      <EditorialSurface icon="flask-outline" title="Local walking skeleton" meta="Development">
         <AppText tone="muted">{status}</AppText>
         <AppButton
           label="Send simulated notification"
           loading={sending}
           onPress={() => void simulate()}
         />
-      </Panel>
+      </EditorialSurface>
 
       <AppText style={styles.quiet} tone="muted" variant="caption">
         18 low-value notifications filed quietly today
       </AppText>
-    </Page>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
   quiet: { textAlign: "center" },
-  score: { alignItems: "flex-end", paddingTop: 5 },
-  tag: { overflow: "hidden" },
-  tags: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  score: { alignItems: "flex-end" },
+  tags: { flexDirection: "row", flexWrap: "wrap" },
 });
