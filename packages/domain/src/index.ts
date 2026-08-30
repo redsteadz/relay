@@ -1,6 +1,7 @@
 import type { FilterExpression, FilterPlan, IngressEnvelope } from "@relay/contracts";
 
 export * from "./facts.js";
+export * from "./filter-compiler.js";
 
 export type FilterDecision = "match" | "no-match" | "undecided";
 
@@ -19,6 +20,10 @@ function readField(item: Record<string, unknown>, path: string): unknown {
 }
 
 function evaluateExpression(expression: FilterExpression, item: Record<string, unknown>): boolean {
+  if ("never" in expression) {
+    return false;
+  }
+
   if ("all" in expression) {
     return expression.all.every((child) => evaluateExpression(child, item));
   }

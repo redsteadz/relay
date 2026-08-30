@@ -10,6 +10,7 @@ on:
       - "packages/contracts/**"
       - "packages/crypto/**"
       - "scripts/local-e2e.mjs"
+      - "scripts/test-gmail-migration-upgrade.mjs"
       - "supabase/**"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -22,6 +23,7 @@ on:
       - "packages/contracts/**"
       - "packages/crypto/**"
       - "scripts/local-e2e.mjs"
+      - "scripts/test-gmail-migration-upgrade.mjs"
       - "supabase/**"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -53,6 +55,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec supabase start
+      - run: pnpm supabase:gmail-upgrade:test
       - run: pnpm exec supabase test db
       - run: pnpm supabase:types:check
       - if: github.event_name == 'workflow_dispatch'

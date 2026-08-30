@@ -17,6 +17,12 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  if (parsed.data.envelope.source.kind === "gmail") {
+    return Response.json(
+      { error: { code: "invalid_ingress", message: "Payload does not match ingress contract" } },
+      { status: 400 },
+    );
+  }
 
   if (auth.accessToken !== undefined) {
     try {

@@ -510,6 +510,7 @@ export type Database = {
       filter_rules: {
         Row: {
           approval_mode: string;
+          compiler_version: number;
           created_at: string;
           dismiss_source_notification: boolean;
           dismissal_dry_run_completed_at: string | null;
@@ -518,12 +519,16 @@ export type Database = {
           intent: string;
           name: string;
           plan: Json;
+          series_id: string;
+          supported_predicates: Json;
+          unsupported_clauses: Json;
           updated_at: string;
           user_id: string;
           version: number;
         };
         Insert: {
           approval_mode?: string;
+          compiler_version?: number;
           created_at?: string;
           dismiss_source_notification?: boolean;
           dismissal_dry_run_completed_at?: string | null;
@@ -532,12 +537,16 @@ export type Database = {
           intent: string;
           name: string;
           plan: Json;
+          series_id?: string;
+          supported_predicates?: Json;
+          unsupported_clauses?: Json;
           updated_at?: string;
           user_id: string;
           version?: number;
         };
         Update: {
           approval_mode?: string;
+          compiler_version?: number;
           created_at?: string;
           dismiss_source_notification?: boolean;
           dismissal_dry_run_completed_at?: string | null;
@@ -546,9 +555,155 @@ export type Database = {
           intent?: string;
           name?: string;
           plan?: Json;
+          series_id?: string;
+          supported_predicates?: Json;
+          unsupported_clauses?: Json;
           updated_at?: string;
           user_id?: string;
           version?: number;
+        };
+        Relationships: [];
+      };
+      gmail_connection_state: {
+        Row: {
+          connection_id: string;
+          created_at: string;
+          error_code: string | null;
+          history_cursor: string | null;
+          last_reconciled_at: string | null;
+          normalized_email: string;
+          reconciliation_due_at: string;
+          sync_status: string;
+          updated_at: string;
+          user_id: string;
+          watch_expiration: string | null;
+          watch_history_id: string | null;
+          watch_renewal_due_at: string;
+        };
+        Insert: {
+          connection_id: string;
+          created_at?: string;
+          error_code?: string | null;
+          history_cursor?: string | null;
+          last_reconciled_at?: string | null;
+          normalized_email: string;
+          reconciliation_due_at?: string;
+          sync_status?: string;
+          updated_at?: string;
+          user_id: string;
+          watch_expiration?: string | null;
+          watch_history_id?: string | null;
+          watch_renewal_due_at?: string;
+        };
+        Update: {
+          connection_id?: string;
+          created_at?: string;
+          error_code?: string | null;
+          history_cursor?: string | null;
+          last_reconciled_at?: string | null;
+          normalized_email?: string;
+          reconciliation_due_at?: string;
+          sync_status?: string;
+          updated_at?: string;
+          user_id?: string;
+          watch_expiration?: string | null;
+          watch_history_id?: string | null;
+          watch_renewal_due_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "gmail_connection_state_user_id_connection_id_fkey";
+            columns: ["user_id", "connection_id"];
+            isOneToOne: false;
+            referencedRelation: "connections";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      gmail_disconnect_receipts: {
+        Row: {
+          action_id: string;
+          completed_at: string;
+          connection_id: string;
+          detached_action_rule_count: number;
+          provider_already_revoked: boolean;
+          reason: string;
+          token_revoked: boolean;
+          user_id: string;
+          watch_stopped: boolean;
+        };
+        Insert: {
+          action_id: string;
+          completed_at?: string;
+          connection_id: string;
+          detached_action_rule_count: number;
+          provider_already_revoked: boolean;
+          reason: string;
+          token_revoked: boolean;
+          user_id: string;
+          watch_stopped: boolean;
+        };
+        Update: {
+          action_id?: string;
+          completed_at?: string;
+          connection_id?: string;
+          detached_action_rule_count?: number;
+          provider_already_revoked?: boolean;
+          reason?: string;
+          token_revoked?: boolean;
+          user_id?: string;
+          watch_stopped?: boolean;
+        };
+        Relationships: [];
+      };
+      gmail_disconnect_tombstones: {
+        Row: {
+          completed_at: string;
+          connection_id: string;
+          expires_at: string;
+          mailbox_digest: string;
+          user_id: string;
+        };
+        Insert: {
+          completed_at?: string;
+          connection_id: string;
+          expires_at: string;
+          mailbox_digest: string;
+          user_id: string;
+        };
+        Update: {
+          completed_at?: string;
+          connection_id?: string;
+          expires_at?: string;
+          mailbox_digest?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      gmail_terminal_message_receipts: {
+        Row: {
+          completed_at: string;
+          connection_id: string;
+          expires_at: string;
+          message_digest: string;
+          reason: string;
+          user_id: string;
+        };
+        Insert: {
+          completed_at?: string;
+          connection_id: string;
+          expires_at?: string;
+          message_digest: string;
+          reason: string;
+          user_id: string;
+        };
+        Update: {
+          completed_at?: string;
+          connection_id?: string;
+          expires_at?: string;
+          message_digest?: string;
+          reason?: string;
+          user_id?: string;
         };
         Relationships: [];
       };
@@ -764,6 +919,19 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      advance_gmail_history_cursor_v1: {
+        Args: {
+          p_connection_id: string;
+          p_expected_history_id: string;
+          p_new_history_id: string;
+          p_user_id: string;
+        };
+        Returns: boolean;
+      };
+      assert_gmail_mailbox_migration_ready_v1: {
+        Args: never;
+        Returns: undefined;
+      };
       authorize_device_ingress: {
         Args: { p_device_id: string };
         Returns: boolean;
@@ -838,6 +1006,58 @@ export type Database = {
         Args: { p_id: string; p_request_id: string; p_result: string };
         Returns: boolean;
       };
+      create_filter_rule_revision: {
+        Args: {
+          p_enabled?: boolean;
+          p_expected_version?: number;
+          p_intent: string;
+          p_name: string;
+          p_plan: Json;
+          p_series_id?: string;
+          p_supported_predicates: Json;
+          p_unsupported_clauses: Json;
+          p_user_id: string;
+        };
+        Returns: {
+          approval_mode: string;
+          compiler_version: number;
+          created_at: string;
+          dismiss_source_notification: boolean;
+          dismissal_dry_run_completed_at: string | null;
+          enabled: boolean;
+          id: string;
+          intent: string;
+          name: string;
+          plan: Json;
+          series_id: string;
+          supported_predicates: Json;
+          unsupported_clauses: Json;
+          updated_at: string;
+          user_id: string;
+          version: number;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "filter_rules";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      create_gmail_connection_v1: {
+        Args: {
+          p_credential_ciphertext: string;
+          p_credential_nonce: string;
+          p_encryption_environment: string;
+          p_id: string;
+          p_key_version: number;
+          p_normalized_email: string;
+          p_scopes: string[];
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: string;
+      };
       decide_action_run: {
         Args: { p_action_run_id: string; p_decision: string };
         Returns: {
@@ -865,6 +1085,23 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      disconnect_gmail_connection_v1: {
+        Args: {
+          p_action_id: string;
+          p_connection_id: string;
+          p_provider_already_revoked: boolean;
+          p_pubsub_retention_seconds: number;
+          p_reason: string;
+          p_token_revoked: boolean;
+          p_user_id: string;
+          p_watch_stopped: boolean;
+        };
+        Returns: boolean;
+      };
+      filter_plan_has_forbidden_keys: {
+        Args: { p_value: Json };
+        Returns: boolean;
+      };
       finalize_account_deletion: {
         Args: { p_user_id: string };
         Returns: {
@@ -882,6 +1119,10 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      gmail_connection_ownership_v1: {
+        Args: { p_connection_id: string; p_user_id: string };
+        Returns: string;
       };
       is_canonical_fact_instant: { Args: { p_value: string }; Returns: boolean };
       kek_encryption_inventory: {
@@ -909,6 +1150,28 @@ export type Database = {
           status: string;
         }[];
       };
+      list_due_gmail_connections_v1: {
+        Args: { p_limit?: number };
+        Returns: {
+          connection_id: string;
+          reconcile_history: boolean;
+          renew_watch: boolean;
+          user_id: string;
+        }[];
+      };
+      load_gmail_connection_v1: {
+        Args: { p_connection_id: string; p_user_id: string };
+        Returns: {
+          credential_ciphertext: string;
+          credential_nonce: string;
+          encryption_environment: string;
+          history_cursor: string;
+          key_version: number;
+          sync_status: string;
+          wrap_nonce: string;
+          wrapped_data_key: string;
+        }[];
+      };
       mark_account_connectors_revoked: {
         Args: { p_user_id: string };
         Returns: {
@@ -926,6 +1189,14 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      mark_gmail_resync_required_v1: {
+        Args: {
+          p_connection_id: string;
+          p_error_code: string;
+          p_user_id: string;
+        };
+        Returns: boolean;
       };
       own_raw_retention_status: {
         Args: never;
@@ -1000,6 +1271,30 @@ export type Database = {
         };
         Returns: string;
       };
+      persist_encrypted_source_item_v4: {
+        Args: {
+          p_accepted_at: string;
+          p_application_id: string;
+          p_captured_at: string;
+          p_connection_id: string;
+          p_content_fingerprint: string;
+          p_encryption_environment: string;
+          p_external_id: string;
+          p_fact_set_fingerprint: string;
+          p_id: string;
+          p_key_version: number;
+          p_occurred_at: string;
+          p_raw_ciphertext: string;
+          p_raw_expires_at: string;
+          p_raw_nonce: string;
+          p_source: Database["public"]["Enums"]["source_kind"];
+          p_source_account_id: string;
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: string;
+      };
       persist_source_facts: {
         Args: {
           p_fact_set_fingerprint: string;
@@ -1029,6 +1324,24 @@ export type Database = {
           p_user_id: string;
           p_wrap_nonce: string;
           p_wrapped_data_key: string;
+        };
+        Returns: boolean;
+      };
+      record_gmail_terminal_message_v1: {
+        Args: {
+          p_connection_id: string;
+          p_message_digest: string;
+          p_reason: string;
+          p_user_id: string;
+        };
+        Returns: boolean;
+      };
+      record_gmail_watch_v1: {
+        Args: {
+          p_connection_id: string;
+          p_expiration: string;
+          p_history_id: string;
+          p_user_id: string;
         };
         Returns: boolean;
       };
@@ -1091,6 +1404,14 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      resolve_gmail_connection_v1: {
+        Args: { p_normalized_email: string };
+        Returns: {
+          connection_id: string;
+          target_status: string;
+          user_id: string;
+        }[];
+      };
       revoke_device: {
         Args: { p_device_id: string };
         Returns: {
@@ -1109,6 +1430,15 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      revoke_openai_connection: { Args: { p_user_id: string }; Returns: Json };
+      set_gmail_history_baseline_v1: {
+        Args: {
+          p_connection_id: string;
+          p_history_id: string;
+          p_user_id: string;
+        };
+        Returns: boolean;
       };
     };
     Enums: {

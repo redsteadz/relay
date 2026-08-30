@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(28);
+select plan(31);
 
 -- Two tenants. Tenant one carries raw payloads plus derived rows that must survive a purge; tenant
 -- two exists so every tenant-scoped claim is checked against a second user rather than assumed.
@@ -48,11 +48,16 @@ insert into public.relay_events (
     '71100000-0000-4000-8000-000000000001', 'task', 'synthetic two', 'synthetic', 0.900, '[]'::jsonb
   );
 
+insert into public.categories (id, user_id, slug, name) values (
+  '71900000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001',
+  'privacy-history', 'Privacy History'
+);
+
 insert into public.classifications (
   user_id, source_item_id, category_id, method, confidence
 ) values (
   '70000000-0000-4000-8000-000000000001', '71100000-0000-4000-8000-000000000001',
-  null, 'deterministic', 0.900
+  '71900000-0000-4000-8000-000000000001', 'deterministic', 0.900
 );
 
 insert into public.devices (id, user_id, name, platform) values
@@ -67,17 +72,33 @@ insert into public.connections (
   decode(repeat('02', 48), 'hex'), decode(repeat('03', 12), 'hex'), 'development'
 );
 
+select public.create_gmail_connection_v1(
+  '71300000-0000-4000-8000-000000000002',
+  '70000000-0000-4000-8000-000000000001',
+  'privacy-gmail@example.test',
+  decode(repeat('20', 16), 'hex'), decode(repeat('21', 12), 'hex'),
+  decode(repeat('22', 48), 'hex'), decode(repeat('23', 12), 'hex'), 1, 'development',
+  array['https://www.googleapis.com/auth/gmail.readonly']
+);
+
 insert into public.filter_rules (id, user_id, name, intent, plan) values
   ('71400000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001',
-   'synthetic rule', 'synthetic intent', '{}'::jsonb);
+   'synthetic rule', 'synthetic intent',
+   '{"schemaVersion":1,"compilerVersion":1,"intent":"synthetic intent"}'::jsonb);
 
 insert into public.action_rules (
   id, user_id, filter_rule_id, connection_id, provider, operation, input_template
-) values (
-  '71600000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001',
-  '71400000-0000-4000-8000-000000000001', '71300000-0000-4000-8000-000000000001',
-  'google-tasks', 'insert', '{}'::jsonb
-);
+) values
+  (
+    '71600000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001',
+    '71400000-0000-4000-8000-000000000001', '71300000-0000-4000-8000-000000000001',
+    'google-tasks', 'insert', '{}'::jsonb
+  ),
+  (
+    '71600000-0000-4000-8000-000000000002', '70000000-0000-4000-8000-000000000001',
+    '71400000-0000-4000-8000-000000000001', '71300000-0000-4000-8000-000000000002',
+    'google-tasks', 'insert', '{}'::jsonb
+  );
 
 insert into public.action_runs (
   id, user_id, action_rule_id, event_id, provider, status, input, completed_at
@@ -92,6 +113,13 @@ insert into public.action_runs (
     '71600000-0000-4000-8000-000000000001', '71500000-0000-4000-8000-000000000002',
     'google-tasks', 'succeeded', '{}'::jsonb, now()
   );
+
+select results_eq(
+  $$select connection_id from public.gmail_connection_state
+    where user_id = '70000000-0000-4000-8000-000000000001'$$,
+  $$values ('71300000-0000-4000-8000-000000000002'::uuid)$$,
+  'reset schema composes Gmail state with privacy tenant fixtures'
+);
 
 ------------------------------------------------------- tenant one, acting as an end user
 set local role authenticated;
@@ -256,6 +284,20 @@ select results_eq(
 );
 
 select results_eq(
+  $$select count(*)::bigint from public.gmail_connection_state
+    where user_id = '70000000-0000-4000-8000-000000000001'$$,
+  'values (0::bigint)',
+  'finalization cascades Gmail state with its active credential'
+);
+
+select results_eq(
+  $$select enabled, connection_id from public.action_rules
+    where id = '71600000-0000-4000-8000-000000000002'$$,
+  $$values (false, null::uuid)$$,
+  'finalization disables and detaches a rule bound to Gmail'
+);
+
+select results_eq(
   'select count(*)::bigint from public.devices where user_id = ''70000000-0000-4000-8000-000000000001'' and revoked_at is null',
   'values (0::bigint)',
   'finalization invalidates every device'
@@ -283,6 +325,25 @@ select results_eq(
 -- Criterion: account deletion deletes tenant rows. Removing the identity is what the API does
 -- last, and every tenant table references auth.users on delete cascade, so this proves the claim
 -- rather than trusting the foreign keys by inspection.
+insert into public.gmail_disconnect_receipts (
+  connection_id, user_id, action_id, reason, watch_stopped, token_revoked,
+  provider_already_revoked, detached_action_rule_count
+) values (
+  '71300000-0000-4000-8000-000000000002', '70000000-0000-4000-8000-000000000001',
+  '71800000-0000-4000-8000-000000000001', 'user-disconnect', true, true, false, 1
+);
+insert into public.gmail_disconnect_tombstones (
+  mailbox_digest, connection_id, user_id, expires_at
+) values (
+  repeat('c', 64), '71300000-0000-4000-8000-000000000002',
+  '70000000-0000-4000-8000-000000000001', now() + interval '1 day'
+);
+insert into public.gmail_terminal_message_receipts (
+  connection_id, user_id, message_digest, reason
+) values (
+  '71300000-0000-4000-8000-000000000002', '70000000-0000-4000-8000-000000000001',
+  repeat('d', 64), 'provider-message-missing'
+);
 delete from auth.users where id = '70000000-0000-4000-8000-000000000001';
 
 select results_eq(
@@ -301,7 +362,11 @@ select results_eq(
       (select count(*) from public.audit_log where user_id = '70000000-0000-4000-8000-000000000001') +
       (select count(*) from public.source_facts where user_id = '70000000-0000-4000-8000-000000000001') +
       (select count(*) from public.dead_letter_items where user_id = '70000000-0000-4000-8000-000000000001') +
-      (select count(*) from public.account_deletions where user_id = '70000000-0000-4000-8000-000000000001')
+      (select count(*) from public.account_deletions where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.gmail_connection_state where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.gmail_disconnect_receipts where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.gmail_disconnect_tombstones where user_id = '70000000-0000-4000-8000-000000000001') +
+      (select count(*) from public.gmail_terminal_message_receipts where user_id = '70000000-0000-4000-8000-000000000001')
     )::bigint$$,
   'values (0::bigint)',
   'removing the identity cascades every tenant row away'
