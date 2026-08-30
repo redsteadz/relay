@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 ---
 
 # Supabase Hosted Runtime Operations
@@ -145,6 +145,13 @@ JWTs and must not appear in an `Authorization` header.
 Legacy unversioned and v2 persistence RPCs remain only for reviewed rolling-deployment compatibility;
 current Pipeline calls neither. Remove them in later migration after deployed-version rollback and
 Queue-drain windows close. Never overload same PostgREST function name with changed arguments.
+
+Only backend secret role can execute `persist_source_events`. Caller supplies explicit tenant/source,
+normalizer and extractor versions, complete fact/event fingerprints, and strict events. RPC verifies
+source ownership and each fact-ordinal/path provenance entry against stored facts before insertion.
+Canonical rows are unique by tenant, source, normalizer, extractor, and ordinal; exact lost-response
+retries return `duplicate`, while changed same-version output fails with fixed event-integrity metadata.
+Authenticated clients retain read-only RLS access to their own events and cannot execute persistence.
 
 Only backend secret role can access `dead_letter_items` or execute recovery RPCs. Recording validates
 complete encryption tuple, fixed failure code, stable tenant/envelope identity, and expiry exactly

@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 ---
 
 # Threat Model
@@ -22,6 +22,7 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Wrapping-key loss or compromise     | Required: versioned keyring, data-key rewrap, recovery/incident runbooks |
 | Prompt injection from source        | Strict data boundary, schema output, fixed provider/rule allowlist       |
 | Filter compiler authority injection | Source-free strict requests, typed plan, no action/provider fields       |
+| Derived-content leakage             | Fact-only bounded events, path provenance, no body/reference copies      |
 | Queue replay                        | Source IDs, fingerprints, unique DB constraints, stable action IDs       |
 | Dead-letter operator overreach      | Dedicated secret, metadata-only API, backend-only RPCs, no decrypt route |
 | Retention resurrection by replay    | Authenticated original expiry, atomic claim, terminal ciphertext purge   |
