@@ -11,8 +11,17 @@ import { mobileRequestId } from "./observability";
 
 const volatileWebIds = new Map<string, string>();
 
+/**
+ * SecureStore rejects any key outside `[A-Za-z0-9._-]`, and it validates on read as well as write,
+ * so a separator it does not accept makes every device registration throw before the request is
+ * built. Supabase user IDs are UUIDs, which are already within that set.
+ */
+export function deviceInstallationKey(userId: string): string {
+  return `relay-device.${userId}`;
+}
+
 async function installationId(userId: string): Promise<string> {
-  const key = `relay-device:${userId}`;
+  const key = deviceInstallationKey(userId);
   const stored =
     Platform.OS === "web" ? (volatileWebIds.get(key) ?? null) : await SecureStore.getItemAsync(key);
   if (stored !== null) return stored;
