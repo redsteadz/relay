@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-08-30
+last_verified: 2026-08-31
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -18,6 +18,20 @@ sideload APK and Continuous Native Generation.
 access. Capture must support app allowlists, field minimization, encrypted offline queue, server
 acknowledgement, and explicit revocation. Source cancellation is irreversible from Relay's point of
 view and follows the stronger gates in [action model](../architecture/action-model.md).
+
+Relay skips a notification carrying `FLAG_GROUP_SUMMARY`. A grouped app must post a summary beside
+its children; that summary only aggregates content the children already carry and is rewritten
+whenever a child arrives, so capturing it duplicates observations without adding signal.
+
+The notification envelope UUID is deterministic over the posting package, Android's notification key,
+and a SHA-256 fingerprint of the visible title and text. Package name namespaces the key so equal
+keys from different apps cannot collide. Unlike an SMS provider row, a notification key names a
+mutable slot rather than a fixed record: Android reuses one key while rewriting the notification in
+place. Identity over the key alone therefore returned an edited notification to the pipeline under an
+existing envelope ID carrying different facts, which deduplication rejects as
+`fact_integrity_conflict`. Including content keeps an unchanged redelivery idempotent and makes an
+edit its own observation. Post time is excluded so retrying one unchanged notification cannot mint a
+second identity, and two notifications sharing a key and visible content deduplicate to one capture.
 
 The native capture queue stores only AES-256-GCM ciphertext in SQLite. Its per-tenant key is
 non-exportable Android Keystore material, and tenant/envelope identity is authenticated as associated
