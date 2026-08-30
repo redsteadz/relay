@@ -5,11 +5,11 @@ import { HelperText, TextInput } from "react-native-paper";
 import { useRelayTheme } from "@/theme";
 
 type PaperTextInputProps = ComponentProps<typeof TextInput>;
-type AppTextInputProps = Omit<PaperTextInputProps, "error" | "mode" | "theme"> & {
+type AppTextInputProps = Omit<PaperTextInputProps, "error" | "mode" | "style" | "theme"> & {
   errorMessage?: string | undefined;
 };
 
-export function AppTextInput({ errorMessage, style, ...props }: AppTextInputProps) {
+export function AppTextInput({ errorMessage, ...props }: AppTextInputProps) {
   const theme = useRelayTheme();
   const hasError = errorMessage !== undefined && errorMessage.length > 0;
 
@@ -21,9 +21,12 @@ export function AppTextInput({ errorMessage, style, ...props }: AppTextInputProp
         contentStyle={theme.relay.typography.body}
         error={hasError}
         mode="outlined"
-        outlineColor={theme.relay.colors.border}
-        outlineStyle={{ borderRadius: theme.relay.radii.md }}
-        style={[{ backgroundColor: theme.relay.colors.surfaceRaised }, style]}
+        outlineColor={theme.relay.colors.borderSubtle}
+        outlineStyle={{ borderRadius: theme.relay.radii.sm }}
+        style={{
+          backgroundColor: theme.relay.colors.surface,
+          minHeight: theme.relay.sizes.control,
+        }}
         textColor={theme.relay.colors.text}
       />
       {hasError ? (
