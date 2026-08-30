@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-26
+last_verified: 2026-08-29
 ---
 
 # System Architecture
@@ -26,6 +26,11 @@ Mobile and external callbacks are untrusted until authenticated and validated. Q
 internal but remain schema-validated because deployments and retries can mix versions. Source text
 is untrusted throughout classification and AI evaluation. Provider responses are untrusted and
 validated before persistence.
+
+Filter compilation follows the same split: API authenticates and validates the source-free user
+request; Pipeline loads tenant-owned active categories, compiles the plan, and appends an immutable
+revision through a service-only database RPC. Authenticated clients can read their own revision
+history but cannot write `filter_rules` directly.
 
 ## User Identity Flow
 

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "41000000-0000-4000-8000-000000000025",
+  "occurredAt": "2026-08-30T08:00:00Z",
+  "capturedAt": "2026-08-30T08:00:01Z",
+  "source": {
+    "kind": "notification",
+    "externalId": "synthetic-event-transaction-25",
+    "applicationId": "com.example.syntheticbank"
+  },
+  "sender": "Example Bank",
+  "subject": "Synthetic purchase body is not event input",
+  "body": "Synthetic body must not be copied into event output.",
+  "attributes": {
+    "amount": "14.20",
+    "currency": "USD",
+    "merchant": "Example Station",
+    "reference": {
+      "kind": "transaction",
+      "value": "TX-SYNTHETIC-25"
+    }
+  }
+}

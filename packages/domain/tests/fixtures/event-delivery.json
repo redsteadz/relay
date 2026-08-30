@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "42000000-0000-4000-8000-000000000025",
+  "occurredAt": "2026-08-30T09:00:00Z",
+  "capturedAt": "2026-08-30T09:00:01Z",
+  "source": {
+    "kind": "email",
+    "externalId": "synthetic-event-delivery-25"
+  },
+  "sender": "Example Parcel",
+  "subject": "Synthetic parcel update",
+  "body": "Tracking body remains encrypted raw source data.",
+  "attributes": {
+    "location": {
+      "label": "Example Depot",
+      "role": "destination"
+    },
+    "reference": {
+      "kind": "tracking",
+      "value": "TRACK-SYNTHETIC-25"
+    }
+  }
+}

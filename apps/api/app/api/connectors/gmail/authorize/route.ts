@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   const codeVerifier = generateCodeVerifier();
   const redirectUri = buildCallbackUrl(request);
   const googleUrl = await buildGoogleAuthUrl(env.googleClientId, redirectUri, state, codeVerifier);
-  const cookie = buildOAuthCookie(state, codeVerifier, auth.userId);
+  const cookie = await buildOAuthCookie(state, codeVerifier, auth.userId, env);
 
   return new Response(null, {
     status: 302,

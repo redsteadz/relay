@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 ---
 
 # Supabase Hosted Runtime Operations
@@ -100,6 +100,7 @@ database rather than mutable hosted project:
 
 ```bash
 pnpm exec supabase db reset
+pnpm supabase:gmail-upgrade:test
 pnpm supabase:types
 pnpm supabase:types:check
 ```
@@ -131,18 +132,26 @@ Only backend secret role can execute KEK inventory and compare-and-set RPCs. Rot
 encrypted comparison tuples in POST bodies and updates only wrapped data key, wrap nonce, and key
 version. Inventory output contains store, environment-scoped key version, and count only.
 
-Only backend secret role can execute `persist_encrypted_source_item_v2`. It validates the complete
-encrypted bundle and original raw expiry, then inserts with `on conflict do nothing`; `true` means
-stored and `false` means a
-same-tenant source-ID, source-identity, or content-fingerprint conflict was already durable. A global
-source-ID collision owned by another tenant remains an error and cannot acknowledge that tenant's
-message. Callers treat only `true` and `false` as successful Queue outcomes and never parse or expose
-PostgreSQL conflict details. Modern `sb_secret_` keys are sent only as `apikey`; they are not JWTs and
-must not appear in an `Authorization` header.
+Only backend secret role can execute encrypted source persistence RPCs. Current generic ingestion calls
+`persist_encrypted_source_item_v3`, which validates complete encrypted bundle, authenticated producer,
+typed normalization result, fact digest, and original raw expiry. Gmail provider ingestion calls
+`persist_encrypted_source_item_v4`; it additionally validates same-tenant active Gmail connection and
+connection-bound account ID before delegating to v3 conflict arbitration. A fixed result distinguishes
+stored, same-tenant duplicate, and retryable source conflict. Global source-ID collision owned by
+another tenant remains an error and cannot acknowledge that tenant's message. Callers never parse or
+expose PostgreSQL conflict details. Modern `sb_secret_` keys are sent only as `apikey`; they are not
+JWTs and must not appear in an `Authorization` header.
 
-Original `persist_encrypted_source_item` remains during first rolling deployment so old Pipeline can
-continue until mandatory Queue drain completes. New code calls only v2. Remove old RPC in later
-reviewed migration after deployed-version rollback window closes; do not overload same PostgREST name.
+Legacy unversioned and v2 persistence RPCs remain only for reviewed rolling-deployment compatibility;
+current Pipeline calls neither. Remove them in later migration after deployed-version rollback and
+Queue-drain windows close. Never overload same PostgREST function name with changed arguments.
+
+Only backend secret role can execute `persist_source_events`. Caller supplies explicit tenant/source,
+normalizer and extractor versions, complete fact/event fingerprints, and strict events. RPC verifies
+source ownership and each fact-ordinal/path provenance entry against stored facts before insertion.
+Canonical rows are unique by tenant, source, normalizer, extractor, and ordinal; exact lost-response
+retries return `duplicate`, while changed same-version output fails with fixed event-integrity metadata.
+Authenticated clients retain read-only RLS access to their own events and cannot execute persistence.
 
 Only backend secret role can access `dead_letter_items` or execute recovery RPCs. Recording validates
 complete encryption tuple, fixed failure code, stable tenant/envelope identity, and expiry exactly
@@ -179,10 +188,15 @@ a separate Storage backup before storing user objects there.
 ## Deletion And Ownership
 
 User deletion is a privileged backend operation that deletes the `auth.users` row; foreign keys then
-cascade all Relay-owned rows, including that user's database audit rows. Require fresh
-authentication, stable request idempotency, a non-content deletion receipt outside user-owned
-tables, and post-delete verification. This capability remains disabled until its dedicated
-access-control implementation and tests exist.
+cascade all Relay-owned rows, including that user's database audit rows. Account deletion requires
+authenticated explicit confirmation, records resumable database state, attempts provider cleanup,
+finalizes local rows idempotently, and removes Auth identity last. Gmail cleanup first crosses private
+Pipeline binding by tenant/connection UUID; API never loads Gmail credential. Provider failure is
+counted but cannot strand local deletion. See [privacy lifecycle](../security/privacy.md) for retained
+backup/log exceptions and exact tradeoff. Current route relies on verified bearer session plus typed
+confirmation. Fresh-auth recency enforcement, non-content completion receipt outside cascading
+user-owned tables, and post-delete verification remain release follow-up requirements; stable database
+steps and provider requests are already retry-safe.
 
 Project deletion permanently removes all hosted data and backups. Require approved retention check,
 verified export or explicit no-backup decision, confirmation from the billing owner and recovery

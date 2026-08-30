@@ -29,22 +29,22 @@ This document is app-wide. Authentication is one feature that follows these rule
 
 Use project-compatible stable releases. Pin versions in the package manager lockfile, not in this design document.
 
-| Concern | Default | Rule |
-|---|---|---|
-| App framework | React Native; Expo when the project already uses Expo | Do not mix Expo-specific APIs into shared code without an adapter |
-| UI components | **React Native Paper** | Primary source for controls, surfaces, feedback, and MD3 behavior |
-| Navigation | **React Navigation** with native stack | One navigation system only; use Expo Router only if the existing project is already committed to it |
-| Animation | **react-native-reanimated** | Use for custom transitions, gestures, shared values, and layout motion |
-| Gestures | **react-native-gesture-handler** | Use with navigation and gesture-driven interactions |
-| Server state | **TanStack Query** | Cache remote data; do not copy query data into a global client store |
-| Client state | **Zustand** | Only for cross-screen client state that cannot remain local or in navigation params |
-| Forms | **React Hook Form** | Field state, validation timing, and submit orchestration |
-| Validation | **Zod** with the React Hook Form resolver | Shared runtime schemas and inferred TypeScript types |
-| Persistence | AsyncStorage | Preferences and non-sensitive persisted state |
-| Secrets | Expo SecureStore or a native secure-storage adapter | Tokens and secrets must never use AsyncStorage |
-| Icons | Paper `Icon` / Material Community Icons | One icon family; avoid mixing stroke languages |
-| Lists | React Native `FlatList` / `SectionList` | Use FlashList only after profiling proves it is needed |
-| Testing | Jest + React Native Testing Library | Test behavior and accessibility, not implementation details |
+| Concern       | Default                                               | Rule                                                                                                |
+| ------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| App framework | React Native; Expo when the project already uses Expo | Do not mix Expo-specific APIs into shared code without an adapter                                   |
+| UI components | **React Native Paper**                                | Primary source for controls, surfaces, feedback, and MD3 behavior                                   |
+| Navigation    | **React Navigation** with native stack                | One navigation system only; use Expo Router only if the existing project is already committed to it |
+| Animation     | **react-native-reanimated**                           | Use for custom transitions, gestures, shared values, and layout motion                              |
+| Gestures      | **react-native-gesture-handler**                      | Use with navigation and gesture-driven interactions                                                 |
+| Server state  | **TanStack Query**                                    | Cache remote data; do not copy query data into a global client store                                |
+| Client state  | **Zustand**                                           | Only for cross-screen client state that cannot remain local or in navigation params                 |
+| Forms         | **React Hook Form**                                   | Field state, validation timing, and submit orchestration                                            |
+| Validation    | **Zod** with the React Hook Form resolver             | Shared runtime schemas and inferred TypeScript types                                                |
+| Persistence   | AsyncStorage                                          | Preferences and non-sensitive persisted state                                                       |
+| Secrets       | Expo SecureStore or a native secure-storage adapter   | Tokens and secrets must never use AsyncStorage                                                      |
+| Icons         | Paper `Icon` / Material Community Icons               | One icon family; avoid mixing stroke languages                                                      |
+| Lists         | React Native `FlatList` / `SectionList`               | Use FlashList only after profiling proves it is needed                                              |
+| Testing       | Jest + React Native Testing Library                   | Test behavior and accessibility, not implementation details                                         |
 
 ### 2.1 Dependency Rules
 
@@ -79,19 +79,19 @@ Feature and shared components consume `useAppTheme()` or Paper's `useTheme()`. T
 
 ### 3.2 Semantic Color Roles
 
-| Role | Light intent | Dark intent | Typical use |
-|---|---|---|---|
-| `primary` | Near-black brand action | Near-white brand action | Primary buttons, selected controls, active icons |
-| `onPrimary` | White | Near-black | Content on primary |
-| `secondary` | Cool neutral | Pale neutral | Secondary emphasis |
-| `tertiary` | Burnt orange | Vivid orange | Editorial accent, focus moments, highlights |
-| `background` | Warm off-white | Deep neutral | App background |
-| `surface` | White | Raised charcoal | Cards, dialogs, sheets |
-| `surfaceVariant` | Soft neutral | Mid charcoal | Grouped controls and secondary panels |
-| `outline` | Neutral border | Muted light border | Dividers and input outlines |
-| `error` | Accessible red | Accessible light red | Errors and destructive feedback |
-| custom `success` | Accessible green | Accessible light green | Confirmed completion only |
-| custom `warning` | Accessible amber | Accessible light amber | Attention without failure |
+| Role             | Light intent            | Dark intent             | Typical use                                      |
+| ---------------- | ----------------------- | ----------------------- | ------------------------------------------------ |
+| `primary`        | Near-black brand action | Near-white brand action | Primary buttons, selected controls, active icons |
+| `onPrimary`      | White                   | Near-black              | Content on primary                               |
+| `secondary`      | Cool neutral            | Pale neutral            | Secondary emphasis                               |
+| `tertiary`       | Burnt orange            | Vivid orange            | Editorial accent, focus moments, highlights      |
+| `background`     | Warm off-white          | Deep neutral            | App background                                   |
+| `surface`        | White                   | Raised charcoal         | Cards, dialogs, sheets                           |
+| `surfaceVariant` | Soft neutral            | Mid charcoal            | Grouped controls and secondary panels            |
+| `outline`        | Neutral border          | Muted light border      | Dividers and input outlines                      |
+| `error`          | Accessible red          | Accessible light red    | Errors and destructive feedback                  |
+| custom `success` | Accessible green        | Accessible light green  | Confirmed completion only                        |
+| custom `warning` | Accessible amber        | Accessible light amber  | Attention without failure                        |
 
 Rules:
 
@@ -107,8 +107,8 @@ Use a 4-point spacing grid.
 
 ```ts
 spacing = { xxs: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 48 };
-radius  = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, pill: 999 };
-size    = { iconSm: 16, iconMd: 20, iconLg: 24, control: 48, touch: 48 };
+radius = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, pill: 999 };
+size = { iconSm: 16, iconMd: 20, iconLg: 24, control: 48, touch: 48 };
 ```
 
 - Standard screen gutter: `16` on phones, `24` on larger phones/tablets.
@@ -121,11 +121,11 @@ size    = { iconSm: 16, iconMd: 20, iconLg: 24, control: 48, touch: 48 };
 
 Use bundled fonts; never load fonts from a CDN at runtime.
 
-| Role | Family | Intent |
-|---|---|---|
-| Display and headline | Space Grotesk | Editorial identity, page titles, key metrics |
-| Body, label, input | Inter | High readability at mobile sizes |
-| Fallback | Platform sans-serif | Immediate, reliable fallback |
+| Role                 | Family              | Intent                                       |
+| -------------------- | ------------------- | -------------------------------------------- |
+| Display and headline | Space Grotesk       | Editorial identity, page titles, key metrics |
+| Body, label, input   | Inter               | High readability at mobile sizes             |
+| Fallback             | Platform sans-serif | Immediate, reliable fallback                 |
 
 - Map fonts into Paper's MD3 typography variants.
 - Prefer Paper `Text` variants such as `headlineMedium`, `titleLarge`, `bodyMedium`, and `labelLarge`.
@@ -170,7 +170,7 @@ All screens begin with shared layout primitives rather than duplicating safe-are
 <AppScreen
   scroll="auto"
   keyboard="handled"
-  edges={['top', 'bottom']}
+  edges={["top", "bottom"]}
   loading={query.isPending}
   error={query.error}
 >
@@ -266,31 +266,31 @@ Keep the native splash visible only until essential boot state is known. Non-ess
 
 ### 6.1 Component Tiers
 
-| Tier | Location | Examples | Responsibility |
-|---|---|---|---|
-| Paper primitives | package | `Button`, `TextInput`, `Surface`, `Dialog` | Base accessible UI behavior |
-| App primitives | `shared/components` | `AppScreen`, `AppButton`, `AppTextField`, `StateView` | Stable app-wide defaults and variants |
-| Composites | shared or feature-local | `SearchField`, `FilterBar`, `UserRow` | Small groups of primitives with one purpose |
-| Feature components | `features/<feature>/components` | `ProjectCard`, `PasswordRules` | Domain-aware presentation |
-| Screens | `features/<feature>/screens` | `ProjectDetailsScreen` | Route boundary and orchestration |
+| Tier               | Location                        | Examples                                              | Responsibility                              |
+| ------------------ | ------------------------------- | ----------------------------------------------------- | ------------------------------------------- |
+| Paper primitives   | package                         | `Button`, `TextInput`, `Surface`, `Dialog`            | Base accessible UI behavior                 |
+| App primitives     | `shared/components`             | `AppScreen`, `AppButton`, `AppTextField`, `StateView` | Stable app-wide defaults and variants       |
+| Composites         | shared or feature-local         | `SearchField`, `FilterBar`, `UserRow`                 | Small groups of primitives with one purpose |
+| Feature components | `features/<feature>/components` | `ProjectCard`, `PasswordRules`                        | Domain-aware presentation                   |
+| Screens            | `features/<feature>/screens`    | `ProjectDetailsScreen`                                | Route boundary and orchestration            |
 
 ### 6.2 Paper Component Mapping
 
-| Need | Use |
-|---|---|
-| Top bar | Paper `Appbar` or shared `ScreenHeader` |
-| Primary/secondary action | Paper `Button` through `AppButton` variants |
-| Icon action | Paper `IconButton` with an accessibility label |
-| Input | Paper `TextInput`, integrated through `Controller` |
-| Grouped content | Paper `Surface`, `Card`, or `List.Section` |
+| Need                     | Use                                                            |
+| ------------------------ | -------------------------------------------------------------- |
+| Top bar                  | Paper `Appbar` or shared `ScreenHeader`                        |
+| Primary/secondary action | Paper `Button` through `AppButton` variants                    |
+| Icon action              | Paper `IconButton` with an accessibility label                 |
+| Input                    | Paper `TextInput`, integrated through `Controller`             |
+| Grouped content          | Paper `Surface`, `Card`, or `List.Section`                     |
 | Selectable compact value | Paper `Chip`, `Checkbox`, `RadioButton`, or `SegmentedButtons` |
-| Floating primary action | Paper `FAB`; maximum one primary FAB per screen |
-| Menu | Paper `Menu` |
-| Confirmation | Paper `Dialog` rendered in `Portal` |
-| Lightweight overlay | Paper `Modal` rendered in `Portal` |
-| Transient feedback | One app-level Paper `Snackbar` queue |
-| Loading | Paper `ActivityIndicator` or content-shaped skeleton |
-| Empty/error/offline | Shared `StateView` with optional action |
+| Floating primary action  | Paper `FAB`; maximum one primary FAB per screen                |
+| Menu                     | Paper `Menu`                                                   |
+| Confirmation             | Paper `Dialog` rendered in `Portal`                            |
+| Lightweight overlay      | Paper `Modal` rendered in `Portal`                             |
+| Transient feedback       | One app-level Paper `Snackbar` queue                           |
+| Loading                  | Paper `ActivityIndicator` or content-shaped skeleton           |
+| Empty/error/offline      | Shared `StateView` with optional action                        |
 
 ### 6.3 When to Wrap Paper Components
 
@@ -331,13 +331,13 @@ React Native Paper owns its built-in component transitions. Reanimated owns cust
 
 ### 7.1 Motion Tokens
 
-| Token | Duration | Use |
-|---|---:|---|
-| `instant` | 0 ms | Reduced-motion replacement or immediate state change |
-| `fast` | 120 ms | Press feedback, icon swap, small fade |
-| `standard` | 180 ms | Control state and compact expand/collapse |
-| `emphasis` | 260 ms | Card insertion, section transition, success feedback |
-| `screen` | 360 ms | Branded entrance or large mode change; use rarely |
+| Token      | Duration | Use                                                  |
+| ---------- | -------: | ---------------------------------------------------- |
+| `instant`  |     0 ms | Reduced-motion replacement or immediate state change |
+| `fast`     |   120 ms | Press feedback, icon swap, small fade                |
+| `standard` |   180 ms | Control state and compact expand/collapse            |
+| `emphasis` |   260 ms | Card insertion, section transition, success feedback |
+| `screen`   |   360 ms | Branded entrance or large mode change; use rarely    |
 
 Standard easing:
 
@@ -350,17 +350,17 @@ Store duration and easing values in `app/theme/tokens.ts`. Do not scatter timing
 
 ### 7.2 Motion Patterns
 
-| Interaction | Pattern |
-|---|---|
-| Button press | scale to `0.98`, then spring to `1`; preserve Paper ripple |
-| Card/list insertion | fade + translate `8–12` px; stagger at most the first visible items |
-| Validation message | fade + small vertical reveal; no shaking while typing |
-| Expand/collapse | animate height only for small bounded content; otherwise crossfade or navigate |
-| Success | icon scale/fade once, followed by the real state update |
-| Theme change | crossfade affected custom surfaces; do not remount the navigation tree |
-| Screen navigation | native stack transition; custom transitions only for a strong product reason |
-| Shared element | use only when source and destination relationship is meaningful |
-| Long press | native press feedback plus optional light haptic |
+| Interaction         | Pattern                                                                        |
+| ------------------- | ------------------------------------------------------------------------------ |
+| Button press        | scale to `0.98`, then spring to `1`; preserve Paper ripple                     |
+| Card/list insertion | fade + translate `8–12` px; stagger at most the first visible items            |
+| Validation message  | fade + small vertical reveal; no shaking while typing                          |
+| Expand/collapse     | animate height only for small bounded content; otherwise crossfade or navigate |
+| Success             | icon scale/fade once, followed by the real state update                        |
+| Theme change        | crossfade affected custom surfaces; do not remount the navigation tree         |
+| Screen navigation   | native stack transition; custom transitions only for a strong product reason   |
+| Shared element      | use only when source and destination relationship is meaningful                |
+| Long press          | native press feedback plus optional light haptic                               |
 
 ### 7.3 Performance and Restraint
 
@@ -441,17 +441,17 @@ features/<feature>/
 
 Each data screen declares these outcomes where applicable:
 
-| State | Required behavior |
-|---|---|
-| Initial loading | Centered indicator for short waits; skeleton for content-rich waits |
-| Refreshing | Preserve current content and show pull-to-refresh or local progress |
-| Empty | Explain what is empty and offer the most useful next action |
-| Recoverable error | Plain-language message and retry action |
-| Offline with cache | Show cached content plus a non-blocking offline indicator |
-| Offline without cache | Offline state with retry and relevant guidance |
-| Permission denied | Explain why access is useful and offer settings/retry when valid |
-| Partial failure | Keep successful content visible and isolate failed sections |
-| Success | Update content immediately and use a snackbar only when confirmation adds value |
+| State                 | Required behavior                                                               |
+| --------------------- | ------------------------------------------------------------------------------- |
+| Initial loading       | Centered indicator for short waits; skeleton for content-rich waits             |
+| Refreshing            | Preserve current content and show pull-to-refresh or local progress             |
+| Empty                 | Explain what is empty and offer the most useful next action                     |
+| Recoverable error     | Plain-language message and retry action                                         |
+| Offline with cache    | Show cached content plus a non-blocking offline indicator                       |
+| Offline without cache | Offline state with retry and relevant guidance                                  |
+| Permission denied     | Explain why access is useful and offer settings/retry when valid                |
+| Partial failure       | Keep successful content visible and isolate failed sections                     |
+| Success               | Update content immediately and use a snackbar only when confirmation adds value |
 
 ---
 
@@ -540,14 +540,14 @@ The goal is one clear responsibility per file, not arbitrary fragmentation.
 
 ### 10.1 File Size Guardrails
 
-| File type | Target | Split when |
-|---|---:|---|
-| Screen | 80–180 lines | It contains reusable visual sections, multiple forms, or substantial data logic |
-| Component | 30–120 lines | It owns unrelated regions, many modes, or several independent effects |
-| Hook | 20–100 lines | It mixes fetching, navigation, form logic, and presentation decisions |
-| Store slice | 20–100 lines | It owns multiple unrelated domains |
-| Utility/model | 10–80 lines | The file becomes a miscellaneous helper collection |
-| Theme/config | up to 200 lines | Separate semantic groups become easier to discover independently |
+| File type     |          Target | Split when                                                                      |
+| ------------- | --------------: | ------------------------------------------------------------------------------- |
+| Screen        |    80–180 lines | It contains reusable visual sections, multiple forms, or substantial data logic |
+| Component     |    30–120 lines | It owns unrelated regions, many modes, or several independent effects           |
+| Hook          |    20–100 lines | It mixes fetching, navigation, form logic, and presentation decisions           |
+| Store slice   |    20–100 lines | It owns multiple unrelated domains                                              |
+| Utility/model |     10–80 lines | The file becomes a miscellaneous helper collection                              |
+| Theme/config  | up to 200 lines | Separate semantic groups become easier to discover independently                |
 
 These are review guardrails, not reasons to create meaningless one-line files.
 
@@ -669,21 +669,21 @@ Performance targets:
 
 The previous web-specific implementation guidance is retired.
 
-| Web concept | React Native replacement |
-|---|---|
-| React DOM elements | React Native primitives and React Native Paper components |
-| Vite | Existing React Native/Expo bundler configuration |
-| Tailwind/DaisyUI classes | Paper MD3 theme + shared tokens + `StyleSheet.create` |
-| CSS `dark:` / `data-theme` | Paper theme object driven by system/user preference |
-| Framer Motion | Reanimated + native stack transitions |
-| React Router URL params | Typed React Navigation params and deep-link configuration |
-| `localStorage` | AsyncStorage for preferences; secure storage for secrets |
-| CSS hover | Press, focus, selected, disabled, and optional pointer-hover states |
-| Inline SVG turbulence | Optimized local grain asset |
-| CSS backdrop filter | Optional native blur with an opaque Paper `Surface` fallback |
-| `rem`, media queries, fixed viewport | logical pixels, flexbox, `useWindowDimensions`, safe areas |
-| HTML form semantics | Paper fields, React Hook Form, native keyboard configuration, accessibility props |
-| CDN fonts/icons | Bundled font assets and one local icon family |
+| Web concept                          | React Native replacement                                                          |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| React DOM elements                   | React Native primitives and React Native Paper components                         |
+| Vite                                 | Existing React Native/Expo bundler configuration                                  |
+| Tailwind/DaisyUI classes             | Paper MD3 theme + shared tokens + `StyleSheet.create`                             |
+| CSS `dark:` / `data-theme`           | Paper theme object driven by system/user preference                               |
+| Framer Motion                        | Reanimated + native stack transitions                                             |
+| React Router URL params              | Typed React Navigation params and deep-link configuration                         |
+| `localStorage`                       | AsyncStorage for preferences; secure storage for secrets                          |
+| CSS hover                            | Press, focus, selected, disabled, and optional pointer-hover states               |
+| Inline SVG turbulence                | Optimized local grain asset                                                       |
+| CSS backdrop filter                  | Optional native blur with an opaque Paper `Surface` fallback                      |
+| `rem`, media queries, fixed viewport | logical pixels, flexbox, `useWindowDimensions`, safe areas                        |
+| HTML form semantics                  | Paper fields, React Hook Form, native keyboard configuration, accessibility props |
+| CDN fonts/icons                      | Bundled font assets and one local icon family                                     |
 
 Do not copy web layout values mechanically. Re-evaluate hierarchy, reachability, keyboard usage, gestures, navigation, and density for a handheld device.
 
@@ -744,4 +744,4 @@ features/auth/
 
 ---
 
-*Last updated: 2026-08-29*
+_Last updated: 2026-08-29_

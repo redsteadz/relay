@@ -5,9 +5,11 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "build": "wrangler deploy --dry-run --outdir dist",
+    "build": "corepack pnpm build:dependencies && wrangler deploy --dry-run --outdir dist",
+    "build:dependencies": "corepack pnpm --filter \"@relay/pipeline^...\" build",
     "clean": "rm -rf .wrangler dist coverage",
-    "deploy:hosted": "wrangler deploy",
+    "predev": "corepack pnpm build:dependencies",
+    "deploy:hosted": "corepack pnpm build:dependencies && wrangler deploy",
     "dev": "wrangler dev --local",
     "lint": "eslint src tests",
     "test": "vitest run",

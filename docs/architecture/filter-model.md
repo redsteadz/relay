@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 ---
 
 # Filter Model
@@ -17,15 +17,105 @@ Every semantic clause declares allowed fields and minimum confidence. Relay reco
 disclosed fields, redactions, purpose, confidence, and rationale. Low confidence remains
 undecided and cannot trigger automatic effects.
 
-Filter versions are immutable once used. Editing creates a new version so audit records can explain
-historical decisions.
+## Deterministic Evaluation
+
+`evaluateFilterPlan` in `packages/domain` decides a compiled plan against one item. It is pure: it
+never calls a provider, never mutates the item, and never logs or returns a field value. Only field
+names, operators, and positions leave the evaluator.
+
+It returns the decision, the plan's `schemaVersion` and `compilerVersion`, and `matchedPredicates` --
+every predicate that evaluated true, with its position in the expression such as `all[0].any[1]`. A
+predicate under `not` can therefore appear while the decision is `no-match`; the list explains the
+evaluation and does not by itself justify the decision.
+
+### Tri-State Rules
+
+| Situation                                                                 | Result                                                 |
+| ------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Deterministic expression fails                                            | `no-match`, and the semantic clause is never consulted |
+| Deterministic passes, no semantic clause                                  | `match`                                                |
+| Deterministic passes, semantic clause present                             | `undecided`                                            |
+| Field absent, `null`, empty, or not a string, under a comparison operator | that predicate is **false**                            |
+| Field absent, `null`, or empty, under `exists`                            | that predicate is **false**                            |
+
+An absent field makes its predicate false rather than unknown. Treating absence as unknown would
+promote items to `undecided` and send more content to OpenAI purely because a field was missing,
+which contradicts [deterministic filters before BYOK AI](../decisions/0003-deterministic-before-ai.md).
+`undecided` therefore arises only from a semantic clause.
+
+One consequence is worth stating plainly: because absence is false, `not` over a comparison on an
+absent field is true. `not (subject contains "x")` matches an item that has no subject at all. Use
+`exists` to test presence explicitly when that distinction matters.
+
+Comparisons normalize both sides with Unicode NFKC, trim, collapse internal whitespace, and
+lowercase, so `café` and `café` compare equal. Money is the exception in spirit rather than
+mechanism: `attributes.amount` is compared as its exact decimal string, so `10.50` does not equal
+`10.5`, because the repository forbids routing money through a float to decide equality.
+
+### Bounds
+
+Evaluation re-checks the depth (8) and node (64) limits that `filterPlanSchema` already enforces, so
+a plan built in memory without passing the schema cannot recurse without bound; exceeding either
+raises `FilterEvaluationLimitError`, which carries the limit name and no field values. Each field is
+read and normalized at most once per evaluation, so a plan holding the maximum number of predicates
+over `body` normalizes a megabyte-sized body once rather than once per predicate.
+
+## Compilation
+
+`POST /api/filters/compile` accepts only a name, user intent, optional enabled state, and optional
+`seriesId` plus `expectedVersion` edit coordinates. The API authenticates the user, validates the
+strict request, and forwards verified identity to Pipeline. Source content, provider, endpoint,
+credential, and operation fields are rejected at both HTTP boundaries. Compilation never receives a
+source item, so adversarial SMS, email, or notification text cannot alter saved user intent.
+
+Compiler version 1 is deterministic and does not call an AI provider. Pipeline loads only the
+tenant's active category names and slugs, then recognizes these bounded forms:
+
+| Form                                                        | Result                   |
+| ----------------------------------------------------------- | ------------------------ |
+| `from gmail`, `from sms`, `from email`, `from notification` | `source.kind equals`     |
+| `sent by VALUE`                                             | `sender equals`          |
+| `FIELD exists`, `FIELD is present`                          | `exists` where supported |
+| `FIELD is VALUE`, `equals`, `contains`, `starts with`       | matching typed predicate |
+| `FIELD in A, B`, `FIELD is one of A, B`                     | bounded `in` predicate   |
+
+Supported fields are source kind/application, sender, subject, body, category, currency, merchant,
+and exact-decimal amount. Quoted values may contain `and`; otherwise `and` joins deterministic
+predicates. Category values resolve only through the active category descriptors loaded by Pipeline.
+Currency is canonical uppercase ISO-style text, and amount stays an exact decimal string.
+
+Every response presents the full supported predicate/operator matrix and unsupported clauses.
+Unsupported descriptive clauses become an explicit semantic question with minimum confidence and a
+field allowlist inferred from only that clause. Action language receives
+`action-intent-not-allowed`; it cannot populate provider, endpoint, credential, operation, or action
+fields, and action-only text is omitted from the semantic question. Invalid typed values remain
+visible as `invalid-value` rather than being guessed. Any future AI-assisted compilation requires a
+separate decision and disclosure policy; it is not part of compiler version 1.
+
+## Versioning
+
+Filter revisions are immutable once persisted. A new filter receives a stable random `series_id`
+and version 1. Editing supplies both `seriesId` and `expectedVersion`; a database advisory lock and
+optimistic version check atomically append the next revision or return a conflict. Authenticated
+clients have read-only RLS access to their own revision history. Only Pipeline's service-role RPC can
+append a revision. Each append records compiler version, supported predicates, unsupported clauses,
+and an audit event so historical decisions remain explainable.
+
+One monotonic safety exception exists: the service-only OpenAI revocation RPC may change an enabled
+semantic revision to disabled without changing any identity, intent, plan, or disclosure field.
+Compilation persistence and credential revocation take the same per-tenant advisory lock. Revocation
+disables semantic revisions and deletes the credential atomically; a semantic revision appended
+without an active key persists disabled. Re-enabling or any user edit still requires a new revision.
+Authenticated clients cannot delete OpenAI connection rows directly, and service role has no direct
+filter write grants, so neither path can bypass these RPC invariants.
 
 ## Categories
 
 Every tenant is seeded with ten immutable system categories (`transaction`, `task`, `event`,
 `reminder`, `delivery`, `travel`, `security`, `communication`, `promotion`, `other`). A system
 category's `slug` and `is_system` flag cannot be changed, it cannot be archived, and it cannot be
-deleted; `slug` stays the stable machine identity that filters and classifications refer to.
+deleted directly; whole-account foreign-key cascade remains able to remove it. `slug` stays the
+stable machine identity that filters and classifications refer to.
 Tenants may additionally create, rename, reorder (`sort_order`), quiet (`quiet_by_default`), and
 archive their own categories.
 

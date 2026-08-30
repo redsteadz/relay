@@ -2,15 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import { ingressEnvelopeSchema, type FilterPlan, type IngressEnvelope } from "@relay/contracts";
 
+import appointmentEventFixture from "./fixtures/event-appointment.json" with { type: "json" };
+import deliveryEventFixture from "./fixtures/event-delivery.json" with { type: "json" };
+import securityEventFixture from "./fixtures/event-security.json" with { type: "json" };
+import transactionEventFixture from "./fixtures/event-transaction.json" with { type: "json" };
 import gmailFixture from "./fixtures/gmail.json" with { type: "json" };
 import notificationFixture from "./fixtures/notification.json" with { type: "json" };
 import smsFixture from "./fixtures/sms.json" with { type: "json" };
 
 import {
   contentFingerprint,
+  compileFilterPlan,
   evaluateFilter,
+  extractSourceEvents,
   normalizeCategoryName,
   normalizeSourceFacts,
+  sourceEventSetFingerprint,
   sourceFactSetFingerprint,
   sourceIdentity,
 } from "../src/index.js";
@@ -60,6 +67,7 @@ describe("evaluateFilter", () => {
   it("defers matching candidates with semantic clauses", () => {
     const plan: FilterPlan = {
       schemaVersion: 1,
+      compilerVersion: 1,
       intent: "Bank purchases that represent public transport",
       deterministic: {
         field: "source.applicationId",
@@ -74,6 +82,92 @@ describe("evaluateFilter", () => {
     };
 
     expect(evaluateFilter(plan, item)).toBe("undecided");
+  });
+});
+
+describe("compileFilterPlan", () => {
+  it("compiles supported natural-language clauses into a validated deterministic plan", () => {
+    const result = compileFilterPlan('from Gmail and subject contains "receipt and invoice"');
+
+    expect(result.plan).toMatchObject({
+      schemaVersion: 1,
+      compilerVersion: 1,
+      deterministic: {
+        all: [
+          { field: "source.kind", operator: "equals", value: "gmail" },
+          { field: "subject", operator: "contains", value: "receipt and invoice" },
+        ],
+      },
+    });
+    expect(result.unsupportedClauses).toEqual([]);
+  });
+
+  it("keeps unsupported clauses visible behind a minimized semantic fallback", () => {
+    const result = compileFilterPlan("application is com.example.bank and looks urgent");
+
+    expect(result.plan.deterministic).toEqual({
+      field: "source.applicationId",
+      operator: "equals",
+      value: "com.example.bank",
+    });
+    expect(result.plan.semantic).toMatchObject({
+      minimumConfidence: 0.8,
+      allowedFields: ["subject", "body"],
+    });
+    expect(result.unsupportedClauses).toEqual([
+      { text: "looks urgent", reason: "semantic-required" },
+    ]);
+  });
+
+  it("resolves only trusted active category descriptors", () => {
+    const result = compileFilterPlan('category is "Travel Deals"', [
+      { name: "Travel Deals", slug: "travel-deals" },
+    ]);
+    expect(result.plan.deterministic).toEqual({
+      field: "category",
+      operator: "equals",
+      value: "travel-deals",
+    });
+  });
+
+  it("does not turn action language into provider or operation controls", () => {
+    const result = compileFilterPlan("please send matching messages to a webhook endpoint");
+    const serialized = JSON.stringify(result.plan);
+
+    expect(result.unsupportedClauses).toEqual([
+      {
+        text: "please send matching messages to a webhook endpoint",
+        reason: "action-intent-not-allowed",
+      },
+    ]);
+    expect(result.plan.semantic).toBeUndefined();
+    expect(result.plan.deterministic).toEqual({ never: true });
+    expect(serialized).not.toContain('"provider"');
+    expect(serialized).not.toContain('"operation"');
+    expect(compileFilterPlan(result.plan.intent)).toEqual(result);
+  });
+
+  it("fails closed for invalid typed values without disclosing semantic fields", () => {
+    const result = compileFilterPlan(`amount is ${"1".repeat(1_025)}`);
+
+    expect(result.plan.deterministic).toEqual({ never: true });
+    expect(result.plan.semantic).toBeUndefined();
+    expect(result.unsupportedClauses[0]?.reason).toBe("invalid-value");
+
+    const oversizedSender = compileFilterPlan(`sent by ${"a".repeat(1_025)}`);
+    expect(oversizedSender.plan.deterministic).toEqual({ never: true });
+    expect(oversizedSender.unsupportedClauses[0]?.reason).toBe("invalid-value");
+  });
+
+  it("does not treat apostrophes as quoted clause delimiters", () => {
+    const result = compileFilterPlan("sender is O'Reilly and subject contains receipt");
+
+    expect(result.plan.deterministic).toEqual({
+      all: [
+        { field: "sender", operator: "equals", value: "O'Reilly" },
+        { field: "subject", operator: "contains", value: "receipt" },
+      ],
+    });
   });
 });
 
@@ -216,6 +310,160 @@ describe("normalizeSourceFacts", () => {
         uncertaintyReason: "invalid",
         provenance: [{ field: "attributes.amount" }],
       }),
+    );
+  });
+});
+
+describe("extractSourceEvents", () => {
+  it("creates a concise transaction fact without copying source text or reference values", () => {
+    const envelope = ingressEnvelopeSchema.parse(transactionEventFixture);
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event).toMatchObject({
+      kind: "fact",
+      title: "USD 14.20 transaction",
+      confidence: 0.95,
+      requiresReview: false,
+      temporalStatus: "none",
+      timeZone: null,
+    });
+    expect(event?.summary).toContain("Transaction reference available.");
+    expect(JSON.stringify(event)).not.toContain(envelope.body);
+    expect(JSON.stringify(event)).not.toContain(envelope.subject);
+    expect(JSON.stringify(event)).not.toContain("TX-SYNTHETIC-25");
+  });
+
+  it("creates a delivery task from typed tracking evidence", () => {
+    const event = extractSourceEvents(
+      normalizeSourceFacts(ingressEnvelopeSchema.parse(deliveryEventFixture)),
+    ).events[0];
+
+    expect(event).toMatchObject({
+      kind: "task",
+      title: "Track delivery",
+      summary: "Location available. Tracking reference available.",
+      confidence: 0.85,
+      requiresReview: false,
+      temporalStatus: "none",
+      timeZone: null,
+    });
+    expect(JSON.stringify(event)).not.toContain("TRACK-SYNTHETIC-25");
+  });
+
+  it("keeps a low-confidence security reminder visible and review-only", () => {
+    const envelope = ingressEnvelopeSchema.parse(securityEventFixture);
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event).toMatchObject({
+      kind: "reminder",
+      title: "Reminder",
+      confidence: 0.6,
+      requiresReview: true,
+      temporalStatus: "resolved",
+      timeZone: "UTC",
+      dueAt: "2026-08-31T10:00:00.000000000Z",
+    });
+    expect(JSON.stringify(event)).not.toContain("SYNTHETIC-SECRET-25");
+    expect(event?.provenance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fields: [{ field: "attributes.dates[1]" }] }),
+      ]),
+    );
+  });
+
+  it("creates an appointment with exact UTC times and explicit time zone", () => {
+    const event = extractSourceEvents(
+      normalizeSourceFacts(ingressEnvelopeSchema.parse(appointmentEventFixture)),
+    ).events[0];
+
+    expect(event).toMatchObject({
+      kind: "calendar-event",
+      title: "Calendar event",
+      temporalStatus: "resolved",
+      timeZone: "UTC",
+      startsAt: "2026-09-02T03:30:00.000000000Z",
+      endsAt: "2026-09-02T04:00:00.000000000Z",
+      confidence: 0.95,
+      requiresReview: false,
+    });
+  });
+
+  it("marks an unresolved local date ambiguous without inventing a time zone", () => {
+    const envelope = ingressEnvelopeSchema.parse({
+      ...securityEventFixture,
+      attributes: { dates: { role: "due", instant: "2026-09-01 09:00" } },
+    });
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event).toMatchObject({
+      kind: "fact",
+      temporalStatus: "ambiguous",
+      timeZone: null,
+      dateAmbiguity: "invalid",
+      requiresReview: true,
+    });
+    expect(event).not.toHaveProperty("startsAt");
+    expect(event).not.toHaveProperty("dueAt");
+  });
+
+  it("marks an end without a start ambiguous and review-only", () => {
+    const envelope = ingressEnvelopeSchema.parse({
+      ...deliveryEventFixture,
+      attributes: {
+        ...deliveryEventFixture.attributes,
+        dates: { role: "end", instant: "2026-09-01T09:00:00Z" },
+      },
+    });
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event).toMatchObject({
+      kind: "task",
+      temporalStatus: "ambiguous",
+      timeZone: null,
+      dateAmbiguity: "inconsistent-range",
+      confidence: 0.5,
+      requiresReview: true,
+    });
+    expect(event).not.toHaveProperty("endsAt");
+  });
+
+  it("never renders untrusted free-text fact values or a body aliased into them", () => {
+    const secret = "SYNTHETIC-SECRET-ALIASED-IN-FACTS-25";
+    const envelope = ingressEnvelopeSchema.parse({
+      ...transactionEventFixture,
+      sender: secret,
+      body: secret,
+      attributes: {
+        ...transactionEventFixture.attributes,
+        merchant: secret,
+        location: { label: secret, role: "merchant" },
+        reference: { kind: "transaction", value: secret },
+      },
+    });
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event?.title).toBe("USD 14.20 transaction");
+    expect(event?.summary).toBe(
+      "Amount: USD 14.20. Merchant available. Location available. Transaction reference available.",
+    );
+    expect(JSON.stringify(event)).not.toContain(secret);
+  });
+
+  it("fingerprints complete output by source and extractor version", async () => {
+    const events = extractSourceEvents(
+      normalizeSourceFacts(ingressEnvelopeSchema.parse(transactionEventFixture)),
+    );
+    const nextVersion = {
+      ...events,
+      extractorVersion: 2,
+      events: events.events.map((event) => ({ ...event, extractorVersion: 2 })),
+    };
+
+    await expect(sourceEventSetFingerprint(events)).resolves.toBe(
+      await sourceEventSetFingerprint(events),
+    );
+    await expect(sourceEventSetFingerprint(nextVersion)).resolves.not.toBe(
+      await sourceEventSetFingerprint(events),
     );
   });
 });

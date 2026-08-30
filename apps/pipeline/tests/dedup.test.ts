@@ -125,14 +125,16 @@ async function buildMessage(
   keyring: ReturnType<typeof parseKekKeyring>,
   envelopeOverrides: Partial<IngressEnvelope> = {},
   wireUserId = userId,
+  producer: "device" | "gmail-provider" = "device",
 ): Promise<IngressQueueMessage> {
   const item = envelope(envelopeOverrides);
   const acceptedAt = "2026-08-24T10:00:00.000Z";
   const rawExpiresAt = "2026-08-31T10:00:00.000Z";
   const plaintext = JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     acceptedAt,
     rawExpiresAt,
+    producer,
     envelope: item,
   });
   const encrypted = await encryptValue(
@@ -195,17 +197,31 @@ describe("processIngressMessage — local development durability", () => {
     const first = await processIngressMessage(storage, env, message);
     expect(await first.json()).toMatchObject({ accepted: true, reason: "persisted" });
     const factSet = await storage.get(`source-facts:${message.envelopeId}:v1`);
+    const eventSet = await storage.get(`source-events:${message.envelopeId}:n1:v1`);
     const factSetFingerprint = await storage.get(`fact-set-fingerprint:${message.envelopeId}`);
+    const eventSetFingerprint = await storage.get(
+      `event-set-fingerprint:${message.envelopeId}:n1:v1`,
+    );
     expect(JSON.stringify(factSet)).not.toContain("synthetic-body");
+    expect(JSON.stringify(eventSet)).not.toContain("synthetic-body");
+    expect(JSON.stringify(eventSet)).not.toContain("synthetic-subject");
     expect(factSet).toMatchObject({ sourceItemId: message.envelopeId, normalizerVersion: 1 });
+    expect(eventSet).toMatchObject({
+      sourceItemId: message.envelopeId,
+      normalizerVersion: 1,
+      extractorVersion: 1,
+    });
     expect(factSetFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+    expect(eventSetFingerprint).toMatch(/^[0-9a-f]{64}$/u);
     expect(mocks.put).toHaveBeenCalledOnce();
     const [localRecords] = mocks.put.mock.calls[0] as [Record<string, unknown>];
     expect(Object.keys(localRecords)).toEqual(
       expect.arrayContaining([
         `source-item:${message.envelopeId}`,
         `source-facts:${message.envelopeId}:v1`,
+        `source-events:${message.envelopeId}:n1:v1`,
         `fact-set-fingerprint:${message.envelopeId}`,
+        `event-set-fingerprint:${message.envelopeId}:n1:v1`,
         `source-binding:${message.envelopeId}`,
       ]),
     );
@@ -341,6 +357,107 @@ describe("processIngressMessage — local development durability", () => {
       failureCode: "fact_integrity_conflict",
     });
   });
+
+  it("backfills events before upgrading an exact legacy fact-only binding", async () => {
+    const { keyring, serialized } = keyMaterial();
+    const env = localEnv(serialized);
+    const { storage, mocks } = fakeStorage();
+    const message = await buildMessage(keyring, { attributes: { amount: "14.20" } });
+
+    await processIngressMessage(storage, env, message);
+    const firstRecords = mocks.put.mock.calls[0]?.[0] as Record<string, unknown>;
+    const sourceBindingKey = `source-binding:${message.envelopeId}`;
+    const binding = firstRecords[sourceBindingKey] as Record<string, unknown>;
+    const legacyMarker = {
+      factSetFingerprint: binding.factSetFingerprint,
+      sourceItemId: binding.sourceItemId,
+    };
+    const identityKey = Object.keys(firstRecords).find((key) => key.startsWith("source:["));
+    const fingerprintKey = Object.keys(firstRecords).find((key) => key.startsWith("fingerprint:"));
+    if (identityKey === undefined || fingerprintKey === undefined) {
+      throw new TypeError("Expected complete source markers");
+    }
+    await storage.put({
+      [identityKey]: legacyMarker,
+      [fingerprintKey]: legacyMarker,
+      [sourceBindingKey]: {
+        ...legacyMarker,
+        contentFingerprint: binding.contentFingerprint,
+        sourceIdentity: binding.sourceIdentity,
+      },
+    });
+    await storage.delete([
+      `event-set-fingerprint:${message.envelopeId}:n1:v1`,
+      `source-events:${message.envelopeId}:n1:v1`,
+    ]);
+    mocks.put.mockClear();
+
+    const response = await processIngressMessage(storage, env, message);
+
+    expect(await response.json()).toEqual({ accepted: true, reason: "persisted" });
+    expect(await storage.get(`source-events:${message.envelopeId}:n1:v1`)).toMatchObject({
+      extractorVersion: 1,
+      sourceItemId: message.envelopeId,
+    });
+    const upgradedBinding = await storage.get<Record<string, unknown>>(sourceBindingKey);
+    expect(upgradedBinding).toMatchObject({
+      extractorVersion: 1,
+      normalizerVersion: 1,
+    });
+    expect(upgradedBinding?.eventSetFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+  });
+
+  it("backfills when a complete marker belongs to another extractor version", async () => {
+    const { keyring, serialized } = keyMaterial();
+    const env = localEnv(serialized);
+    const { storage, mocks } = fakeStorage();
+    const message = await buildMessage(keyring, { attributes: { amount: "14.20" } });
+
+    await processIngressMessage(storage, env, message);
+    const firstRecords = mocks.put.mock.calls[0]?.[0] as Record<string, unknown>;
+    const sourceBindingKey = `source-binding:${message.envelopeId}`;
+    const binding = firstRecords[sourceBindingKey] as Record<string, unknown>;
+    const previousMarker = {
+      eventSetFingerprint: "0".repeat(64),
+      extractorVersion: 2,
+      factSetFingerprint: binding.factSetFingerprint,
+      normalizerVersion: 1,
+      sourceItemId: binding.sourceItemId,
+    };
+    const identityKey = Object.keys(firstRecords).find((key) => key.startsWith("source:["));
+    const fingerprintKey = Object.keys(firstRecords).find((key) => key.startsWith("fingerprint:"));
+    if (identityKey === undefined || fingerprintKey === undefined) {
+      throw new TypeError("Expected complete source markers");
+    }
+    await storage.put({
+      [identityKey]: previousMarker,
+      [fingerprintKey]: previousMarker,
+      [sourceBindingKey]: {
+        ...previousMarker,
+        contentFingerprint: binding.contentFingerprint,
+        sourceIdentity: binding.sourceIdentity,
+      },
+    });
+    mocks.put.mockClear();
+
+    const existing = await processIngressMessage(storage, env, message);
+    expect(await existing.json()).toEqual({ accepted: false, reason: "duplicate" });
+    expect(mocks.put).not.toHaveBeenCalled();
+
+    await storage.delete([
+      `event-set-fingerprint:${message.envelopeId}:n1:v1`,
+      `source-events:${message.envelopeId}:n1:v1`,
+    ]);
+    mocks.put.mockClear();
+
+    const response = await processIngressMessage(storage, env, message);
+
+    expect(await response.json()).toEqual({ accepted: true, reason: "persisted" });
+    expect(await storage.get(sourceBindingKey)).toMatchObject({
+      extractorVersion: 1,
+      normalizerVersion: 1,
+    });
+  });
 });
 
 describe("processIngressMessage — Supabase-backed persistence", () => {
@@ -416,6 +533,60 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     ).rejects.toThrow();
   });
 
+  it("uses connection-bound v4 persistence only for validated Gmail account UUID", async () => {
+    const { keyring, serialized } = keyMaterial();
+    const connectionId = "06f96f7d-3e1a-4a66-b98e-58be9766b96e";
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => {
+      void _input;
+      void _init;
+      return Promise.resolve(Response.json("stored"));
+    });
+    const { env } = supabaseEnv(serialized, fetchMock);
+    const { storage } = fakeStorage();
+    const message = await buildMessage(
+      keyring,
+      { source: { kind: "gmail", externalId: "message-1", accountId: connectionId } },
+      userId,
+      "gmail-provider",
+    );
+
+    const response = await processIngressMessage(storage, env, message);
+
+    expect(response.ok).toBe(true);
+    const sourceCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input).endsWith("persist_encrypted_source_item_v4"),
+    );
+    if (typeof sourceCall?.[1]?.body !== "string") throw new TypeError("Expected v4 JSON request");
+    expect(JSON.parse(sourceCall[1].body)).toMatchObject({
+      p_connection_id: connectionId,
+      p_source: "gmail",
+      p_source_account_id: connectionId,
+      p_user_id: userId,
+    });
+  });
+
+  it("rejects encrypted device provenance that claims reserved Gmail source", async () => {
+    const { keyring, serialized } = keyMaterial();
+    const fetchMock = vi.fn();
+    const { env } = supabaseEnv(serialized, fetchMock);
+    const message = await buildMessage(keyring, {
+      source: {
+        kind: "gmail",
+        externalId: "message-1",
+        accountId: "06f96f7d-3e1a-4a66-b98e-58be9766b96e",
+      },
+    });
+
+    const response = await processIngressMessage(fakeStorage().storage, env, message);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      accepted: false,
+      failureCode: "envelope_invalid",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("is exactly one durable row even if the local cache race is lost entirely", async () => {
     // Two Queue deliveries land close enough together that BOTH read the local identity/fingerprint
     // cache before either has written it — the worst case for the DO-local fast path, forced here
@@ -427,13 +598,18 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     let sourceCalls = 0;
     let factCalls = 0;
+    let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       if (requestUrl(input).endsWith("persist_encrypted_source_item_v3")) {
         sourceCalls += 1;
         return Promise.resolve(Response.json(sourceCalls === 1 ? "stored" : "duplicate"));
       }
-      factCalls += 1;
-      return Promise.resolve(Response.json(factCalls === 1 ? "stored" : "duplicate"));
+      if (requestUrl(input).endsWith("persist_source_facts")) {
+        factCalls += 1;
+        return Promise.resolve(Response.json(factCalls === 1 ? "stored" : "duplicate"));
+      }
+      eventCalls += 1;
+      return Promise.resolve(Response.json(eventCalls === 1 ? "stored" : "duplicate"));
     });
     const { env } = supabaseEnv(serialized, fetchMock);
     const message = await buildMessage(keyring, {});
@@ -446,15 +622,21 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     expect(results).toContainEqual({ accepted: true, reason: "persisted" });
     expect(results).toContainEqual({ accepted: false, reason: "duplicate" });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect([sourceCalls, factCalls, eventCalls]).toEqual([2, 2, 2]);
     vi.unstubAllGlobals();
   });
 
   it("reconciles a lost HTTP response after the database already committed", async () => {
     const { keyring, serialized } = keyMaterial();
     let sourceCalls = 0;
+    let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       if (requestUrl(input).endsWith("persist_source_facts")) {
+        return Promise.resolve(Response.json("stored"));
+      }
+      if (requestUrl(input).endsWith("persist_source_events")) {
+        eventCalls += 1;
         return Promise.resolve(Response.json("stored"));
       }
       sourceCalls += 1;
@@ -474,7 +656,8 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     const retried = await processIngressMessage(storage, env, message);
     expect(await retried.json()).toEqual({ accepted: false, reason: "duplicate" });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect([sourceCalls, eventCalls]).toEqual([2, 1]);
     vi.unstubAllGlobals();
   });
 
@@ -482,16 +665,21 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     const { keyring, serialized } = keyMaterial();
     let sourceCalls = 0;
     let factCalls = 0;
+    let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       if (requestUrl(input).endsWith("persist_encrypted_source_item_v3")) {
         sourceCalls += 1;
         return Promise.resolve(Response.json(sourceCalls === 1 ? "stored" : "duplicate"));
       }
-      factCalls += 1;
-      if (factCalls === 1) {
-        return Promise.reject(new TypeError("synthetic fact response lost after commit"));
+      if (requestUrl(input).endsWith("persist_source_facts")) {
+        factCalls += 1;
+        if (factCalls === 1) {
+          return Promise.reject(new TypeError("synthetic fact response lost after commit"));
+        }
+        return Promise.resolve(Response.json("duplicate"));
       }
-      return Promise.resolve(Response.json("duplicate"));
+      eventCalls += 1;
+      return Promise.resolve(Response.json("stored"));
     });
     const { env } = supabaseEnv(serialized, fetchMock);
     const { storage, mocks } = fakeStorage();
@@ -509,7 +697,47 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     const retried = await processIngressMessage(storage, env, message);
     expect(await retried.json()).toEqual({ accepted: false, reason: "duplicate" });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect([sourceCalls, factCalls, eventCalls]).toEqual([2, 2, 1]);
+    vi.unstubAllGlobals();
+  });
+
+  it("retries safely after the event RPC commits but its response is lost", async () => {
+    const { keyring, serialized } = keyMaterial();
+    let sourceCalls = 0;
+    let factCalls = 0;
+    let eventCalls = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (requestUrl(input).endsWith("persist_encrypted_source_item_v3")) {
+        sourceCalls += 1;
+        return Promise.resolve(Response.json(sourceCalls === 1 ? "stored" : "duplicate"));
+      }
+      if (requestUrl(input).endsWith("persist_source_facts")) {
+        factCalls += 1;
+        return Promise.resolve(Response.json(factCalls === 1 ? "stored" : "duplicate"));
+      }
+      eventCalls += 1;
+      if (eventCalls === 1) {
+        return Promise.reject(new TypeError("synthetic event response lost after commit"));
+      }
+      return Promise.resolve(Response.json("duplicate"));
+    });
+    const { env } = supabaseEnv(serialized, fetchMock);
+    const { storage, mocks } = fakeStorage();
+    const message = await buildMessage(keyring, {
+      attributes: { amount: "14.20", currency: "USD", merchant: "Example Station" },
+    });
+
+    const lost = await processIngressMessage(storage, env, message);
+    expect(await lost.json()).toEqual({
+      accepted: false,
+      failureCode: "persistence_unavailable",
+    });
+    expect(mocks.put).not.toHaveBeenCalled();
+
+    const retried = await processIngressMessage(storage, env, message);
+    expect(await retried.json()).toEqual({ accepted: false, reason: "duplicate" });
+    expect([sourceCalls, factCalls, eventCalls]).toEqual([2, 2, 2]);
     vi.unstubAllGlobals();
   });
 
@@ -518,6 +746,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     const { storage, mocks } = fakeStorage({ forceMiss: true });
     let sourceCalls = 0;
     let factCalls = 0;
+    let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       if (requestUrl(input).endsWith("persist_encrypted_source_item_v3")) {
         sourceCalls += 1;
@@ -525,7 +754,11 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
           Response.json(sourceCalls === 1 ? "stored" : "fact-integrity-conflict"),
         );
       }
-      factCalls += 1;
+      if (requestUrl(input).endsWith("persist_source_facts")) {
+        factCalls += 1;
+        return Promise.resolve(Response.json("stored"));
+      }
+      eventCalls += 1;
       return Promise.resolve(Response.json("stored"));
     });
     const { env } = supabaseEnv(serialized, fetchMock);
@@ -548,6 +781,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     });
     expect(sourceCalls).toBe(2);
     expect(factCalls).toBe(1);
+    expect(eventCalls).toBe(1);
     expect(mocks.put).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
@@ -639,6 +873,9 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
       sender: "sensitive-sender@example.test",
       subject: "sensitive subject line",
       body: "sensitive body content",
+      attributes: {
+        reference: { kind: "other", value: "SYNTHETIC-SECRET-REFERENCE-25" },
+      },
     });
 
     await processIngressMessage(storage, env, message);
@@ -651,8 +888,14 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     const factCall = fetchMock.mock.calls.find(([input]) =>
       requestUrl(input).endsWith("persist_source_facts"),
     );
+    const eventCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input).endsWith("persist_source_events"),
+    );
     expect(JSON.stringify(factCall?.[1]?.body)).not.toContain("sensitive body content");
     expect(JSON.stringify(factCall?.[1]?.body)).not.toContain("sensitive subject line");
+    expect(JSON.stringify(eventCall?.[1]?.body)).not.toContain("sensitive body content");
+    expect(JSON.stringify(eventCall?.[1]?.body)).not.toContain("sensitive subject line");
+    expect(JSON.stringify(eventCall?.[1]?.body)).not.toContain("SYNTHETIC-SECRET-REFERENCE-25");
     vi.unstubAllGlobals();
   });
 

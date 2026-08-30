@@ -303,6 +303,41 @@ function assertFactRows(rows, fixture) {
   requireCondition(!serialized.includes(fixture.body), "Raw body appeared in structured facts");
 }
 
+function assertEventRows(rows, fixture) {
+  requireCondition(rows.length === 1, "Synthetic event row was not durable");
+  const event = rows[0];
+  requireCondition(
+    event.source_item_id === fixture.id &&
+      event.normalizer_version === 1 &&
+      event.extractor_version === 1 &&
+      event.ordinal === 0 &&
+      event.kind === "fact",
+    "Synthetic event lacks versioned source identity",
+  );
+  requireCondition(
+    event.title === "USD 14.20 transaction" &&
+      event.summary === "Amount: USD 14.20. Merchant available.",
+    "Synthetic event title or summary differs",
+  );
+  requireCondition(
+    event.confidence === 0.95 &&
+      event.requires_review === false &&
+      event.temporal_status === "none" &&
+      event.time_zone === null,
+    "Synthetic event confidence or time policy differs",
+  );
+  requireCondition(
+    typeof event.event_set_fingerprint === "string" &&
+      /^[0-9a-f]{64}$/u.test(event.event_set_fingerprint) &&
+      Array.isArray(event.provenance) &&
+      event.provenance.length > 0,
+    "Synthetic event fingerprint or provenance is missing",
+  );
+  const serialized = JSON.stringify(rows);
+  requireCondition(!serialized.includes(fixture.subject), "Subject appeared in event output");
+  requireCondition(!serialized.includes(fixture.body), "Raw body appeared in event output");
+}
+
 function assertLogsContainNoSensitiveData() {
   for (const running of children) {
     if (running.privacyViolation) throw new Error("Sensitive fixture appeared in process logs");
@@ -445,6 +480,12 @@ async function main() {
     `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=source_item_id,normalizer_version,ordinal,kind,certainty,value,provenance&order=ordinal.asc`,
   );
   assertFactRows(factRows, fixture);
+  const eventRows = await tableRows(
+    status,
+    "relay_events",
+    `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=source_item_id,normalizer_version,extractor_version,ordinal,event_set_fingerprint,kind,title,summary,confidence,requires_review,temporal_status,time_zone,provenance`,
+  );
+  assertEventRows(eventRows, fixture);
 
   stage = "source duplicate rejection";
   await sendIngress(fixture, userId);
@@ -459,6 +500,15 @@ async function main() {
     `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=id`,
   );
   requireCondition(retriedFactRows.length === 6, "Duplicate ingress created additional fact rows");
+  const retriedEventRows = await tableRows(
+    status,
+    "relay_events",
+    `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=id`,
+  );
+  requireCondition(
+    retriedEventRows.length === 1,
+    "Duplicate ingress created additional event rows",
+  );
 
   stage = "fingerprint duplicate rejection";
   const fingerprintDuplicate = {
@@ -664,6 +714,12 @@ async function main() {
     `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=id`,
   );
   requireCondition(retainedFactRows.length === 6, "Raw retention cleanup removed derived facts");
+  const retainedEventRows = await tableRows(
+    status,
+    "relay_events",
+    `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=id`,
+  );
+  requireCondition(retainedEventRows.length === 1, "Raw retention cleanup removed derived event");
 }
 
 let completed = false;
@@ -708,6 +764,6 @@ try {
 
 if (completed && process.exitCode !== 1) {
   globalThis.console.log(
-    "Local E2E passed: encrypted persistence, typed facts, deduplication, DLQ recovery, replay, and retention cleanup",
+    "Local E2E passed: encrypted persistence, typed facts/events, deduplication, DLQ recovery, replay, and retention cleanup",
   );
 }

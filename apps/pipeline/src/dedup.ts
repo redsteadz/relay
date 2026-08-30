@@ -1,18 +1,23 @@
 import {
+  canonicalUuidSchema,
   ingressQueueMessageSchema,
   relayUserIdSchema,
   type DeadLetterFailureCode,
   type IngressEnvelope,
+  type SourceEventSet,
   type SourceFactSet,
 } from "@relay/contracts";
 import { decryptValue, encryptValue } from "@relay/crypto";
 import {
   contentFingerprint,
+  extractSourceEvents,
   normalizeSourceFacts,
+  sourceEventSetFingerprint,
   sourceFactSetFingerprint,
   sourceIdentity,
 } from "@relay/domain";
 
+import { scheduleEarlierAlarm } from "./alarms";
 import {
   readPersistenceConfiguration,
   supabaseBackendHeaders,
@@ -20,6 +25,7 @@ import {
 } from "./configuration";
 import { base64ToPostgresBytea, sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
+import { EventPersistenceError, persistSourceEventSet } from "./events";
 import { FactPersistenceError, persistSourceFactSet } from "./facts";
 import { recordPipelineMetric } from "./metrics";
 import {
@@ -42,17 +48,25 @@ type LocalSourceRecord = {
   expiresAt: number;
 };
 
-type DurableDedupMarker = {
+type DurableFactDedupMarker = {
   factSetFingerprint: string;
   sourceItemId: string;
 };
 
-type DurableSourceBinding = DurableDedupMarker & {
+type DurableDedupMarker = DurableFactDedupMarker & {
+  eventSetFingerprint: string;
+  extractorVersion: number;
+  normalizerVersion: number;
+};
+
+type DurableFactSourceBinding = DurableFactDedupMarker & {
   contentFingerprint: string;
   sourceIdentity: string;
 };
 
-function durableDedupMarker(value: unknown): DurableDedupMarker | undefined {
+type DurableSourceBinding = DurableFactSourceBinding & DurableDedupMarker;
+
+function durableFactDedupMarker(value: unknown): DurableFactDedupMarker | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const marker = value as Record<string, unknown>;
   return typeof marker.factSetFingerprint === "string" && typeof marker.sourceItemId === "string"
@@ -60,8 +74,24 @@ function durableDedupMarker(value: unknown): DurableDedupMarker | undefined {
     : undefined;
 }
 
-function durableSourceBinding(value: unknown): DurableSourceBinding | undefined {
-  const marker = durableDedupMarker(value);
+function durableDedupMarker(value: unknown): DurableDedupMarker | undefined {
+  const marker = durableFactDedupMarker(value);
+  if (marker === undefined || typeof value !== "object" || value === null) return undefined;
+  const eventMarker = value as Record<string, unknown>;
+  return typeof eventMarker.eventSetFingerprint === "string" &&
+    typeof eventMarker.extractorVersion === "number" &&
+    typeof eventMarker.normalizerVersion === "number"
+    ? {
+        ...marker,
+        eventSetFingerprint: eventMarker.eventSetFingerprint,
+        extractorVersion: eventMarker.extractorVersion,
+        normalizerVersion: eventMarker.normalizerVersion,
+      }
+    : undefined;
+}
+
+function durableFactSourceBinding(value: unknown): DurableFactSourceBinding | undefined {
+  const marker = durableFactDedupMarker(value);
   if (marker === undefined || typeof value !== "object" || value === null) return undefined;
   const binding = value as Record<string, unknown>;
   return typeof binding.contentFingerprint === "string" &&
@@ -72,6 +102,12 @@ function durableSourceBinding(value: unknown): DurableSourceBinding | undefined 
         sourceIdentity: binding.sourceIdentity,
       }
     : undefined;
+}
+
+function durableSourceBinding(value: unknown): DurableSourceBinding | undefined {
+  const marker = durableDedupMarker(value);
+  const binding = durableFactSourceBinding(value);
+  return marker === undefined || binding === undefined ? undefined : { ...binding, ...marker };
 }
 
 export const E2E_RESULT_PREFIX = "e2e-result:";
@@ -146,33 +182,42 @@ async function persist(
 ): Promise<SourcePersistenceV3Result | "local"> {
   if (configuration.supabase === undefined) return "local";
 
-  const response = await fetch(
-    `${configuration.supabase.url}/rest/v1/rpc/persist_encrypted_source_item_v3`,
-    {
-      method: "POST",
-      headers: supabaseBackendHeaders(configuration.supabase.serviceRoleKey),
-      body: JSON.stringify({
-        p_application_id: envelope.source.applicationId ?? null,
-        p_accepted_at: message.acceptedAt,
-        p_captured_at: envelope.capturedAt,
-        p_content_fingerprint: fingerprint,
-        p_encryption_environment: configuration.environment,
-        p_external_id: envelope.source.externalId,
-        p_fact_set_fingerprint: factSetFingerprint,
-        p_id: envelope.id,
-        p_key_version: encrypted.keyVersion,
-        p_occurred_at: envelope.occurredAt,
-        p_raw_ciphertext: base64ToPostgresBytea(encrypted.ciphertext),
-        p_raw_expires_at: message.rawExpiresAt,
-        p_raw_nonce: base64ToPostgresBytea(encrypted.nonce),
-        p_source: envelope.source.kind,
-        p_source_account_id: envelope.source.accountId ?? null,
-        p_user_id: userId,
-        p_wrap_nonce: base64ToPostgresBytea(encrypted.wrapNonce),
-        p_wrapped_data_key: base64ToPostgresBytea(encrypted.wrappedKey),
-      }),
-    },
-  );
+  const gmailConnectionId =
+    envelope.source.kind === "gmail"
+      ? canonicalUuidSchema.safeParse(envelope.source.accountId)
+      : undefined;
+  if (gmailConnectionId !== undefined && !gmailConnectionId.success) {
+    throw new SourcePersistenceError("tenant_id_conflict");
+  }
+  const rpc = gmailConnectionId?.success
+    ? "persist_encrypted_source_item_v4"
+    : "persist_encrypted_source_item_v3";
+
+  const response = await fetch(`${configuration.supabase.url}/rest/v1/rpc/${rpc}`, {
+    method: "POST",
+    headers: supabaseBackendHeaders(configuration.supabase.serviceRoleKey),
+    body: JSON.stringify({
+      p_application_id: envelope.source.applicationId ?? null,
+      p_accepted_at: message.acceptedAt,
+      p_captured_at: envelope.capturedAt,
+      ...(gmailConnectionId?.success ? { p_connection_id: gmailConnectionId.data } : {}),
+      p_content_fingerprint: fingerprint,
+      p_encryption_environment: configuration.environment,
+      p_external_id: envelope.source.externalId,
+      p_fact_set_fingerprint: factSetFingerprint,
+      p_id: envelope.id,
+      p_key_version: encrypted.keyVersion,
+      p_occurred_at: envelope.occurredAt,
+      p_raw_ciphertext: base64ToPostgresBytea(encrypted.ciphertext),
+      p_raw_expires_at: message.rawExpiresAt,
+      p_raw_nonce: base64ToPostgresBytea(encrypted.nonce),
+      p_source: envelope.source.kind,
+      p_source_account_id: envelope.source.accountId ?? null,
+      p_user_id: userId,
+      p_wrap_nonce: base64ToPostgresBytea(encrypted.wrapNonce),
+      p_wrapped_data_key: base64ToPostgresBytea(encrypted.wrappedKey),
+    }),
+  });
 
   return parseSourcePersistenceV3Response(response);
 }
@@ -181,13 +226,14 @@ async function persist(
  * Processes one ingress Queue message inside a tenant's serialized Durable Object turn.
  *
  * Dedup has two layers, matching `docs/architecture/data-flow.md`:
- *  - DO-local storage cache (`source:`/`fingerprint:`/`fact-set-fingerprint:`/`source-binding:` keys)
- *    is a fast path that survives DO restarts. New markers bind source ID to source identity, content
- *    fingerprint, and fact-set digest; legacy unbound markers fall through to Postgres rather than
- *    deciding duplicates.
+ *  - DO-local storage cache (`source:`/`fingerprint:`/fact/event fingerprints/`source-binding:` keys)
+ *    is a fast path that survives DO restarts. Complete markers bind source ID to source identity,
+ *    content fingerprint, fact digest, and versioned event digest. Exact legacy fact-only bindings
+ *    fall through for event backfill; unbound markers never decide completion.
  *  - Supabase unique constraints on `source_items` remain final arbitration. A message that reaches
- *    `persist` after a lost response re-derives both fingerprints. Exact same-ID retries may populate
- *    bound markers only after fact persistence converges; duplicates under another source ID do not.
+ *    `persist` after a lost response re-derives every fingerprint. Exact same-ID retries may populate
+ *    bound markers only after fact and event persistence converge; duplicates under another source ID
+ *    do not.
  */
 export async function processIngressMessage(
   storage: DurableObjectStorage,
@@ -228,25 +274,32 @@ export async function processIngressMessage(
   const fingerprint = await contentFingerprint(envelope);
   let factSet: SourceFactSet;
   let factSetFingerprint: string;
+  let eventSet: SourceEventSet;
+  let eventSetFingerprint: string;
   try {
     factSet = normalizeSourceFacts(envelope);
     factSetFingerprint = await sourceFactSetFingerprint(factSet);
+    eventSet = extractSourceEvents(factSet);
+    eventSetFingerprint = await sourceEventSetFingerprint(eventSet);
   } catch {
     return failureResponse("persistence_response_invalid");
   }
   const identityKey = `source:${identity}`;
   const fingerprintKey = `fingerprint:${fingerprint}`;
   const factSetFingerprintKey = `fact-set-fingerprint:${envelope.id}`;
+  const eventSetFingerprintKey = `event-set-fingerprint:${envelope.id}:n${eventSet.normalizerVersion}:v${eventSet.extractorVersion}`;
   const sourceBindingKey = `source-binding:${envelope.id}`;
   const localSourceKey = `source-item:${envelope.id}`;
   const [
     storedFactSetFingerprint,
+    storedEventSetFingerprint,
     sourceBindingValue,
     seenIdentityValue,
     seenFingerprintValue,
     localSource,
   ] = await Promise.all([
     storage.get(factSetFingerprintKey),
+    storage.get(eventSetFingerprintKey),
     storage.get(sourceBindingKey),
     storage.get(identityKey),
     storage.get(fingerprintKey),
@@ -269,23 +322,46 @@ export async function processIngressMessage(
     );
     return Response.json({ accepted: false, reason: "duplicate" });
   };
+  let needsEventBackfill = false;
   if (sourceBindingValue !== undefined) {
-    const sourceBinding = durableSourceBinding(sourceBindingValue);
+    const factBinding = durableFactSourceBinding(sourceBindingValue);
     if (
-      sourceBinding === undefined ||
-      sourceBinding.sourceItemId !== envelope.id ||
-      sourceBinding.sourceIdentity !== identity ||
-      sourceBinding.contentFingerprint !== fingerprint ||
-      sourceBinding.factSetFingerprint !== factSetFingerprint ||
+      factBinding === undefined ||
+      factBinding.sourceItemId !== envelope.id ||
+      factBinding.sourceIdentity !== identity ||
+      factBinding.contentFingerprint !== fingerprint ||
+      factBinding.factSetFingerprint !== factSetFingerprint ||
       typeof storedFactSetFingerprint !== "string" ||
       storedFactSetFingerprint !== factSetFingerprint
     ) {
       return failureResponse("fact_integrity_conflict");
     }
-    return duplicateResponse("duplicate-source");
+    const sourceBinding = durableSourceBinding(sourceBindingValue);
+    if (sourceBinding !== undefined) {
+      if (
+        sourceBinding.extractorVersion === eventSet.extractorVersion &&
+        sourceBinding.normalizerVersion === eventSet.normalizerVersion
+      ) {
+        if (
+          sourceBinding.eventSetFingerprint !== eventSetFingerprint ||
+          storedEventSetFingerprint !== eventSetFingerprint
+        ) {
+          return failureResponse("event_integrity_conflict");
+        }
+        return duplicateResponse("duplicate-source");
+      }
+      if (storedEventSetFingerprint !== undefined) {
+        return storedEventSetFingerprint === eventSetFingerprint
+          ? duplicateResponse("duplicate-source")
+          : failureResponse("event_integrity_conflict");
+      }
+    }
+    needsEventBackfill = true;
   }
-  if (storedFactSetFingerprint !== undefined) return failureResponse("fact_integrity_conflict");
-  const seenIdentity = durableDedupMarker(seenIdentityValue);
+  if (storedFactSetFingerprint !== undefined && !needsEventBackfill) {
+    return failureResponse("fact_integrity_conflict");
+  }
+  const seenIdentity = needsEventBackfill ? undefined : durableDedupMarker(seenIdentityValue);
   if (seenIdentity !== undefined) {
     if (
       seenIdentity.sourceItemId === envelope.id &&
@@ -293,9 +369,17 @@ export async function processIngressMessage(
     ) {
       return failureResponse("fact_integrity_conflict");
     }
+    if (
+      seenIdentity.sourceItemId === envelope.id &&
+      (seenIdentity.eventSetFingerprint !== eventSetFingerprint ||
+        seenIdentity.extractorVersion !== eventSet.extractorVersion ||
+        seenIdentity.normalizerVersion !== eventSet.normalizerVersion)
+    ) {
+      return failureResponse("event_integrity_conflict");
+    }
     return duplicateResponse("duplicate-source");
   }
-  const seenFingerprint = durableDedupMarker(seenFingerprintValue);
+  const seenFingerprint = needsEventBackfill ? undefined : durableDedupMarker(seenFingerprintValue);
   if (seenFingerprint !== undefined) {
     if (
       seenFingerprint.sourceItemId === envelope.id &&
@@ -303,10 +387,20 @@ export async function processIngressMessage(
     ) {
       return failureResponse("fact_integrity_conflict");
     }
+    if (
+      seenFingerprint.sourceItemId === envelope.id &&
+      (seenFingerprint.eventSetFingerprint !== eventSetFingerprint ||
+        seenFingerprint.extractorVersion !== eventSet.extractorVersion ||
+        seenFingerprint.normalizerVersion !== eventSet.normalizerVersion)
+    ) {
+      return failureResponse("event_integrity_conflict");
+    }
     return duplicateResponse("duplicate-fingerprint");
   }
   if (configuration.supabase === undefined && localSource !== undefined) {
-    return failureResponse("fact_integrity_conflict");
+    if (durableFactSourceBinding(sourceBindingValue) === undefined) {
+      return failureResponse("fact_integrity_conflict");
+    }
   }
 
   let durableEncrypted = message.encrypted;
@@ -384,6 +478,56 @@ export async function processIngressMessage(
     );
     return failureResponse("fact_integrity_conflict");
   }
+  let eventPersistence:
+    | "duplicate"
+    | "event-integrity-conflict"
+    | "facts-missing"
+    | "local"
+    | "source-missing"
+    | "stored";
+  if (factPersistence === "source-missing" && persistence === "duplicate") {
+    eventPersistence = "source-missing";
+  } else {
+    try {
+      eventPersistence = await persistSourceEventSet(
+        configuration,
+        userId.data,
+        eventSet,
+        factSetFingerprint,
+        eventSetFingerprint,
+      );
+    } catch (error) {
+      recordPipelineMetric(
+        env.PIPELINE_METRICS,
+        "source_item_failed",
+        1,
+        performance.now() - startedAt,
+      );
+      if (!(error instanceof EventPersistenceError)) {
+        return failureResponse("persistence_unavailable");
+      }
+      return failureResponse(
+        error.reason === "event_persistence_conflict"
+          ? "event_integrity_conflict"
+          : error.reason === "event_persistence_response_invalid"
+            ? "persistence_response_invalid"
+            : "persistence_unavailable",
+      );
+    }
+  }
+  if (
+    eventPersistence === "event-integrity-conflict" ||
+    eventPersistence === "facts-missing" ||
+    (eventPersistence === "source-missing" && persistence === "stored")
+  ) {
+    recordPipelineMetric(
+      env.PIPELINE_METRICS,
+      "source_item_failed",
+      1,
+      performance.now() - startedAt,
+    );
+    return failureResponse("event_integrity_conflict");
+  }
   recordPipelineMetric(
     env.PIPELINE_METRICS,
     persistence === "duplicate" ? "source_item_duplicate" : "source_item_persisted",
@@ -391,8 +535,17 @@ export async function processIngressMessage(
     performance.now() - startedAt,
   );
   const records: Record<string, unknown> = {};
-  if (persistence !== "duplicate" || factPersistence !== "source-missing") {
-    const marker = { factSetFingerprint, sourceItemId: envelope.id } satisfies DurableDedupMarker;
+  if (
+    (persistence !== "duplicate" || factPersistence !== "source-missing") &&
+    eventPersistence !== "source-missing"
+  ) {
+    const marker = {
+      eventSetFingerprint,
+      extractorVersion: eventSet.extractorVersion,
+      factSetFingerprint,
+      normalizerVersion: eventSet.normalizerVersion,
+      sourceItemId: envelope.id,
+    } satisfies DurableDedupMarker;
     const sourceBinding = {
       ...marker,
       contentFingerprint: fingerprint,
@@ -401,14 +554,17 @@ export async function processIngressMessage(
     records[identityKey] = marker;
     records[fingerprintKey] = marker;
     records[factSetFingerprintKey] = factSetFingerprint;
+    records[eventSetFingerprintKey] = eventSetFingerprint;
     records[sourceBindingKey] = sourceBinding;
   }
   if (persistence === "local") {
     const expiresAt = Date.parse(message.rawExpiresAt);
     records[localSourceKey] = { encrypted: durableEncrypted, expiresAt };
     records[`source-facts:${envelope.id}:v${factSet.normalizerVersion}`] = factSet;
-    const alarm = await storage.getAlarm();
-    if (alarm === null || alarm > expiresAt) await storage.setAlarm(expiresAt);
+    records[
+      `source-events:${envelope.id}:n${eventSet.normalizerVersion}:v${eventSet.extractorVersion}`
+    ] = eventSet;
+    await scheduleEarlierAlarm(storage, expiresAt);
   }
   if (env.RELAY_E2E_MODE === "true") {
     records[`${E2E_RESULT_PREFIX}${envelope.id}`] = {
@@ -434,5 +590,5 @@ export async function runMaintenanceAlarm(storage: DurableObjectStorage): Promis
     else nextExpiry = Math.min(nextExpiry ?? record.expiresAt, record.expiresAt);
   }
   if (expired.length > 0) await storage.delete(expired);
-  if (nextExpiry !== undefined) await storage.setAlarm(nextExpiry);
+  if (nextExpiry !== undefined) await scheduleEarlierAlarm(storage, nextExpiry);
 }
