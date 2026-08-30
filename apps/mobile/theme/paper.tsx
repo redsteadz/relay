@@ -1,7 +1,8 @@
 import type { PropsWithChildren } from "react";
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useColorScheme } from "react-native";
 import {
+  configureFonts,
   MD3DarkTheme,
   MD3LightTheme,
   PaperProvider,
@@ -9,7 +10,9 @@ import {
   type MD3Theme,
 } from "react-native-paper";
 
+import { readThemePreference, writeThemePreference } from "./storage";
 import {
+  fontFamilies,
   relayTokens,
   resolveColorScheme,
   type RelayColorScheme,
@@ -36,20 +39,21 @@ export function createRelayTheme(colorScheme: RelayColorScheme): RelayTheme {
     ...base,
     dark: colorScheme === "dark",
     roundness: tokens.radii.md,
+    fonts: configureFonts({ config: { fontFamily: fontFamilies.body }, isV3: true }),
     colors: {
       ...base.colors,
-      primary: colors.accent,
-      onPrimary: colors.onAccent,
-      primaryContainer: colors.accentSubtle,
-      onPrimaryContainer: colors.onAccentSubtle,
+      primary: colors.action,
+      onPrimary: colors.onAction,
+      primaryContainer: colors.actionSubtle,
+      onPrimaryContainer: colors.onActionSubtle,
       secondary: colors.info,
-      onSecondary: colorScheme === "dark" ? colors.background : colors.onAccent,
+      onSecondary: colors.surface,
       secondaryContainer: colors.infoSurface,
       onSecondaryContainer: colors.onInfoSurface,
-      tertiary: colors.warning,
-      onTertiary: colorScheme === "dark" ? colors.background : colors.onAccent,
-      tertiaryContainer: colors.warningSurface,
-      onTertiaryContainer: colors.onWarningSurface,
+      tertiary: colors.accent,
+      onTertiary: colors.onAccent,
+      tertiaryContainer: colors.accentSubtle,
+      onTertiaryContainer: colors.onAccentSubtle,
       error: colors.danger,
       onError: colors.onDanger,
       errorContainer: colors.dangerSurface,
@@ -61,9 +65,18 @@ export function createRelayTheme(colorScheme: RelayColorScheme): RelayTheme {
       surfaceVariant: colors.surfaceRaised,
       onSurfaceVariant: colors.textMuted,
       outline: colors.border,
-      outlineVariant: colors.border,
+      outlineVariant: colors.borderSubtle,
       surfaceDisabled: colors.surfaceRaised,
       onSurfaceDisabled: colors.textMuted,
+      backdrop: colors.scrim,
+      elevation: {
+        level0: colors.surface,
+        level1: colors.surfaceRaised,
+        level2: colors.surfaceRaised,
+        level3: colors.surface,
+        level4: colors.surface,
+        level5: colors.surface,
+      },
     },
     relay: tokens,
   };
@@ -71,12 +84,29 @@ export function createRelayTheme(colorScheme: RelayColorScheme): RelayTheme {
 
 export function RelayThemeProvider({ children }: PropsWithChildren) {
   const systemScheme = useColorScheme();
-  const [preference, setPreference] = useState<ThemePreference>("system");
+  const [preference, setPreferenceState] = useState<ThemePreference>("system");
+
+  useEffect(() => {
+    let active = true;
+    void readThemePreference()
+      .then((storedPreference) => {
+        if (active) setPreferenceState(storedPreference);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const setPreference = useCallback((nextPreference: ThemePreference) => {
+    setPreferenceState(nextPreference);
+    void writeThemePreference(nextPreference).catch(() => undefined);
+  }, []);
   const colorScheme = resolveColorScheme(preference, systemScheme);
   const theme = useMemo(() => createRelayTheme(colorScheme), [colorScheme]);
   const context = useMemo(
     () => ({ colorScheme, preference, setPreference }),
-    [colorScheme, preference],
+    [colorScheme, preference, setPreference],
   );
 
   return (
