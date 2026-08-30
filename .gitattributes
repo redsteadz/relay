@@ -1,0 +1,21 @@
+# Force LF line endings for all text files across Windows and Unix checkouts
+* text=auto eol=lf
+
+# Binary media and font files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.mp4 binary
+*.webm binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+*.zip binary
+*.gz binary
+*.tar binary
