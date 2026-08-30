@@ -6,7 +6,7 @@ export type SelectionDraftState = {
 export type SelectionDraftAction =
   | { type: "add"; value: string }
   | { type: "cancel" }
-  | { type: "confirm" }
+  | { type: "confirm"; values?: string[] }
   | { type: "remove"; value: string }
   | { type: "replaceSaved"; values: string[] }
   | { type: "toggle"; value: string };
@@ -31,8 +31,10 @@ export function selectionDraftReducer(
         : { ...state, draft: [...state.draft, action.value] };
     case "cancel":
       return { ...state, draft: state.saved };
-    case "confirm":
-      return { draft: state.draft, saved: state.draft };
+    case "confirm": {
+      const saved = unique(action.values ?? state.draft);
+      return { draft: saved, saved };
+    }
     case "remove":
       return { ...state, draft: state.draft.filter((value) => value !== action.value) };
     case "replaceSaved": {

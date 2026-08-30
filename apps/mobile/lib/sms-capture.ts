@@ -40,8 +40,17 @@ type EnableSmsCaptureDependencies = {
   syncInbox: () => Promise<number>;
 };
 
+type SaveSmsSenderAllowlistDependencies = {
+  configure: (paused: boolean) => Promise<void>;
+  paused: boolean;
+  syncInbox: () => Promise<number>;
+};
+
 export type EnableSmsCaptureResult =
   { captured: number; granted: true } | { captured: 0; granted: false };
+
+export type SaveSmsSenderAllowlistResult =
+  { captured: number; inboxSync: "succeeded" } | { captured: 0; inboxSync: "failed" | "skipped" };
 
 /** Keeps provider reads paused until both Android SMS permissions have been granted. */
 export async function enableSmsCapture({
@@ -57,4 +66,20 @@ export async function enableSmsCapture({
 
   await configure(false);
   return { captured: await syncInbox(), granted: true };
+}
+
+/** Commits the allowlist first, then reports best-effort active inbox sync separately. */
+export async function saveSmsSenderAllowlist({
+  configure,
+  paused,
+  syncInbox,
+}: SaveSmsSenderAllowlistDependencies): Promise<SaveSmsSenderAllowlistResult> {
+  await configure(paused);
+  if (paused) return { captured: 0, inboxSync: "skipped" };
+
+  try {
+    return { captured: await syncInbox(), inboxSync: "succeeded" };
+  } catch {
+    return { captured: 0, inboxSync: "failed" };
+  }
 }

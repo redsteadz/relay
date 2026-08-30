@@ -22,4 +22,19 @@ describe("transactional source selection", () => {
     expect(confirmed.saved).toEqual(["one", "two"]);
     expect(selectionChanged(confirmed)).toBe(false);
   });
+
+  it("confirms the configured snapshot instead of later draft edits", () => {
+    const configured = selectionDraftReducer(createSelectionDraft(["one"]), {
+      type: "add",
+      value: "two",
+    });
+    const editedDuringSave = selectionDraftReducer(configured, { type: "add", value: "three" });
+    const confirmed = selectionDraftReducer(editedDuringSave, {
+      type: "confirm",
+      values: configured.draft,
+    });
+
+    expect(confirmed).toEqual({ draft: ["one", "two"], saved: ["one", "two"] });
+    expect(selectionChanged(confirmed)).toBe(false);
+  });
 });

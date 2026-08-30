@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -48,18 +48,21 @@ Relay queries only `Telephony.Sms.Inbox.CONTENT_URI` and allowlists the `_ID`, `
 `DATE` columns. It does not query sent messages or the general SMS collection. Sender entry can open
 Android's system phone-number picker, which grants Relay temporary access to only the selected phone
 row; Relay does not request `READ_CONTACTS` or enumerate the contacts database. The selected number
-remains a draft in the review dialog until it is saved paused or enabled and synced successfully;
-only then does it appear in the Sources screen's configured-contact list. Canceling the dialog
-discards the draft. There is no manual sender text field. Phone-like senders are compared after
-removing visual separators. On devices whose SIM, network, or locale country is Pakistan, known
-equivalent mobile forms such as `+923001234567`, `03001234567`, and `923001234567` canonicalize to
-the same `+92` value before exact comparison; unrelated short/nonnumeric senders are not fuzzily
-matched. Alphanumeric sender IDs are compared case-insensitively. At least one exact sender is
-required. The first consented sync reads inbox rows oldest-first and considers matching
-inbox rows until the encrypted queue's existing 500-item/2-MiB bound is reached. Later syncs use the
-highest observed provider `_ID` as a cursor. Changing the normalized sender set resets that cursor so
-previously skipped rows can be reconsidered under the new explicit allowlist; stable envelope IDs and
-queue deduplication prevent duplicate captures.
+remains a draft in the review dialog until save commits an exact normalized snapshot to the native
+allowlist. Paused saves stop there; active saves then run a best-effort inbox sync. After the allowlist
+commit, the configured selection remains visible in the review dialog if sync fails, and cancel or
+back does not roll it back. Relay reports that contacts were saved but existing inbox sync failed;
+Retry reruns inbox sync without changing the allowlist. Canceling still discards uncommitted draft
+edits. There is no manual sender text field. Phone-like senders are compared after removing visual
+separators. On devices whose SIM, network, or locale country is Pakistan, known equivalent mobile
+forms such as `+923001234567`, `03001234567`, and `923001234567` canonicalize to the same `+92` value
+before exact comparison; unrelated short/nonnumeric senders are not fuzzily matched. Alphanumeric
+sender IDs are compared case-insensitively. At least one exact sender is required. The first consented
+sync reads inbox rows oldest-first and considers matching inbox rows until the encrypted queue's
+existing 500-item/2-MiB bound is reached. Later syncs use the highest observed provider `_ID` as a
+cursor. Changing the normalized sender set resets that cursor so previously skipped rows can be
+reconsidered under the new explicit allowlist; stable envelope IDs and queue deduplication prevent
+duplicate captures.
 
 Provider `_ID` is the source `externalId`. The envelope UUID is deterministic over `sms`, a random
 installation-local source account UUID, and that provider ID. This prevents retries or a broadcast
@@ -126,10 +129,13 @@ app labels and the complete launchable-app list remain on device and are never l
 For authenticated captures, the selected package ID becomes `source.applicationId` provenance and is
 uploaded only with a captured envelope.
 
-Development-local diagnostics decrypt ready queue entries inside the Kotlin module, parse them
-natively, and bridge only source-specific minimized fields to the focused viewer. Notification
-previews include sender, subject, body, application ID, and capture time. Sideload SMS previews
-include sender, body, and capture time. Full decrypted envelopes remain available only to the
+Development-local diagnostics decrypt ready queue entries in pending state inside the Kotlin module,
+parse them natively, and bridge only source-specific minimized fields plus non-content queue metadata
+to the focused viewer. Notification previews include sender, subject, body, application ID, and
+capture time. Sideload SMS previews include sender, body, and capture time. Both include stable
+capture envelope ID and retry-attempt count for navigation and diagnostics. Pending status is derived
+from the native ready-row query and is not a separate bridge field. Full decrypted envelopes and all
+other envelope fields never cross the diagnostic bridge; full envelopes remain available only to the
 authenticated sync path. Polls are serialized, stale results are ignored, and preview state is
 cleared on screen blur, app backgrounding, and unmount. While the viewer is focused, Android
 `FLAG_SECURE` blocks screenshots and recent-task previews; cleanup removes the flag. No preview or
