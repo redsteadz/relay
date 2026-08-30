@@ -1,103 +1,68 @@
-import Constants from "expo-constants";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Platform } from "react-native";
+import { useRouter } from "expo-router";
+import { useState } from "react";
 
-import { NotificationCapturePanel } from "@/components/NotificationCapturePanel";
-import { SmsCapturePanel } from "@/components/SmsCapturePanel";
-import { Page } from "@/components/Page";
-import { Panel } from "@/components/Panel";
-import { AppText } from "@/components/ui";
-import { useSecureLocalCaptureScreen } from "@/hooks/useLocalCapturePreviews";
-import { useAuth } from "@/lib/auth-context";
-import { localDevelopmentAccessEnabled, notificationCaptureMode } from "@/lib/development-access";
-import RelayDeviceIngress, { type DeviceCapabilities } from "@/modules/relay-device-ingress";
-
-type ScopedCapabilities = {
-  capabilities: DeviceCapabilities;
-  stateKey: string;
-};
+import { AppScreen } from "@/components/AppScreen";
+import { StatusMessage } from "@/components/ui";
+import { SourceDisclosureDialog } from "@/features/device-capture/components/source/SourceDisclosureDialog";
+import { SourceSummaryRow } from "@/features/device-capture/components/source/SourceSummaryRow";
+import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
+import {
+  gmailStatus,
+  notificationStatus,
+  smsStatus,
+} from "@/features/device-capture/models/capturePresentation";
+import {
+  gmailDisclosure,
+  notificationDisclosure,
+  smsDisclosure,
+  sourceCatalog,
+  type SourceId,
+} from "@/features/device-capture/models/sourceCatalog";
+import {
+  sourceConfigurationRoute,
+  sourceConfigurationRoutes,
+} from "@/features/device-capture/models/sourceRoutes";
 
 export default function ConnectionsScreen() {
-  const { session } = useAuth();
-  const [scopedCapabilities, setScopedCapabilities] = useState<ScopedCapabilities>();
-  const capabilityRequestRef = useRef(0);
-  const localDevelopmentAccess = localDevelopmentAccessEnabled(
-    __DEV__,
-    Constants.expoConfig?.extra?.relayBuildVariant,
-  );
-  const captureMode = notificationCaptureMode(
-    session?.user.id,
-    localDevelopmentAccess,
-    Platform.OS,
-  );
-  const localPreview = useSecureLocalCaptureScreen(captureMode.developmentLocal);
-  const capabilities =
-    scopedCapabilities?.stateKey === captureMode.stateKey
-      ? scopedCapabilities.capabilities
-      : undefined;
-
-  const refreshCapabilities = useCallback(async () => {
-    const request = ++capabilityRequestRef.current;
-    try {
-      const nextCapabilities = await RelayDeviceIngress.getCapabilities();
-      if (request === capabilityRequestRef.current) {
-        setScopedCapabilities({ capabilities: nextCapabilities, stateKey: captureMode.stateKey });
-      }
-    } catch (error) {
-      if (request === capabilityRequestRef.current) setScopedCapabilities(undefined);
-      throw error;
-    }
-  }, [captureMode.stateKey]);
-
-  useEffect(() => {
-    let active = true;
-    const refresh = async () => {
-      try {
-        if (active) await refreshCapabilities();
-      } catch {
-        // refreshCapabilities already clears only the latest failed request.
-      }
-    };
-    void refresh();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void refresh();
-    });
-    return () => {
-      active = false;
-      capabilityRequestRef.current += 1;
-      subscription.remove();
-    };
-  }, [captureMode.stateKey, refreshCapabilities]);
+  const router = useRouter();
+  const { capabilities, error, mode } = useDeviceCaptureCapabilities();
+  const [disclosureSource, setDisclosureSource] = useState<SourceId>();
+  const disclosures = {
+    gmail: gmailDisclosure,
+    notifications: notificationDisclosure(mode.developmentLocal),
+    sms: smsDisclosure(mode.developmentLocal),
+  };
+  const statuses = {
+    gmail: gmailStatus,
+    notifications: notificationStatus(capabilities),
+    sms: smsStatus(capabilities),
+  };
 
   return (
-    <Page
+    <AppScreen
+      detail="Every source is independently authorized, minimized, and revocable."
       eyebrow="Consent boundaries"
       title="Sources"
-      detail="Every source is independently authorized, minimized, and revocable."
     >
-      <Panel title="Gmail" meta="NOT CONNECTED">
-        <AppText tone="muted">
-          Restricted-scope testing flow. Google Pub/Sub delivers mailbox cursors, not message
-          bodies.
-        </AppText>
-      </Panel>
-      <NotificationCapturePanel
-        capabilities={capabilities}
-        developmentLocal={captureMode.developmentLocal}
-        key={captureMode.stateKey}
-        localPreviewEnabled={localPreview.ready}
-        localPreviewError={localPreview.error}
-        onChanged={refreshCapabilities}
-        tenantId={captureMode.tenantId}
+      {error === undefined ? null : <StatusMessage tone="error">{error}</StatusMessage>}
+      {(Object.keys(sourceConfigurationRoutes) as SourceId[]).map((sourceId) => (
+        <SourceSummaryRow
+          disclosure
+          key={sourceId}
+          onDisclosure={() => setDisclosureSource(sourceId)}
+          onPress={() => router.push(sourceConfigurationRoute(sourceId))}
+          source={sourceCatalog[sourceId]}
+          status={statuses[sourceId]}
+        />
+      ))}
+      <SourceDisclosureDialog
+        disclosure={disclosureSource === undefined ? "" : disclosures[disclosureSource]}
+        onDismiss={() => setDisclosureSource(undefined)}
+        sourceName={
+          disclosureSource === undefined ? "Source" : sourceCatalog[disclosureSource].name
+        }
+        visible={disclosureSource !== undefined}
       />
-      <SmsCapturePanel
-        capabilities={capabilities}
-        developmentLocal={captureMode.developmentLocal}
-        localPreviewEnabled={localPreview.ready}
-        localPreviewError={localPreview.error}
-        onChanged={refreshCapabilities}
-        tenantId={captureMode.tenantId}
-      />
-    </Page>
+    </AppScreen>
   );
 }
