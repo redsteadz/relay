@@ -52,6 +52,8 @@ describe("/api/recovery/dead-letters", () => {
     expect(response.status).toBe(200);
     expect(requestPipelineRecovery).toHaveBeenCalledWith(
       "/internal/recovery/dead-letters?limit=25",
+      undefined,
+      expect.any(String),
     );
     expect(JSON.stringify(await response.json())).not.toContain("ciphertext");
   });
@@ -82,6 +84,7 @@ describe("/api/recovery/dead-letters", () => {
     expect(requestPipelineRecovery).toHaveBeenCalledWith(
       `/internal/recovery/dead-letters/${id}/replay`,
       { method: "POST", body: JSON.stringify({ requestId }) },
+      expect.any(String),
     );
   });
 });

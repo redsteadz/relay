@@ -31,7 +31,7 @@ it("purges only the authenticated tenant payloads", async () => {
 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ purged: true, purgedCount: 3 });
-  expect(purgeRawPayloads).toHaveBeenCalledWith(userId, expect.anything());
+  expect(purgeRawPayloads).toHaveBeenCalledWith(userId, expect.anything(), expect.any(String));
 });
 
 it("reports zero rather than failing when nothing is retained", async () => {

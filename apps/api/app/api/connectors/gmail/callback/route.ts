@@ -8,6 +8,7 @@ import {
   parseOAuthCookie,
   persistConnection,
 } from "../../../../../lib/gmail";
+import { loggedErrorResponse } from "../../../../../lib/observability";
 
 export async function GET(request: Request) {
   const env = loadGmailEnv();
@@ -59,12 +60,25 @@ export async function GET(request: Request) {
   let tokens;
   try {
     tokens = await exchangeCodeForTokens(code, oauthSession.codeVerifier, redirectUri, env);
-  } catch {
-    return Response.json(
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
       {
-        error: { code: "token_exchange_failed", message: "Failed to exchange authorization code" },
+        code: "GMAIL_TOKEN_EXCHANGE_FAILED",
+        event: "connector.oauth_exchange_failed",
+        integration: "google-gmail",
+        operation: "exchangeCodeForTokens",
       },
-      { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+      Response.json(
+        {
+          error: {
+            code: "token_exchange_failed",
+            message: "Failed to exchange authorization code",
+          },
+        },
+        { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+      ),
     );
   }
 
@@ -79,10 +93,25 @@ export async function GET(request: Request) {
   let email;
   try {
     email = await fetchGmailAddress(tokens.accessToken);
-  } catch {
-    return Response.json(
-      { error: { code: "gmail_address_unavailable", message: "Could not retrieve Gmail address" } },
-      { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "GMAIL_PROFILE_FAILED",
+        event: "connector.profile_request_failed",
+        integration: "google-gmail",
+        operation: "fetchGmailAddress",
+      },
+      Response.json(
+        {
+          error: {
+            code: "gmail_address_unavailable",
+            message: "Could not retrieve Gmail address",
+          },
+        },
+        { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+      ),
     );
   }
 
@@ -97,7 +126,7 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     const isDuplicate = error instanceof DuplicateGmailConnectionError;
-    return Response.json(
+    const response = Response.json(
       {
         error: {
           code: isDuplicate ? "duplicate_connection" : "connection_failed",
@@ -108,6 +137,19 @@ export async function GET(request: Request) {
       },
       { status: isDuplicate ? 409 : 500, headers: { "set-cookie": clearOAuthCookie() } },
     );
+    return isDuplicate
+      ? response
+      : loggedErrorResponse(
+          request,
+          error,
+          {
+            code: "GMAIL_CONNECTION_FAILED",
+            event: "connector.connection_failed",
+            integration: "supabase",
+            operation: "persistGmailConnection",
+          },
+          response,
+        );
   }
 
   return Response.json(

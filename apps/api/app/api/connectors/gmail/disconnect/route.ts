@@ -1,6 +1,7 @@
 import { canonicalUuidSchema } from "@relay/contracts";
 
 import { authenticateRequest } from "../../../../../lib/auth";
+import { apiRequestId, loggedErrorResponse } from "../../../../../lib/observability";
 import { publishGmailDisconnect } from "../../../../../lib/pipeline";
 
 const MAX_DISCONNECT_BODY_BYTES = 4096;
@@ -65,11 +66,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await publishGmailDisconnect({
-      schemaVersion: 1,
-      connectionId: connectionId.data,
-      userId: auth.userId,
-    });
+    const result = await publishGmailDisconnect(
+      {
+        schemaVersion: 1,
+        connectionId: connectionId.data,
+        userId: auth.userId,
+      },
+      undefined,
+      apiRequestId(request),
+    );
     if (result.status === 404) {
       return Response.json(
         { error: { code: "connection_not_found", message: "Connection not found" } },
@@ -83,10 +88,20 @@ export async function POST(request: Request) {
       connectionId: connectionId.data,
       tokenRevoked: true,
     });
-  } catch {
-    return Response.json(
-      { error: { code: "disconnect_failed", message: "Failed to disconnect Gmail" } },
-      { status: 503 },
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "GMAIL_DISCONNECT_FAILED",
+        event: "connector.disconnect_failed",
+        integration: "google-gmail",
+        operation: "disconnectGmail",
+      },
+      Response.json(
+        { error: { code: "disconnect_failed", message: "Failed to disconnect Gmail" } },
+        { status: 503 },
+      ),
     );
   }
 }

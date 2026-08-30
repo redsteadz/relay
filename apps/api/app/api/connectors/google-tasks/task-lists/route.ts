@@ -4,6 +4,7 @@ import {
   listTaskLists,
   loadGoogleTasksEnv,
 } from "../../../../../lib/google-tasks";
+import { loggedErrorResponse } from "../../../../../lib/observability";
 
 export async function GET(request: Request) {
   const env = loadGoogleTasksEnv();
@@ -29,6 +30,16 @@ export async function GET(request: Request) {
     if (error instanceof ConnectionNotFoundError) {
       return Response.json({ error: { code: "connection_not_found" } }, { status: 404 });
     }
-    return Response.json({ error: { code: "task_lists_unavailable" } }, { status: 502 });
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "GOOGLE_TASK_LISTS_FAILED",
+        event: "connector.task_lists_failed",
+        integration: "google-tasks",
+        operation: "listTaskLists",
+      },
+      Response.json({ error: { code: "task_lists_unavailable" } }, { status: 502 }),
+    );
   }
 }

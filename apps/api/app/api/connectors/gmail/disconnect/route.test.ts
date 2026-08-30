@@ -41,11 +41,15 @@ describe("POST /api/connectors/gmail/disconnect", () => {
     const response = await POST(request({ connectionId }));
 
     expect(response.status).toBe(200);
-    expect(publishGmailDisconnect).toHaveBeenCalledWith({
-      schemaVersion: 1,
-      connectionId,
-      userId,
-    });
+    expect(publishGmailDisconnect).toHaveBeenCalledWith(
+      {
+        schemaVersion: 1,
+        connectionId,
+        userId,
+      },
+      undefined,
+      expect.any(String),
+    );
     await expect(response.json()).resolves.toEqual({
       disconnected: true,
       connectionId,

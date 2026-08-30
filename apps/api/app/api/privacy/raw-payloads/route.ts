@@ -1,6 +1,7 @@
 import { privacyPurgeResponseSchema } from "@relay/contracts";
 
 import { authenticateRequest } from "../../../../lib/auth";
+import { apiRequestId, loggedErrorResponse } from "../../../../lib/observability";
 import { loadPrivacyEnv, purgeRawPayloads } from "../../../../lib/privacy";
 
 // DELETE, not POST: this removes the encrypted raw payloads and keeps every derived fact.
@@ -20,13 +21,23 @@ export async function DELETE(request: Request) {
     return Response.json(
       privacyPurgeResponseSchema.parse({
         purged: true,
-        purgedCount: await purgeRawPayloads(auth.userId, env),
+        purgedCount: await purgeRawPayloads(auth.userId, env, apiRequestId(request)),
       }),
     );
-  } catch {
-    return Response.json(
-      { error: { code: "purge_failed", message: "Raw payload purge failed" } },
-      { status: 503 },
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "PRIVACY_RAW_PURGE_FAILED",
+        event: "privacy.raw_payload_purge_failed",
+        integration: "supabase",
+        operation: "purgeRawPayloads",
+      },
+      Response.json(
+        { error: { code: "purge_failed", message: "Raw payload purge failed" } },
+        { status: 503 },
+      ),
     );
   }
 }
