@@ -1,5 +1,7 @@
 import { Dialog, Portal } from "react-native-paper";
 
+import { useRelayTheme } from "@/theme";
+
 import { AppButton } from "./AppButton";
 import { AppText } from "./AppText";
 
@@ -22,14 +24,18 @@ export function ConfirmationDialog({
   title,
   visible,
 }: ConfirmationDialogProps) {
+  const theme = useRelayTheme();
   return (
     <Portal>
       <Dialog dismissable={!loading} onDismiss={onCancel} visible={visible}>
-        <Dialog.Title>{title}</Dialog.Title>
+        <Dialog.Icon color={theme.relay.colors.danger} icon="alert-octagon-outline" />
+        <Dialog.Title style={[theme.relay.typography.heading, { textAlign: "center" }]}>
+          {title}
+        </Dialog.Title>
         <Dialog.Content>
           <AppText tone="muted">{detail}</AppText>
         </Dialog.Content>
-        <Dialog.Actions>
+        <Dialog.Actions style={{ gap: theme.relay.spacing.sm }}>
           <AppButton disabled={loading} label="Cancel" onPress={onCancel} tone="secondary" />
           <AppButton
             label={confirmLabel}
