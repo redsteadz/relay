@@ -93,7 +93,12 @@ export default function InboxScreen() {
         </AppText>
         <View style={[styles.tags, { gap: theme.relay.spacing.sm }]}>
           {["Example Bank", "92% confidence"].map((tag) => (
-            <Chip compact key={tag} textStyle={theme.relay.typography.caption}>
+            <Chip
+              compact
+              key={tag}
+              style={{ backgroundColor: theme.relay.colors.accent }}
+              textStyle={[theme.relay.typography.caption, { color: theme.relay.colors.onAccent }]}
+            >
               {tag}
             </Chip>
           ))}
