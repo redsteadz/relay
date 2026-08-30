@@ -58,14 +58,26 @@ Users can reach effectively any model, including a local one, without Relay lear
 The credential column stays `provider = 'openai'`, which now denotes the wire protocol and key type
 rather than the vendor; that mismatch is a naming cost accepted over a migration.
 
-An operator who repoints the base URL invalidates every tenant key stored for the old endpoint, since
-keys are not portable between providers. The per-tenant override exists so this is a choice rather
-than a forced migration, but `apps/api` does not yet expose a way to set it -- the pipeline reads it,
-and the connector surface for writing it is follow-up work.
+An operator who repoints the base URL would invalidate every tenant key stored for the old endpoint,
+since keys are not portable between providers. The per-tenant endpoint exists so this is a choice
+rather than a forced migration: a tenant names their endpoint when submitting or rotating a key, and
+the key is validated against that endpoint rather than against OpenAI. Rotating without naming one
+keeps what is stored, so a replacement key is never silently repointed.
+
+`provider = 'openai'` on the credential row now denotes the wire protocol and key type rather than
+the vendor. That mismatch is a naming cost accepted over a migration.
+
+Validation depends on `GET /models`, an OpenAI convention that most compatible servers implement but
+none are obliged to. An endpoint without it yields a stored-but-unvalidated credential rather than a
+refusal or a false claim of verification.
 
 A weaker endpoint costs a round trip per malformed answer instead of having it refused at the
 provider, and a model that cannot follow the instruction block will produce `undecided` more often.
 Both are visible in the disclosure history rather than silent.
+
+A locally hosted model is reachable only where the runtime can reach it. A deployed Cloudflare Worker
+cannot see a developer's loopback, so plain HTTP to loopback is a development affordance; reaching a
+local model from a deployed Worker means exposing it on a public HTTPS hostname.
 
 Related: [filter model](../architecture/filter-model.md), [privacy](../security/privacy.md),
 [OpenAI integration](../integrations/openai.md).

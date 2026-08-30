@@ -17,6 +17,7 @@ import { decryptValue } from "@relay/crypto";
 import {
   evaluateFilterPlan,
   minimizeSemanticDisclosure,
+  parseSemanticBaseUrl,
   resolveSemanticDecision,
   type FilterEvaluation,
 } from "@relay/domain";
@@ -50,94 +51,6 @@ export type SemanticEndpoint = {
   responseFormat: SemanticResponseFormat;
 };
 
-/**
- * Addresses that must never be reachable from a configured endpoint.
- *
- * A base URL is operator or tenant supplied, so it is an SSRF surface: without this, pointing it at
- * a link-local or private address would turn semantic evaluation into a probe of whatever the Worker
- * can reach. Numeric forms are rejected outright rather than resolved, and names that conventionally
- * denote a local network are rejected too.
- */
-function isPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/u, "");
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host.endsWith(".internal") ||
-    host.endsWith(".home.arpa")
-  ) {
-    return true;
-  }
-  // Any IPv6 literal, including ::1 and the IPv4-mapped forms that would otherwise slip past the
-  // dotted-quad check below.
-  if (host.includes(":")) return true;
-
-  const octets = host.split(".").map(Number);
-  if (
-    octets.length !== 4 ||
-    !octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
-  ) {
-    return false;
-  }
-  const [first = 0, second = 0] = octets;
-  return (
-    first === 0 ||
-    first === 10 ||
-    first === 127 ||
-    first >= 224 ||
-    (first === 100 && second >= 64 && second <= 127) ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && (second === 0 || second === 168)) ||
-    (first === 198 && (second === 18 || second === 19 || second === 51)) ||
-    (first === 203 && second === 0)
-  );
-}
-
-function isLoopback(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/u, "");
-  return host === "127.0.0.1" || host === "localhost" || host === "[::1]" || host === "::1";
-}
-
-/**
- * Validates and normalizes a semantic base URL.
- *
- * Requires HTTPS, no embedded credentials, and no query or fragment, and rejects private and
- * link-local addresses. Plain HTTP to a loopback address is allowed only in development, which is
- * how a locally hosted model is reached; the same exception `readPersistenceConfiguration` already
- * makes for a local Supabase, and for the same reason -- the traffic never leaves the machine.
- *
- * The trailing slash is stripped so `${baseUrl}/chat/completions` composes predictably.
- */
-export function parseSemanticBaseUrl(
-  value: string,
-  environment: PersistenceConfiguration["environment"],
-): { baseUrl: string; host: string } {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new SemanticEvaluationError("endpoint-invalid");
-  }
-
-  const loopback = isLoopback(url.hostname);
-  const secure = url.protocol === "https:";
-  const developmentLoopback = environment === "development" && loopback && url.protocol === "http:";
-  if (
-    (!secure && !developmentLoopback) ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.search !== "" ||
-    url.hash !== "" ||
-    (isPrivateHost(url.hostname) && !developmentLoopback)
-  ) {
-    throw new SemanticEvaluationError("endpoint-invalid");
-  }
-
-  return { baseUrl: url.toString().replace(/\/$/u, ""), host: url.hostname.toLowerCase() };
-}
-
 type EndpointOverrides = {
   baseUrl?: unknown;
   model?: unknown;
@@ -164,7 +77,12 @@ export function resolveSemanticEndpoint(
     typeof tenant.baseUrl === "string" && tenant.baseUrl.length > 0
       ? tenant.baseUrl
       : (operator.baseUrl ?? DEFAULT_SEMANTIC_BASE_URL);
-  const { baseUrl, host } = parseSemanticBaseUrl(rawBaseUrl, environment);
+  // Loopback over plain HTTP is a development affordance for a locally hosted model; a deployed
+  // Worker could not reach a developer's loopback in any case.
+  const parsed = parseSemanticBaseUrl(rawBaseUrl, {
+    allowLoopbackHttp: environment === "development",
+  });
+  if (parsed === undefined) throw new SemanticEvaluationError("endpoint-invalid");
 
   const rawModel =
     typeof tenant.model === "string" && tenant.model.length > 0
@@ -180,7 +98,12 @@ export function resolveSemanticEndpoint(
   const responseFormat = semanticResponseFormatSchema.safeParse(rawResponseFormat);
   if (!responseFormat.success) throw new SemanticEvaluationError("endpoint-invalid");
 
-  return { baseUrl, host, model: model.data, responseFormat: responseFormat.data };
+  return {
+    baseUrl: parsed.baseUrl,
+    host: parsed.host,
+    model: model.data,
+    responseFormat: responseFormat.data,
+  };
 }
 
 export type SemanticEndpointDefaults = {
@@ -250,8 +173,11 @@ export const SEMANTIC_RESPONSE_JSON_SCHEMA = {
 } as const;
 
 export class SemanticEvaluationError extends Error {
-  constructor(readonly reason: SemanticFailureReason) {
-    super("Semantic clause evaluation failed");
+  constructor(
+    readonly reason: SemanticFailureReason,
+    options?: { cause?: unknown },
+  ) {
+    super("Semantic clause evaluation failed", options);
   }
 }
 

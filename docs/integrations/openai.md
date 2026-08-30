@@ -11,10 +11,14 @@ sources:
 
 # OpenAI (BYOK)
 
-Each user supplies their own OpenAI API key; Relay never provisions or shares one. The key is
-validated against `GET /v1/models` — status only, the response body is discarded and never logged
-or stored — then envelope-encrypted with `@relay/crypto` and persisted in the shared `connections`
-table (`provider = 'openai'`) alongside every other connector credential.
+Each user supplies their own key; Relay never provisions or shares one. The key is validated against
+`GET {baseUrl}/models` on **the endpoint it is for** — status only, the response body is discarded and
+never logged or stored — then envelope-encrypted with `@relay/crypto` and persisted in the shared
+`connections` table alongside every other connector credential.
+
+`provider = 'openai'` denotes the wire protocol and credential type, not the vendor: a DeepSeek,
+OpenRouter, Together, Gemini-compatibility, or local key all live in that row, distinguished by the
+endpoint stored beside them.
 
 `apps/api` owns the lifecycle at `/api/connectors/openai`:
 
@@ -58,10 +62,46 @@ existing deployment is unchanged:
 | `RELAY_SEMANTIC_MODEL`           | `gpt-4.1-mini`              | Bare or namespaced (`anthropic/claude-sonnet-4`)                  |
 | `RELAY_SEMANTIC_RESPONSE_FORMAT` | `json-schema`               | `json-schema`, `json-object`, or `none`                           |
 
-A tenant may override any of these in their connection's `metadata` (`baseUrl`, `model`,
-`responseFormat`), which takes precedence: a key issued by a gateway is only valid at that gateway,
-so the endpoint has to be able to travel with the credential. Pipeline reads the override today;
-`apps/api` does not yet expose a way to set it, which is tracked as follow-up below.
+A tenant sets their own endpoint when they submit or rotate a key, and it takes precedence over the
+operator default — a key issued by a gateway is only valid at that gateway, so the endpoint travels
+with the credential:
+
+```http
+POST /api/connectors/openai
+{
+  "apiKey": "sk-...",
+  "endpoint": {
+    "baseUrl": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat",
+    "responseFormat": "json-object"
+  }
+}
+```
+
+`endpoint` is optional and every field within it is optional. Rotating without naming one keeps the
+endpoint already stored, so a replacement key is not silently pointed back at OpenAI. `GET` returns
+the stored endpoint and a `validated` flag, never the key.
+
+An endpoint that fails validation is a deterministic `400 openai_endpoint_invalid`, refused before
+any network call or write. If the endpoint has no `/models` route the key is stored with
+`validated: false` rather than being refused or claimed as verified.
+
+### Known-working endpoints
+
+| Provider                      | `baseUrl`                                                 | Example model                             |
+| ----------------------------- | --------------------------------------------------------- | ----------------------------------------- |
+| OpenAI                        | `https://api.openai.com/v1`                               | `gpt-4.1-mini`                            |
+| DeepSeek                      | `https://api.deepseek.com/v1`                             | `deepseek-chat`                           |
+| Gemini (OpenAI compatibility) | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`                        |
+| OpenRouter                    | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4`               |
+| Together                      | `https://api.together.xyz/v1`                             | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| Groq                          | `https://api.groq.com/openai/v1`                          | `llama-3.3-70b-versatile`                 |
+| Ollama (local, development)   | `http://127.0.0.1:11434/v1`                               | `llama3.3`                                |
+
+Base URLs and model names come from each provider's own documentation and drift; confirm against the
+current docs rather than treating this table as authoritative. Not every endpoint implements strict
+`json_schema` structured output — start on `json-object` where unsure, since it only changes what the
+provider enforces.
 
 `json-object` and `none` reduce only what the _endpoint_ is asked to enforce. Relay parses every
 answer through the same `.strict()` contract schema, so a weaker endpoint cannot widen what is
@@ -80,13 +120,21 @@ message text, body, or header is retained, logged, or surfaced.
 The full minimization, redaction, delimiting, and disclosure-record rules live with the
 [filter model](../architecture/filter-model.md); this page covers only the provider mechanics.
 
+### Local models
+
+A local model only works where the runtime can reach it. `apps/pipeline` is a Cloudflare Worker, so a
+deployed one cannot reach a developer's loopback — `127.0.0.1` there would be Cloudflare's own
+machine. Loopback is therefore accepted only when `RELAY_ENVIRONMENT` is `development`, which matches
+both the local-Supabase exception and what is physically reachable.
+
+To use a local model from a deployed Worker, expose it on a public HTTPS hostname (a tunnel is the
+usual way). It is then an ordinary endpoint and needs no exception.
+
 ### Known follow-up
 
-`apps/api` has no field for the per-tenant endpoint override yet. Pipeline reads `baseUrl`, `model`,
-and `responseFormat` from the connection's `metadata`, but the only way to set them today is
-directly in the database, so in practice a deployment uses the operator defaults. Adding them to the
-`POST`/`PATCH` connector payload -- including validating the key against the chosen endpoint rather
-than always against `api.openai.com` -- belongs with the BYOK settings UI in #80.
+The mobile settings UI has no field for the endpoint yet; the connector API accepts it, so this is
+presentation work belonging with #80. Until then a non-default endpoint is set by calling the
+connector endpoint directly.
 
 Relay does not deduplicate evaluations across Queue redelivery. A redelivered item with the same
 semantic clause is evaluated again, which means a second request to OpenAI and a second disclosure

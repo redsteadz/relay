@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { encryptValue, generateKek, type KekKeyring } from "@relay/crypto";
 import { filterPlanSchema, type FilterPlan } from "@relay/contracts";
+import { parseSemanticBaseUrl } from "@relay/domain";
 
 import type { PersistenceConfiguration } from "../src/configuration";
 import { base64ToPostgresBytea, connectionCredentialEncryptionContext } from "../src/encryption";
 import {
   evaluateFilterWithSemantics,
   evaluateSemanticClause,
-  parseSemanticBaseUrl,
   readEndpointOverrides,
   readSemanticEndpointDefaults,
   recordSemanticDisclosure,
@@ -269,7 +269,8 @@ describe("endpoint configuration", () => {
     ["a fragment", "https://gateway.example.test/v1#token"],
     ["a non-URL", "not-a-url"],
   ])("refuses %s as a base URL", (_name, value) => {
-    expect(() => parseSemanticBaseUrl(value, "production")).toThrow();
+    expect(parseSemanticBaseUrl(value)).toBeUndefined();
+    expect(() => resolveSemanticEndpoint("production", { baseUrl: value })).toThrow();
   });
 
   it("allows plain http to loopback in development, for a locally hosted model", () => {
@@ -282,7 +283,10 @@ describe("endpoint configuration", () => {
   });
 
   it("still refuses loopback in production", () => {
-    expect(() => parseSemanticBaseUrl("http://127.0.0.1:11434/v1", "production")).toThrow();
+    expect(() =>
+      resolveSemanticEndpoint("production", { baseUrl: "http://127.0.0.1:11434/v1" }),
+    ).toThrow();
+    expect(parseSemanticBaseUrl("http://127.0.0.1:11434/v1")).toBeUndefined();
   });
 
   it.each([

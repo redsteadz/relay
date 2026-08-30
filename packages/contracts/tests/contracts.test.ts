@@ -731,15 +731,54 @@ describe("openAiCredentialSubmitRequestSchema", () => {
     ).toBe(true);
   });
 
-  it("rejects a key that is too short to be real", () => {
-    expect(openAiCredentialSubmitRequestSchema.safeParse({ apiKey: "sk-short" }).success).toBe(
-      false,
-    );
+  it("accepts a short key, because length is provider-defined", () => {
+    // A local server such as Ollama accepts any non-empty placeholder, and gateway keys are not all
+    // OpenAI-length. The endpoint decides whether a key is real; the schema only bounds it.
+    expect(openAiCredentialSubmitRequestSchema.safeParse({ apiKey: "ollama" }).success).toBe(true);
   });
 
-  it("rejects a key containing whitespace", () => {
+  it("rejects an empty key", () => {
+    expect(openAiCredentialSubmitRequestSchema.safeParse({ apiKey: "" }).success).toBe(false);
+  });
+
+  it.each([
+    ["a space", "sk-synthetic 0123456789"],
+    ["a newline", "sk-synthetic\n0123456789"],
+    ["a carriage return", "sk-synthetic\r0123456789"],
+    ["a tab", "sk-synthetic\t0123456789"],
+  ])("rejects a key containing %s, which would be header injection", (_name, apiKey) => {
+    // The key is interpolated into an `authorization` header; whitespace is the rule that matters.
+    expect(openAiCredentialSubmitRequestSchema.safeParse({ apiKey }).success).toBe(false);
+  });
+
+  it("accepts an endpoint alongside the key", () => {
     expect(
-      openAiCredentialSubmitRequestSchema.safeParse({ apiKey: "sk-synthetic 0123456789" }).success,
+      openAiCredentialSubmitRequestSchema.safeParse({
+        apiKey: "sk-deepseek-synthetic",
+        endpoint: {
+          baseUrl: "https://api.deepseek.com/v1",
+          model: "deepseek-chat",
+          responseFormat: "json-object",
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an unknown field inside the endpoint", () => {
+    expect(
+      openAiCredentialSubmitRequestSchema.safeParse({
+        apiKey: "sk-synthetic-0123456789",
+        endpoint: { baseUrl: "https://api.deepseek.com/v1", apiKey: "leaked" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an unknown response format", () => {
+    expect(
+      openAiCredentialSubmitRequestSchema.safeParse({
+        apiKey: "sk-synthetic-0123456789",
+        endpoint: { responseFormat: "xml" },
+      }).success,
     ).toBe(false);
   });
 

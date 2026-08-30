@@ -1298,14 +1298,37 @@ export const actionIntentSchema = z.object({
 });
 export type ActionIntent = z.infer<typeof actionIntentSchema>;
 
+/**
+ * A bearer key for the configured semantic endpoint.
+ *
+ * Length is provider-defined now that the endpoint is configurable -- an OpenAI key is long, a
+ * gateway key may be shorter, and a local server often accepts any non-empty placeholder -- so no
+ * floor beyond non-empty is meaningful. The rule that matters is the absence of whitespace: the key
+ * is interpolated into an `authorization` header, and a newline in it would be header injection.
+ */
 export const openAiApiKeySchema = z
   .string()
-  .min(20)
-  .max(256)
-  .regex(/^\S+$/, "Key must not contain whitespace");
+  .min(1)
+  .max(512)
+  .regex(/^\S+$/u, "Key must not contain whitespace");
+
+/**
+ * Where a tenant's key should be used.
+ *
+ * Stored beside the credential because a key issued by a gateway is only valid at that gateway. All
+ * three are optional; an absent field falls back to the operator default and then to OpenAI.
+ */
+export const semanticEndpointOverrideSchema = z
+  .object({
+    baseUrl: z.string().min(1).max(2048).optional(),
+    model: semanticModelSchema.optional(),
+    responseFormat: semanticResponseFormatSchema.optional(),
+  })
+  .strict();
+export type SemanticEndpointOverride = z.infer<typeof semanticEndpointOverrideSchema>;
 
 export const openAiCredentialSubmitRequestSchema = z
-  .object({ apiKey: openAiApiKeySchema })
+  .object({ apiKey: openAiApiKeySchema, endpoint: semanticEndpointOverrideSchema.optional() })
   .strict();
 
 export const openAiCredentialStatusSchema = z
@@ -1313,6 +1336,16 @@ export const openAiCredentialStatusSchema = z
     provider: z.literal("openai"),
     configured: z.boolean(),
     lastValidatedAt: z.iso.datetime({ offset: true }).optional(),
+    /**
+     * The endpoint this key is for, when it is not the default. Never includes the key itself, and
+     * the base URL is the normalized form, which cannot carry a query string.
+     */
+    endpoint: semanticEndpointOverrideSchema.optional(),
+    /**
+     * False when the endpoint accepted the key but exposes no way to check it, so the key was
+     * stored without confirmation rather than silently treated as verified.
+     */
+    validated: z.boolean().optional(),
   })
   .strict();
 export type OpenAiCredentialStatus = z.infer<typeof openAiCredentialStatusSchema>;
