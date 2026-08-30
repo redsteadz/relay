@@ -1,8 +1,7 @@
 import type { AccountDeletionStatus } from "@relay/contracts";
 import { useState } from "react";
 
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText } from "@/components/ui";
+import { AppButton, AppText, EditorialSurface } from "@/components/ui";
 
 import { AccountDeletionDialog } from "./AccountDeletionDialog";
 
@@ -21,7 +20,8 @@ export function AccountDeletionPanel({
 }: AccountDeletionPanelProps) {
   const [confirming, setConfirming] = useState(false);
   return (
-    <Panel
+    <EditorialSurface
+      icon="delete-forever-outline"
       title="Delete account"
       meta={status === null || status === undefined ? "IRREVERSIBLE" : status.state.toUpperCase()}
     >
@@ -51,6 +51,6 @@ export function AccountDeletionPanel({
         }}
         visible={confirming}
       />
-    </Panel>
+    </EditorialSurface>
   );
 }

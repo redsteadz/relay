@@ -1,8 +1,13 @@
 import type { OpenAiCredentialStatus } from "@relay/contracts";
 import { useState } from "react";
 
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, ConfirmationDialog, StatusMessage } from "@/components/ui";
+import {
+  AppButton,
+  AppText,
+  ConfirmationDialog,
+  EditorialSurface,
+  StatusMessage,
+} from "@/components/ui";
 import { reportUnexpectedUiError } from "@/lib/observability";
 
 import { formatPrivacyDate, privacyErrorMessage } from "../models/privacyPresentation";
@@ -44,7 +49,7 @@ export function OpenAiPrivacyPanel({
   }
 
   return (
-    <Panel title="OpenAI key" meta={meta}>
+    <EditorialSurface icon="key-outline" title="OpenAI key" meta={meta}>
       <AppText tone="muted">
         Relay stores the key encrypted and uses it only after deterministic filters cannot decide.
         Revoking deletes Relay's stored credential.
@@ -63,7 +68,19 @@ export function OpenAiPrivacyPanel({
       {error === null ? null : (
         <>
           <StatusMessage tone="error">{privacyErrorMessage(error)}</StatusMessage>
-          <AppButton label="Retry key status" onPress={() => void onRetry()} tone="secondary" />
+          <AppButton
+            label="Retry key status"
+            onPress={() =>
+              void onRetry().catch((error: unknown) =>
+                reportUnexpectedUiError(error, "ui.privacy_openai_retry_failed", {
+                  code: "PRIVACY_OPENAI_RETRY_FAILED",
+                  integration: "relay-api",
+                  operation: "retryOpenAiStatus",
+                }),
+              )
+            }
+            tone="secondary"
+          />
         </>
       )}
       {revoked ? <StatusMessage tone="success">OpenAI key revoked.</StatusMessage> : null}
@@ -84,6 +101,6 @@ export function OpenAiPrivacyPanel({
         title="Revoke OpenAI key?"
         visible={confirming}
       />
-    </Panel>
+    </EditorialSurface>
   );
 }

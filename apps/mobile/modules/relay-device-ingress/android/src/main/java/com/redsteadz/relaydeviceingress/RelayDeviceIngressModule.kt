@@ -18,13 +18,19 @@ private fun JSONObject.stringValue(name: String): String? = opt(name) as? String
 
 private fun notificationCapturePreview(row: Map<String, Any>): Map<String, Any>? {
   val envelopeJson = row["envelopeJson"] as? String ?: return null
+  val envelopeId = row["envelopeId"] as? String ?: return null
+  val attempts = row["attempts"] as? Int ?: return null
 
   return try {
     val envelope = JSONObject(envelopeJson)
     val source = envelope.optJSONObject("source") ?: return null
     if (source.stringValue("kind") != "notification") return null
     val capturedAt = envelope.stringValue("capturedAt") ?: return null
-    val preview = mutableMapOf<String, Any>("capturedAt" to capturedAt)
+    val preview = mutableMapOf<String, Any>(
+      "attempts" to attempts,
+      "capturedAt" to capturedAt,
+      "envelopeId" to envelopeId,
+    )
 
     envelope.stringValue("sender")?.let { preview["sender"] = it }
     envelope.stringValue("subject")?.let { preview["subject"] = it }
@@ -38,13 +44,19 @@ private fun notificationCapturePreview(row: Map<String, Any>): Map<String, Any>?
 
 private fun smsCapturePreview(row: Map<String, Any>): Map<String, Any>? {
   val envelopeJson = row["envelopeJson"] as? String ?: return null
+  val envelopeId = row["envelopeId"] as? String ?: return null
+  val attempts = row["attempts"] as? Int ?: return null
 
   return try {
     val envelope = JSONObject(envelopeJson)
     val source = envelope.optJSONObject("source") ?: return null
     if (source.stringValue("kind") != "sms") return null
     val capturedAt = envelope.stringValue("capturedAt") ?: return null
-    val preview = mutableMapOf<String, Any>("capturedAt" to capturedAt)
+    val preview = mutableMapOf<String, Any>(
+      "attempts" to attempts,
+      "capturedAt" to capturedAt,
+      "envelopeId" to envelopeId,
+    )
 
     envelope.stringValue("sender")?.let { preview["sender"] = it }
     envelope.stringValue("body")?.let { preview["body"] = it }

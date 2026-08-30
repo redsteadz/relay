@@ -91,7 +91,7 @@ SHA-256 message-ID digest, and timestamps. Their audit rows contain no source he
 provider response, token, or reversible message ID.
 
 The semantic endpoint is configurable and OpenAI-compatible under
-[ADR-0011](../decisions/0011-openai-compatible-semantic-endpoint.md), defaulting to OpenAI; a tenant
+[ADR-0012](../decisions/0012-openai-compatible-semantic-endpoint.md), defaulting to OpenAI; a tenant
 may point it at a gateway or a locally hosted model, in which case content never leaves their
 machine. Wherever it is sent, the same rules hold, and each disclosure records the host it actually
 reached rather than assuming OpenAI. The endpoint is validated before use -- HTTPS, no embedded

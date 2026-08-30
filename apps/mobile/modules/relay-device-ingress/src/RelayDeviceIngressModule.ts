@@ -19,15 +19,19 @@ export type SelectableNotificationApp = {
 
 export type NotificationCapturePreview = {
   applicationId?: string;
+  attempts: number;
   body?: string;
   capturedAt: string;
+  envelopeId: string;
   sender?: string;
   subject?: string;
 };
 
 export type SmsCapturePreview = {
+  attempts: number;
   body?: string;
   capturedAt: string;
+  envelopeId: string;
   sender?: string;
 };
 

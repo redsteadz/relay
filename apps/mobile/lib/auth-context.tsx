@@ -10,12 +10,13 @@ import {
 import { AppState, Platform } from "react-native";
 
 import {
+  clearDeletedAccountLocalState,
   clearRelaySession,
   createAutoRefreshController,
   exchangeMagicLink,
   requestMagicLink,
 } from "./auth";
-import { createRelaySupabaseClient } from "./supabase";
+import { createConfiguredClient } from "./auth-configuration";
 import { logMobileError } from "./observability";
 import RelayDeviceIngress from "../modules/relay-device-ingress";
 
@@ -31,19 +32,6 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-
-function createConfiguredClient(): SupabaseClient | undefined {
-  try {
-    return createRelaySupabaseClient();
-  } catch (error: unknown) {
-    logMobileError("auth.configuration_failed", error, {
-      code: "AUTH_CONFIGURATION_FAILED",
-      integration: "supabase-auth",
-      operation: "createRelaySupabaseClient",
-    });
-    return undefined;
-  }
-}
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [client] = useState(createConfiguredClient);
@@ -122,31 +110,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }
 
   async function clearDeletedAccountSession() {
-    let cleanupFailed = false;
     const tenantId = session?.user.id;
-    if (tenantId !== undefined) {
-      try {
-        await RelayDeviceIngress.clearCaptureQueue(tenantId);
-      } catch (error: unknown) {
-        logMobileError("auth.deleted_account_queue_cleanup_failed", error, {
-          code: "AUTH_LOCAL_QUEUE_CLEANUP_FAILED",
-          integration: "relay-device-ingress",
-          operation: "clearCaptureQueue",
-        });
-        cleanupFailed = true;
-      }
+    try {
+      await clearDeletedAccountLocalState({
+        ...(tenantId === undefined
+          ? {}
+          : { clearCaptureQueue: () => RelayDeviceIngress.clearCaptureQueue(tenantId) }),
+        ...(client === undefined ? {} : { clearSession: () => clearRelaySession(client) }),
+      });
+    } finally {
+      startTransition(() => setSession(null));
     }
-    if (client === undefined) cleanupFailed = true;
-    else {
-      try {
-        await clearRelaySession(client);
-      } catch {
-        // clearRelaySession logs the underlying Supabase failure once.
-        cleanupFailed = true;
-      }
-    }
-    startTransition(() => setSession(null));
-    if (cleanupFailed) throw new Error("Deleted account local cleanup was incomplete");
   }
 
   return (

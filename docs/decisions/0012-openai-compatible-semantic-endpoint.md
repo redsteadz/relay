@@ -5,7 +5,7 @@ owners: maintainers
 refines: 0003-deterministic-before-ai.md
 ---
 
-# ADR-0011: OpenAI-Compatible Semantic Endpoint
+# ADR-0012: OpenAI-Compatible Semantic Endpoint
 
 ## Context
 
@@ -40,7 +40,11 @@ Four constraints make this safe:
 - **The endpoint is validated, not trusted.** HTTPS only, no embedded credentials, no query or
   fragment, and private, loopback, and link-local addresses refused. Plain HTTP to loopback is
   allowed only in development, matching the existing exception for a local Supabase. Without this a
-  configurable URL would be an SSRF primitive.
+  configurable URL would be an SSRF primitive. Validation reads the hostname and deliberately does
+  not resolve it, so a public name pointing at a private address would still pass; the Pipeline
+  Worker therefore also carries the `global_fetch_strictly_public` compatibility flag, refusing that
+  request at the runtime. The local end-to-end harness keeps its own Worker configuration, so
+  loopback development traffic is unaffected.
 - **The endpoint can travel with the credential.** A key issued by a gateway is only valid at that
   gateway, so a tenant override read from the connection's metadata takes precedence over the
   operator default. An override that fails validation is an error, never a silent fallback to

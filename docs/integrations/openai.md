@@ -52,7 +52,7 @@ header. Responses use structured outputs with `strict` set, so the model can ret
 ### Choosing an endpoint and model
 
 The endpoint is OpenAI-compatible rather than OpenAI-specific, under
-[ADR-0011](../decisions/0011-openai-compatible-semantic-endpoint.md). Operator defaults come from the
+[ADR-0012](../decisions/0012-openai-compatible-semantic-endpoint.md). Operator defaults come from the
 Pipeline environment, and all three are optional -- absent means OpenAI with `gpt-4.1-mini`, so an
 existing deployment is unchanged:
 

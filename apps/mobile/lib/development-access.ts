@@ -8,10 +8,21 @@ export type NotificationCaptureMode = {
   tenantId: string | undefined;
 };
 
+/**
+ * Diagnostic builds set `EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS=disabled` so they reproduce the
+ * release runtime exactly: capture stays authenticated and the synthetic local tenant is never
+ * prepared, which would otherwise clear the signed-in tenant's queue and configuration.
+ */
+export function localDiagnosticsDisabled(): boolean {
+  return process.env.EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS === "disabled";
+}
+
 export function localDevelopmentAccessEnabled(
   isDevelopment: boolean,
   buildVariant: unknown,
+  diagnosticsDisabled = false,
 ): boolean {
+  if (diagnosticsDisabled) return false;
   return isDevelopment && (buildVariant === "development" || buildVariant === "sideload");
 }
 

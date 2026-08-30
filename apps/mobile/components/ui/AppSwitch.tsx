@@ -47,7 +47,13 @@ export function AppSwitch({
         <View
           importantForAccessibility="no-hide-descendants"
           pointerEvents="none"
-          style={styles.switchTarget}
+          style={[
+            styles.switchTarget,
+            {
+              minHeight: theme.relay.sizes.touchTarget,
+              minWidth: theme.relay.sizes.touchTarget,
+            },
+          ]}
         >
           <Switch value={value} />
         </View>
@@ -59,5 +65,5 @@ export function AppSwitch({
 const styles = StyleSheet.create({
   copy: { flex: 1 },
   row: { alignItems: "center", flexDirection: "row" },
-  switchTarget: { alignItems: "center", justifyContent: "center", minHeight: 48, minWidth: 48 },
+  switchTarget: { alignItems: "center", justifyContent: "center" },
 });

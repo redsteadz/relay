@@ -1,8 +1,13 @@
 import type { PrivacyRetentionStatus } from "@relay/contracts";
 import { useState } from "react";
 
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, ConfirmationDialog, StatusMessage } from "@/components/ui";
+import {
+  AppButton,
+  AppText,
+  ConfirmationDialog,
+  EditorialSurface,
+  StatusMessage,
+} from "@/components/ui";
 import { reportUnexpectedUiError } from "@/lib/observability";
 
 import { formatPrivacyDate, privacyErrorMessage } from "../models/privacyPresentation";
@@ -43,7 +48,11 @@ export function RetentionPanel({
   }
 
   return (
-    <Panel title="Raw data retention" meta="FIXED · 7 DAYS">
+    <EditorialSurface
+      icon="database-clock-outline"
+      title="Raw data retention"
+      meta="Fixed · 7 days"
+    >
       <AppText tone="muted">
         Encrypted source payloads expire automatically. Purging destroys only recoverable raw
         bodies; derived facts, classifications, events, and provenance remain.
@@ -71,7 +80,15 @@ export function RetentionPanel({
           <StatusMessage tone="error">{privacyErrorMessage(error)}</StatusMessage>
           <AppButton
             label="Retry retention status"
-            onPress={() => void onRetry()}
+            onPress={() =>
+              void onRetry().catch((error: unknown) =>
+                reportUnexpectedUiError(error, "ui.privacy_retention_retry_failed", {
+                  code: "PRIVACY_RETENTION_RETRY_FAILED",
+                  integration: "relay-api",
+                  operation: "retryRetentionStatus",
+                }),
+              )
+            }
             tone="secondary"
           />
         </>
@@ -90,6 +107,6 @@ export function RetentionPanel({
         title="Purge retained raw data?"
         visible={confirming}
       />
-    </Panel>
+    </EditorialSurface>
   );
 }

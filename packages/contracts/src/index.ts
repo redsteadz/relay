@@ -1299,6 +1299,127 @@ export const actionIntentSchema = z.object({
 export type ActionIntent = z.infer<typeof actionIntentSchema>;
 
 /**
+ * Action approval ledger.
+ *
+ * A run is the durable record that a rule proposed one provider action for one event, and what the
+ * tenant decided about it. Provider, operation, connection, and approval mode all come from the
+ * owning rule; nothing here lets a caller or a model supply them. See
+ * `docs/architecture/action-model.md`.
+ */
+
+export const actionRunStatusSchema = z.enum([
+  "proposed",
+  "awaiting-approval",
+  "approved",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+export type ActionRunStatus = z.infer<typeof actionRunStatusSchema>;
+
+export const actionApprovalModeSchema = z.enum(["required", "automatic"]);
+export type ActionApprovalMode = z.infer<typeof actionApprovalModeSchema>;
+
+/** The only decisions a tenant can make about a pending run. */
+export const actionDecisionSchema = z.enum(["approve", "cancel"]);
+export type ActionDecision = z.infer<typeof actionDecisionSchema>;
+
+/**
+ * Keys an action input may never carry.
+ *
+ * Input is rendered upstream from a rule template and an event. Mirrors the database's
+ * `filter_plan_has_forbidden_keys`, which rejects the same names at any depth and remains the
+ * authority; this exists so a caller fails before a round trip rather than after one.
+ */
+export const FORBIDDEN_ACTION_INPUT_KEYS: readonly string[] = [
+  "action",
+  "credential",
+  "credentials",
+  "endpoint",
+  "operation",
+  "provider",
+];
+
+function hasForbiddenActionInputKey(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasForbiddenActionInputKey);
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).some(
+    ([key, nested]) =>
+      FORBIDDEN_ACTION_INPUT_KEYS.includes(key) || hasForbiddenActionInputKey(nested),
+  );
+}
+
+export const actionRunInputSchema = z
+  .record(z.string(), z.unknown())
+  .refine((value) => !hasForbiddenActionInputKey(value), {
+    message: "Action input cannot select providers, operations, endpoints, or credentials",
+  });
+
+/** One row of the ledger, as returned by the proposal and claim routines. */
+export const actionRunSchema = z
+  .object({
+    id: canonicalUuidSchema,
+    userId: canonicalUuidSchema,
+    actionRuleId: canonicalUuidSchema,
+    eventId: canonicalUuidSchema,
+    provider: actionProviderSchema,
+    status: actionRunStatusSchema,
+    approvalMode: actionApprovalModeSchema,
+    input: z.record(z.string(), z.unknown()),
+    attemptCount: z.int().min(0),
+    providerReference: z.string().max(512).nullable(),
+    workflowInstanceId: z.string().max(256).nullable(),
+    approvedAt: z.iso.datetime({ offset: true }).nullable(),
+    completedAt: z.iso.datetime({ offset: true }).nullable(),
+    createdAt: z.iso.datetime({ offset: true }),
+  })
+  .strict()
+  .refine(
+    (run) => run.approvedAt === null || !["proposed", "awaiting-approval"].includes(run.status),
+    {
+      message: "A run still awaiting a decision cannot carry an approval time",
+    },
+  )
+  .refine((run) => run.workflowInstanceId === null || run.status !== "proposed", {
+    message: "An undecided run cannot name a workflow",
+  });
+export type ActionRun = z.infer<typeof actionRunSchema>;
+
+/**
+ * A proposal carries identity and rendered input only.
+ *
+ * There is deliberately no provider, operation, connection, status, or approval-mode field: those
+ * are read from the persisted rule inside the database routine, so no caller can ask for a
+ * different provider or for automatic approval.
+ */
+export const actionProposalRequestSchema = z
+  .object({
+    userId: canonicalUuidSchema,
+    actionRuleId: canonicalUuidSchema,
+    eventId: canonicalUuidSchema,
+    input: actionRunInputSchema,
+  })
+  .strict();
+export type ActionProposalRequest = z.infer<typeof actionProposalRequestSchema>;
+
+/** Identifies a Workflow attempt against one approved run. */
+export const actionWorkflowClaimSchema = z
+  .object({
+    userId: canonicalUuidSchema,
+    actionRunId: canonicalUuidSchema,
+    workflowInstanceId: z
+      .string()
+      .min(1)
+      .max(256)
+      .refine((value) => value.trim() === value && value.trim().length > 0, {
+        message: "Workflow instance must not be blank or padded",
+      }),
+  })
+  .strict();
+export type ActionWorkflowClaim = z.infer<typeof actionWorkflowClaimSchema>;
+
+/**
  * A bearer key for the configured semantic endpoint.
  *
  * Length is provider-defined now that the endpoint is configurable -- an OpenAI key is long, a

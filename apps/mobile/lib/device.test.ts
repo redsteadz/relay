@@ -4,9 +4,22 @@ const storage = vi.hoisted(() => new Map<string, string>());
 const installationId = "19784902-e7a4-4f7f-b04d-e3a78c876629";
 
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => installationId) }));
+// SecureStore validates keys on every call and rejects anything outside this set. The mock must
+// enforce the same rule, or an unusable key passes here and throws on every real device.
+const ensureValidKey = vi.hoisted(() => (key: string) => {
+  if (!/^[\w.-]+$/u.test(key)) {
+    throw new Error(
+      `Invalid key provided to SecureStore. Keys must not be empty and contain only alphanumeric characters, ".", "-", and "_".`,
+    );
+  }
+});
 vi.mock("expo-secure-store", () => ({
-  getItemAsync: vi.fn((key: string) => Promise.resolve(storage.get(key) ?? null)),
+  getItemAsync: vi.fn((key: string) => {
+    ensureValidKey(key);
+    return Promise.resolve(storage.get(key) ?? null);
+  }),
   setItemAsync: vi.fn((key: string, value: string) => {
+    ensureValidKey(key);
     storage.set(key, value);
     return Promise.resolve();
   }),
@@ -17,7 +30,15 @@ vi.mock("../modules/relay-device-ingress", () => ({
   default: { clearCaptureQueue },
 }));
 
-import { registerInstallation, revokeInstallation } from "./device";
+import { deviceInstallationKey, registerInstallation, revokeInstallation } from "./device";
+
+describe("deviceInstallationKey", () => {
+  it("stays within the character set SecureStore accepts", () => {
+    const key = deviceInstallationKey("208455fe-e5ae-4dc3-b416-40c7186ac6b2");
+    expect(key).toMatch(/^[\w.-]+$/u);
+    expect(() => ensureValidKey(key)).not.toThrow();
+  });
+});
 
 describe("registerInstallation", () => {
   beforeEach(() => {
@@ -38,7 +59,9 @@ describe("registerInstallation", () => {
     await registerInstallation("638ce145-a77d-4c32-b798-cb398e881fc9", "synthetic-token");
     await registerInstallation("638ce145-a77d-4c32-b798-cb398e881fc9", "synthetic-token");
 
-    expect(storage.get("relay-device:638ce145-a77d-4c32-b798-cb398e881fc9")).toBe(installationId);
+    expect(storage.get(deviceInstallationKey("638ce145-a77d-4c32-b798-cb398e881fc9"))).toBe(
+      installationId,
+    );
     const [, init] = fetchMock.mock.lastCall ?? [];
     expect(fetchMock.mock.lastCall?.[0]).toBe("http://localhost:3000/api/devices/register");
     expect(init).toMatchObject({

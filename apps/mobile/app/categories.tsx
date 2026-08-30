@@ -1,11 +1,20 @@
 import type { Category, CategoryCreateRequest } from "@relay/contracts";
 import { router } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 
-import { Page } from "@/components/Page";
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, ConfirmationDialog, StatusMessage } from "@/components/ui";
+import { AppScreen } from "@/components/AppScreen";
+import {
+  ActionRow,
+  AppButton,
+  AppText,
+  ConfirmationDialog,
+  ContextualNotice,
+  EditorialSurface,
+  FeedbackState,
+  LoadingState,
+  StatusMessage,
+} from "@/components/ui";
 import { CategoryCard } from "@/features/categories/components/CategoryCard";
 import { CategoryEditorDialog } from "@/features/categories/components/CategoryEditorDialog";
 import { useCategoryManagement } from "@/features/categories/hooks/useCategoryManagement";
@@ -58,51 +67,65 @@ export default function CategoriesScreen() {
       : categoryErrorMessage(categories.operationError);
 
   return (
-    <Page
+    <AppScreen
       action={
-        <View style={[styles.headerActions, { gap: theme.relay.spacing.sm }]}>
-          <AppButton label="Back" onPress={() => router.back()} tone="secondary" />
-          <AppButton
-            disabled={session === null}
-            label="New category"
-            onPress={() => {
-              categories.clearError();
-              setEditorCategory(null);
-            }}
-          />
-        </View>
+        <AppButton
+          disabled={session === null}
+          label="New category"
+          onPress={() => {
+            categories.clearError();
+            setEditorCategory(null);
+          }}
+        />
       }
+      backLabel="Back to settings"
       detail="Shape your own taxonomy without changing Relay's stable system vocabulary."
       eyebrow="Tenant-owned taxonomy"
+      onBack={() => router.back()}
       title="Categories"
+      titleAccessory={
+        session === null ? (
+          <ContextualNotice
+            accessibilityLabel="Why category management is unavailable"
+            tone="warning"
+          >
+            Sign in to manage account categories.
+          </ContextualNotice>
+        ) : undefined
+      }
     >
-      {session === null ? (
-        <StatusMessage tone="warning">Sign in to manage account categories.</StatusMessage>
-      ) : null}
       {errorMessage === undefined || editorCategory !== undefined ? null : (
         <View style={{ gap: theme.relay.spacing.sm }}>
           <StatusMessage tone="error">{errorMessage}</StatusMessage>
-          <AppButton
-            label={categories.loadError === null ? "Dismiss" : "Retry category loading"}
-            onPress={() => {
-              if (categories.loadError === null) categories.clearError();
-              else void categories.refresh();
-            }}
-            tone="secondary"
-          />
+          <ActionRow>
+            <AppButton
+              label={categories.loadError === null ? "Dismiss" : "Retry category loading"}
+              onPress={() => {
+                if (categories.loadError === null) categories.clearError();
+                else void categories.refresh();
+              }}
+              tone="secondary"
+            />
+          </ActionRow>
         </View>
       )}
-      <Panel title="Custom categories" meta={`${categories.activeCustom.length.toString()} ACTIVE`}>
+      <EditorialSurface
+        icon="shape-plus-outline"
+        title="Custom categories"
+        meta={`${categories.activeCustom.length.toString()} active`}
+        variant="raised"
+      >
         <AppText tone="muted">
           Reorder affects presentation. Quiet changes emphasis only; it cannot dismiss a source
           notification without a separately approved rule.
         </AppText>
         <View style={{ gap: theme.relay.spacing.md }}>
-          {categories.isLoading ? <AppText tone="muted">Loading categories...</AppText> : null}
+          {categories.isLoading ? <LoadingState label="Loading categories..." /> : null}
           {!categories.isLoading && categories.activeCustom.length === 0 ? (
-            <AppText tone="muted">
-              No custom categories yet. Create one when the system set is not enough.
-            </AppText>
+            <FeedbackState
+              detail="Create one when the protected system set is not enough."
+              title="No custom categories yet"
+            />
           ) : null}
           {categories.activeCustom.map((category, index) => (
             <CategoryCard
@@ -138,11 +161,12 @@ export default function CategoriesScreen() {
             />
           ))}
         </View>
-      </Panel>
+      </EditorialSurface>
       {categories.archivedCustom.length === 0 ? null : (
-        <Panel
+        <EditorialSurface
+          icon="archive-outline"
           title="Archived categories"
-          meta={`${categories.archivedCustom.length.toString()} RETAINED`}
+          meta={`${categories.archivedCustom.length.toString()} retained`}
         >
           <AppText tone="muted">
             Archived categories preserve historical classifications. Permanent deletion is only
@@ -163,9 +187,9 @@ export default function CategoriesScreen() {
               />
             ))}
           </View>
-        </Panel>
+        </EditorialSurface>
       )}
-      <Panel title="System categories" meta="STABLE">
+      <EditorialSurface icon="shield-check-outline" title="System categories" meta="Stable">
         <AppText tone="muted">
           System slugs are protected machine identities. They remain visible but cannot be edited,
           archived, or deleted here.
@@ -175,7 +199,7 @@ export default function CategoriesScreen() {
             <CategoryCard category={category} disabled key={category.id} />
           ))}
         </View>
-      </Panel>
+      </EditorialSurface>
       <CategoryEditorDialog
         category={editorCategory ?? null}
         errorMessage={editorCategory === undefined ? undefined : editorErrorMessage}
@@ -206,10 +230,6 @@ export default function CategoriesScreen() {
         title="Delete archived category?"
         visible={deleteTarget !== undefined}
       />
-    </Page>
+    </AppScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  headerActions: { flexDirection: "row", flexWrap: "wrap" },
-});

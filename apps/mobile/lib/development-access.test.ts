@@ -4,6 +4,7 @@ import {
   canEnterApp,
   canEnterSignIn,
   localDevelopmentAccessEnabled,
+  localDiagnosticsDisabled,
   notificationCaptureMode,
   notificationCaptureTenantId,
 } from "./development-access";
@@ -41,6 +42,33 @@ describe("debug-only local access", () => {
     const localAccess = localDevelopmentAccessEnabled(false, "sideload");
     expect(canEnterApp(false, localAccess)).toBe(false);
     expect(notificationCaptureTenantId(undefined, localAccess, "android")).toBeUndefined();
+  });
+
+  it("keeps a debug diagnostic build on the authenticated release path", () => {
+    const localAccess = localDevelopmentAccessEnabled(true, "sideload", true);
+    expect(localAccess).toBe(false);
+    expect(canEnterApp(false, localAccess)).toBe(false);
+    expect(notificationCaptureTenantId(undefined, localAccess, "android")).toBeUndefined();
+  });
+
+  it("never prepares the synthetic tenant for a signed-in diagnostic build", () => {
+    const localAccess = localDevelopmentAccessEnabled(true, "sideload", true);
+    const mode = notificationCaptureMode("208455fe-user", localAccess, "android");
+    expect(mode.developmentLocal).toBe(false);
+    expect(mode.tenantId).toBe("208455fe-user");
+  });
+
+  it("disables local diagnostics only for the explicit build flag", () => {
+    const original = process.env.EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS;
+    try {
+      process.env.EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS = "disabled";
+      expect(localDiagnosticsDisabled()).toBe(true);
+      delete process.env.EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS;
+      expect(localDiagnosticsDisabled()).toBe(false);
+    } finally {
+      if (original === undefined) delete process.env.EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS;
+      else process.env.EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS = original;
+    }
   });
 
   it("does not expose the synthetic capture tenant on unsupported platforms", () => {

@@ -125,18 +125,20 @@ insert into public.action_rules (
     'google-tasks', 'create', '{}'
   );
 
+-- Action run identity is derived from the rule/event pair and enforced by a check constraint, so
+-- these ids are computed rather than chosen.
 insert into public.action_runs (
   id, user_id, action_rule_id, event_id, provider, status, input
 ) values
   (
-    '15000000-0000-0000-0000-000000000001',
+    public.relay_action_run_id('14000000-0000-0000-0000-000000000001', '13000000-0000-0000-0000-000000000001'),
     '10000000-0000-0000-0000-000000000001',
     '14000000-0000-0000-0000-000000000001',
     '13000000-0000-0000-0000-000000000001',
     'google-tasks', 'awaiting-approval', '{}'
   ),
   (
-    '26000000-0000-0000-0000-000000000002',
+    public.relay_action_run_id('25000000-0000-0000-0000-000000000002', '24000000-0000-0000-0000-000000000002'),
     '20000000-0000-0000-0000-000000000002',
     '25000000-0000-0000-0000-000000000002',
     '24000000-0000-0000-0000-000000000002',
@@ -228,7 +230,7 @@ select results_eq(
 
 select results_eq(
   'select id from public.action_runs order by id',
-  $$values ('15000000-0000-0000-0000-000000000001'::uuid)$$,
+  $$values (public.relay_action_run_id('14000000-0000-0000-0000-000000000001', '13000000-0000-0000-0000-000000000001'))$$,
   'user sees only own action runs'
 );
 
@@ -475,7 +477,7 @@ select throws_ok(
 
 select throws_ok(
   $$select public.decide_action_run(
-      '26000000-0000-0000-0000-000000000002', 'approve'
+      public.relay_action_run_id('25000000-0000-0000-0000-000000000002', '24000000-0000-0000-0000-000000000002'), 'approve'
     )$$,
   'P0002',
   null,
@@ -484,7 +486,7 @@ select throws_ok(
 
 select results_eq(
   $$select status::text from public.decide_action_run(
-      '15000000-0000-0000-0000-000000000001', 'approve'
+      public.relay_action_run_id('14000000-0000-0000-0000-000000000001', '13000000-0000-0000-0000-000000000001'), 'approve'
     )$$,
   $$values ('approved'::text)$$,
   'user can approve own awaiting action run'

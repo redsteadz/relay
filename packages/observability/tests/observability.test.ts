@@ -5,6 +5,7 @@ import {
   createLogger,
   normalizeError,
   redact,
+  requestId,
   serializeError,
   userMessageForCategory,
 } from "../src/index";
@@ -109,5 +110,25 @@ describe("safe structured logging", () => {
     expect(debugLog.error).toMatchObject({
       metadata: { attempt: 2, authorization: "[REDACTED]" },
     });
+  });
+});
+
+describe("request identifiers", () => {
+  it("generates an identifier on runtimes without the Web Crypto global", () => {
+    const globals = globalThis as { crypto?: unknown };
+    const original = globals.crypto;
+    try {
+      delete globals.crypto;
+      const generated = requestId();
+      expect(generated).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u);
+      expect(generated).not.toBe(requestId());
+    } finally {
+      if (original === undefined) delete globals.crypto;
+      else globals.crypto = original;
+    }
+  });
+
+  it("keeps a caller-supplied identifier", () => {
+    expect(requestId("upstream-correlation-1")).toBe("upstream-correlation-1");
   });
 });

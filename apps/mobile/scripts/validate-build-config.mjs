@@ -108,14 +108,64 @@ assert.deepEqual(eas, {
     [buildVariants.sideload]: {
       extends: "base",
       distribution: "internal",
+      environment: "preview",
       env: { RELAY_BUILD_VARIANT: buildVariants.sideload },
+      android: { buildType: "apk" },
+    },
+    diagnostic: {
+      extends: "base",
+      developmentClient: true,
+      distribution: "internal",
+      environment: "preview",
+      env: {
+        RELAY_BUILD_VARIANT: buildVariants.sideload,
+        EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS: "disabled",
+      },
       android: { buildType: "apk" },
     },
   },
 });
 
+// The diagnostic profile exists to reproduce sideload capture against the hosted
+// runtime with debug logging, so it must keep the sideload manifest and never
+// fall back to the emulator-local base environment.
+assert.equal(eas.build.diagnostic.env.RELAY_BUILD_VARIANT, buildVariants.sideload);
+assert.equal(eas.build.diagnostic.developmentClient, true);
+// Diagnostic builds must never enter unauthenticated local capture, which prepares the synthetic
+// tenant and clears the signed-in tenant's queue. They reproduce the release runtime exactly.
+assert.equal(eas.build.diagnostic.env.EXPO_PUBLIC_RELAY_LOCAL_DIAGNOSTICS, "disabled");
+assert.notEqual(eas.build.diagnostic.environment, eas.build.base.environment);
+
+// Sideload APKs run on physical devices, so they must not inherit the base
+// environment that points development builds at the emulator loopback host.
+const sideloadEnvironment =
+  eas.build[buildVariants.sideload].environment ?? eas.build.base.environment;
+assert.notEqual(sideloadEnvironment, eas.build.base.environment);
+
 assert.equal(packageJson.dependencies["expo-dev-client"], "57.0.15");
-assert.match(packageJson.scripts["eas-build-post-install"], /@relay\/contracts build/u);
+const easPostInstall = packageJson.scripts["eas-build-post-install"];
+const workspaceDependencies = Object.entries(packageJson.dependencies)
+  .filter(([, range]) => range.startsWith("workspace:"))
+  .map(([name]) => name);
+const builtWorkspaceDependencies = workspaceDependencies.filter((name) => {
+  const manifest = JSON.parse(
+    readFileSync(
+      resolve(repositoryRoot, "packages", name.replace("@relay/", ""), "package.json"),
+      "utf8",
+    ),
+  );
+  return typeof manifest.scripts?.build === "string";
+});
+
+// EAS uploads only committed files, so every workspace dependency that resolves
+// its entry point to a gitignored dist/ must be built by the post-install hook.
+// A dependency-closure filter covers them all; any narrower filter must name each.
+assert.ok(builtWorkspaceDependencies.length > 0);
+if (!easPostInstall.includes(`${packageJson.name}^...`)) {
+  for (const name of builtWorkspaceDependencies) {
+    assert.match(easPostInstall, new RegExp(`${name.replace("/", "\\/")}`, "u"));
+  }
+}
 assert.match(gitignore, /^apps\/mobile\/android\/$/mu);
 assert.match(gitignore, /^apps\/mobile\/ios\/$/mu);
 for (const permission of sms.permissions) assert.equal(moduleManifest.includes(permission), false);

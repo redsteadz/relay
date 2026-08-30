@@ -97,7 +97,7 @@ its position, and the database enforces that shape so the rule cannot drift.
 
 Evaluation speaks one wire format -- chat completions with a bearer key -- against a configurable
 OpenAI-compatible endpoint under
-[ADR-0011](../decisions/0011-openai-compatible-semantic-endpoint.md). Base URL, model, and how much
+[ADR-0012](../decisions/0012-openai-compatible-semantic-endpoint.md). Base URL, model, and how much
 of the answer shape the endpoint is asked to enforce are configuration, defaulting to OpenAI and
 `gpt-4.1-mini`. A tenant override stored beside their key wins over the operator default, because a
 key issued by a gateway is only valid at that gateway.
