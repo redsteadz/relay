@@ -112,8 +112,23 @@ assert.deepEqual(eas, {
       env: { RELAY_BUILD_VARIANT: buildVariants.sideload },
       android: { buildType: "apk" },
     },
+    diagnostic: {
+      extends: "base",
+      developmentClient: true,
+      distribution: "internal",
+      environment: "preview",
+      env: { RELAY_BUILD_VARIANT: buildVariants.sideload },
+      android: { buildType: "apk" },
+    },
   },
 });
+
+// The diagnostic profile exists to reproduce sideload capture against the hosted
+// runtime with debug logging, so it must keep the sideload manifest and never
+// fall back to the emulator-local base environment.
+assert.equal(eas.build.diagnostic.env.RELAY_BUILD_VARIANT, buildVariants.sideload);
+assert.equal(eas.build.diagnostic.developmentClient, true);
+assert.notEqual(eas.build.diagnostic.environment, eas.build.base.environment);
 
 // Sideload APKs run on physical devices, so they must not inherit the base
 // environment that points development builds at the emulator loopback host.

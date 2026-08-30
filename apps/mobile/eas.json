@@ -31,6 +31,18 @@
       "android": {
         "buildType": "apk"
       }
+    },
+    "diagnostic": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "RELAY_BUILD_VARIANT": "sideload"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     }
   }
 }
