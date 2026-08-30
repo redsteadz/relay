@@ -35,7 +35,7 @@ function requireCondition(condition, message) {
 }
 
 function pnpmInvocation(args) {
-  return { args, command: "pnpm" };
+  return { args, command: process.platform === "win32" ? "pnpm.cmd" : "pnpm" };
 }
 
 function appendLog(current, chunk) {
@@ -48,6 +48,7 @@ function runPnpm(args, options = {}) {
     const child = spawn(invocation.command, invocation.args, {
       cwd: root,
       env: options.env ?? process.env,
+      shell: process.platform === "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -76,6 +77,7 @@ function startPnpm(name, args, env, forbidden) {
     cwd: root,
     detached: process.platform !== "win32",
     env,
+    shell: process.platform === "win32",
     stdio: ["ignore", "pipe", "pipe"],
   });
   const running = {
