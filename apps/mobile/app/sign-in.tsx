@@ -2,9 +2,8 @@ import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { StyleSheet } from "react-native";
 
-import { Page } from "@/components/Page";
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, AppTextInput, StatusMessage } from "@/components/ui";
+import { AppScreen } from "@/components/AppScreen";
+import { AppButton, AppText, AppTextInput, EditorialSurface, StatusMessage } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 
 export default function SignInScreen() {
@@ -43,12 +42,17 @@ export default function SignInScreen() {
   }
 
   return (
-    <Page
+    <AppScreen
       eyebrow="Private by default"
       title="Sign in to Relay"
       detail="Use an approved Relay account. Relay stores the refreshable session in device-secure storage."
     >
-      <Panel title="Email magic link" meta="NO PASSWORD">
+      <EditorialSurface
+        icon="email-fast-outline"
+        title="Email magic link"
+        meta="No password"
+        variant="raised"
+      >
         <AppTextInput
           accessibilityLabel="Email address"
           autoCapitalize="none"
@@ -70,11 +74,11 @@ export default function SignInScreen() {
           onPress={() => void submit()}
         />
         {status.length === 0 ? null : <StatusMessage tone={statusTone}>{status}</StatusMessage>}
-      </Panel>
+      </EditorialSurface>
       <AppText style={styles.note} tone="muted" variant="caption">
         Account enrollment remains operator controlled.
       </AppText>
-    </Page>
+    </AppScreen>
   );
 }
 
