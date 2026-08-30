@@ -1,5 +1,5 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AppState } from "react-native";
 
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
@@ -152,21 +152,23 @@ export function useLocalCapturePreviews<T>({
     })();
   }, [errorMessage, load]);
 
-  useEffect(() => {
-    if (!enabled) {
-      clear();
-      return undefined;
-    }
+  useFocusEffect(
+    useCallback(() => {
+      if (!enabled) {
+        clear();
+        return undefined;
+      }
 
-    lifecycleRef.current.active = true;
-    lifecycleRef.current.generation += 1;
-    refresh();
-    const interval = setInterval(refresh, LOCAL_QUEUE_POLL_MS);
-    return () => {
-      clearInterval(interval);
-      clear();
-    };
-  }, [clear, enabled, refresh]);
+      lifecycleRef.current.active = true;
+      lifecycleRef.current.generation += 1;
+      refresh();
+      const interval = setInterval(refresh, LOCAL_QUEUE_POLL_MS);
+      return () => {
+        clearInterval(interval);
+        clear();
+      };
+    }, [clear, enabled, refresh]),
+  );
 
   return { captures, error, refresh, refreshing };
 }

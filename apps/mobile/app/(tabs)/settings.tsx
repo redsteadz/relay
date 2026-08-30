@@ -1,10 +1,10 @@
 import { router } from "expo-router";
 import { useState } from "react";
 
-import { Page } from "@/components/Page";
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, StatusMessage } from "@/components/ui";
+import { AppScreen } from "@/components/AppScreen";
+import { AppButton, AppText, EditorialSurface, StatusMessage } from "@/components/ui";
 import { PrivacySettings } from "@/features/privacy/components/PrivacySettings";
+import { ThemePreferencePanel } from "@/features/settings/components/ThemePreferencePanel";
 import { useAuth } from "@/lib/auth-context";
 import { reportUnexpectedUiError } from "@/lib/observability";
 
@@ -44,12 +44,17 @@ export default function SettingsScreen() {
   }
 
   return (
-    <Page
+    <AppScreen
       eyebrow="Local control"
       title="Settings"
       detail="Manage categories, privacy, automation safeguards, and your Relay account."
     >
-      <Panel title="Categories" meta={signedIn ? "CUSTOM + SYSTEM" : "AUTHENTICATION NEEDED"}>
+      <ThemePreferencePanel />
+      <EditorialSurface
+        icon="shape-outline"
+        title="Categories"
+        meta={signedIn ? "Custom + system" : "Authentication needed"}
+      >
         <AppText tone="muted">
           Create, reorder, quiet, and archive tenant-owned categories while stable system slugs stay
           protected.
@@ -64,7 +69,7 @@ export default function SettingsScreen() {
           onPress={openCategories}
           tone="secondary"
         />
-      </Panel>
+      </EditorialSurface>
       <PrivacySettings
         accessToken={session?.access_token}
         clearDeletedAccountSession={clearDeletedAccountSession}
@@ -72,13 +77,17 @@ export default function SettingsScreen() {
         onSignIn={openSignIn}
         userId={session?.user.id}
       />
-      <Panel title="Automatic dismissal" meta="OFF">
+      <EditorialSurface icon="bell-off-outline" title="Automatic dismissal" meta="Off">
         <AppText tone="muted">
           Requires explicit source and filter rules plus dry-run evidence. A quiet category alone
           never authorizes dismissal, and dismissed system notifications cannot be restored.
         </AppText>
-      </Panel>
-      <Panel title="Relay account" meta={signedIn ? "SIGNED IN" : "SIGNED OUT"}>
+      </EditorialSurface>
+      <EditorialSurface
+        icon="lock-outline"
+        title="Relay account"
+        meta={signedIn ? "Signed in" : "Signed out"}
+      >
         <AppText tone="muted">
           {signedIn
             ? "Signing out removes the refreshable session from secure device storage."
@@ -97,7 +106,7 @@ export default function SettingsScreen() {
         {signOutError ? (
           <StatusMessage tone="error">Could not clear the local session. Try again.</StatusMessage>
         ) : null}
-      </Panel>
-    </Page>
+      </EditorialSurface>
+    </AppScreen>
   );
 }

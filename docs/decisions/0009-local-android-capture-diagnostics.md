@@ -2,6 +2,7 @@
 status: accepted
 date: 2026-08-29
 owners: mobile
+last_verified: 2026-08-30
 ---
 
 # ADR-0009: Local Diagnostics For Internal Android Capture Builds
@@ -25,10 +26,13 @@ without authentication. The permission-free `development` variant can diagnose n
 permissions and background components.
 
 Local diagnostics use one stable synthetic tenant and never run authenticated capture sync. Native
-captures remain encrypted with tenant-bound Android Keystore material. The Sources screen may bridge
-only minimized source-specific preview fields while it is focused and foregrounded under Android
-`FLAG_SECURE`; it clears previews on blur, background, and unmount and never writes them to logs,
-JavaScript storage, or the network.
+captures remain encrypted with tenant-bound Android Keystore material. The diagnostic bridge may
+expose only minimized source-specific preview fields plus non-content queue metadata needed for
+navigation and retry diagnostics. Only stable capture envelope ID and retry-attempt count cross under
+the current contract; pending status is derived from the ready-row query rather than bridged
+separately. Full envelopes never cross this bridge. The Sources screen uses it only while focused and
+foregrounded under Android `FLAG_SECURE`; it clears previews on blur, background, and unmount and
+never writes them to logs, JavaScript storage, or the network.
 
 Disclosure, an exact nonempty sender allowlist, and Android's runtime permission remain mandatory
 before the first SMS provider read. Release sideload builds still require authentication. Signing in

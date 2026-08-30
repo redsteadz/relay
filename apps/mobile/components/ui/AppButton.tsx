@@ -1,4 +1,3 @@
-import type { StyleProp, ViewStyle } from "react-native";
 import { Button } from "react-native-paper";
 
 import { useRelayTheme } from "@/theme";
@@ -12,7 +11,6 @@ type AppButtonProps = {
   label: string;
   loading?: boolean;
   onPress: () => void;
-  style?: StyleProp<ViewStyle> | undefined;
   testID?: string | undefined;
   tone?: ButtonTone;
 };
@@ -24,14 +22,17 @@ export function AppButton({
   label,
   loading = false,
   onPress,
-  style,
   testID,
   tone = "primary",
 }: AppButtonProps) {
   const theme = useRelayTheme();
   const state = getButtonState(tone, disabled, loading);
-  const isPrimary = tone === "primary";
-  const foreground = tone === "destructive" ? theme.relay.colors.danger : theme.relay.colors.accent;
+  const contained = tone === "primary" || tone === "destructive";
+  const foreground = tone === "destructive" ? theme.relay.colors.danger : theme.relay.colors.action;
+  const buttonColor =
+    tone === "destructive" ? theme.relay.colors.danger : theme.relay.colors.action;
+  const onButton =
+    tone === "destructive" ? theme.relay.colors.onDanger : theme.relay.colors.onAction;
 
   return (
     <Button
@@ -39,19 +40,18 @@ export function AppButton({
       {...(testID === undefined ? {} : { testID })}
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={state.accessibilityState}
-      buttonColor={isPrimary ? theme.relay.colors.accent : "transparent"}
+      {...(contained ? { buttonColor } : {})}
       contentStyle={{ minHeight: theme.relay.interaction.minimumTarget }}
       disabled={state.inactive}
       labelStyle={theme.relay.typography.label}
       loading={loading}
-      mode={isPrimary ? "contained" : "outlined"}
+      mode={contained ? "contained" : "outlined"}
       onPress={onPress}
       style={[
-        { borderColor: foreground, borderRadius: theme.relay.radii.md },
+        { borderColor: foreground, borderRadius: theme.relay.radii.sm },
         state.inactive && { opacity: theme.relay.interaction.disabledOpacity },
-        style,
       ]}
-      textColor={isPrimary ? theme.relay.colors.onAccent : foreground}
+      textColor={contained ? onButton : foreground}
     >
       {label}
     </Button>

@@ -2,6 +2,7 @@ import type { ExpoConfig } from "expo/config";
 import { AndroidConfig, withAndroidManifest, type ConfigPlugin } from "expo/config-plugins";
 
 import buildConstants from "./config/build.constants.json";
+import palette from "./theme/palette.json";
 
 const { app, buildVariants, sms } = buildConstants;
 type AndroidComponent = { $: { "android:name": string }; [key: string]: unknown };
@@ -67,7 +68,7 @@ const config: ExpoConfig = {
     package: app.androidApplicationId,
     ...(isSideload ? { permissions: sms.permissions } : { blockedPermissions: sms.permissions }),
     adaptiveIcon: {
-      backgroundColor: "#111713",
+      backgroundColor: palette.dark.background,
     },
   },
   extra: {

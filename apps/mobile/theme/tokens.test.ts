@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { relayTokens, resolveColorScheme } from "./tokens";
+import { isThemePreference, relayTokens, resolveColorScheme } from "./tokens";
 
 function relativeLuminance(hex: string) {
   const channels = hex
@@ -32,6 +32,12 @@ describe("theme selection", () => {
     expect(resolveColorScheme("light", "dark")).toBe("light");
     expect(resolveColorScheme("dark", "light")).toBe("dark");
   });
+
+  it("rejects corrupt persisted preferences", () => {
+    expect(isThemePreference("system")).toBe(true);
+    expect(isThemePreference("sepia")).toBe(false);
+    expect(isThemePreference(null)).toBe(false);
+  });
 });
 
 describe.each(["light", "dark"] as const)("%s theme contrast", (scheme) => {
@@ -44,10 +50,16 @@ describe.each(["light", "dark"] as const)("%s theme contrast", (scheme) => {
   });
 
   it("keeps control and feedback labels readable", () => {
+    expect(contrastRatio(colors.onAction, colors.action)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(colors.onAccent, colors.accent)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(colors.onAccentSubtle, colors.accentSubtle)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(colors.onDangerSurface, colors.dangerSurface)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(colors.onWarningSurface, colors.warningSurface)).toBeGreaterThanOrEqual(
       4.5,
     );
+    expect(contrastRatio(colors.onSuccessSurface, colors.successSurface)).toBeGreaterThanOrEqual(
+      4.5,
+    );
+    expect(contrastRatio(colors.onInfoSurface, colors.infoSurface)).toBeGreaterThanOrEqual(4.5);
   });
 });

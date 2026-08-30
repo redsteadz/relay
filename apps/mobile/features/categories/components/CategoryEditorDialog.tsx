@@ -51,9 +51,17 @@ export function CategoryEditorDialog({
 
   return (
     <Portal>
-      <Dialog dismissable={!saving} onDismiss={onDismiss} visible={visible}>
+      <Dialog
+        dismissable={!saving}
+        onDismiss={onDismiss}
+        style={{ borderRadius: theme.relay.radii.lg }}
+        visible={visible}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <Dialog.Title>{category === null ? "Create category" : "Edit category"}</Dialog.Title>
+          <Dialog.Icon icon={category === null ? "shape-plus-outline" : "pencil-outline"} />
+          <Dialog.Title style={[theme.relay.typography.heading, { textAlign: "center" }]}>
+            {category === null ? "Create category" : "Edit category"}
+          </Dialog.Title>
           <Dialog.Content>
             <View style={{ gap: theme.relay.spacing.md }}>
               <AppText tone="muted">
@@ -138,7 +146,7 @@ export function CategoryEditorDialog({
               )}
             </View>
           </Dialog.Content>
-          <Dialog.Actions>
+          <Dialog.Actions style={{ gap: theme.relay.spacing.sm }}>
             <AppButton disabled={saving} label="Cancel" onPress={onDismiss} tone="secondary" />
             <AppButton
               label={category === null ? "Create" : "Save"}

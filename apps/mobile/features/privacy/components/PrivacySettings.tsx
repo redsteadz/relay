@@ -1,7 +1,12 @@
 import { router } from "expo-router";
 
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, StatusMessage } from "@/components/ui";
+import {
+  AppButton,
+  AppText,
+  ContextualNotice,
+  EditorialSurface,
+  StatusMessage,
+} from "@/components/ui";
 
 import { usePrivacySettings } from "../hooks/usePrivacySettings";
 import { AccountDeletionPanel } from "./AccountDeletionPanel";
@@ -27,20 +32,32 @@ export function PrivacySettings({
 
   if (accessToken === undefined || userId === undefined) {
     return (
-      <Panel
+      <EditorialSurface
+        icon="shield-lock-outline"
         title="Privacy controls"
-        meta={configurationError ? "NOT CONFIGURED" : "SIGN-IN REQUIRED"}
+        meta={configurationError ? "Not configured" : "Sign-in required"}
+        titleAccessory={
+          configurationError ? undefined : (
+            <ContextualNotice
+              accessibilityLabel="Why privacy controls require sign-in"
+              tone="warning"
+            >
+              Sign in to inspect retention, purge raw payloads, review AI disclosures, revoke
+              credentials, and delete the account.
+            </ContextualNotice>
+          )
+        }
       >
-        <StatusMessage tone={configurationError ? "error" : "warning"}>
-          {configurationError
-            ? "Relay account services are unavailable in this build."
-            : "Sign in to inspect retention, purge raw payloads, review AI disclosures, revoke credentials, and delete the account."}
-        </StatusMessage>
+        {configurationError ? (
+          <StatusMessage tone="error">
+            Relay account services are unavailable in this build.
+          </StatusMessage>
+        ) : null}
         <AppText tone="muted">
           Your privacy controls remain in Settings and are scoped to your Relay account.
         </AppText>
         <AppButton label="Sign in to manage privacy" onPress={onSignIn} tone="secondary" />
-      </Panel>
+      </EditorialSurface>
     );
   }
 
@@ -54,17 +71,17 @@ export function PrivacySettings({
         purging={privacy.purge.isPending}
         retention={privacy.overview.data?.retention}
       />
-      <Panel title="AI disclosure history" meta="METADATA ONLY">
+      <EditorialSurface icon="file-eye-outline" title="AI disclosure history" meta="Metadata only">
         <AppText tone="muted">
-          Inspect provider, model, disclosed field names, purpose, and time—never prompts or source
-          content.
+          Inspect provider, model, disclosed field names, purpose, and time. Prompts and source
+          content stay excluded.
         </AppText>
         <AppButton
           label="View disclosure history"
           onPress={() => router.push("/disclosures")}
           tone="secondary"
         />
-      </Panel>
+      </EditorialSurface>
       <OpenAiPrivacyPanel
         error={privacy.revoke.error ?? privacy.openAi.error}
         loading={privacy.openAi.isPending}

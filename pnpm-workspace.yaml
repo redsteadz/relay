@@ -12,3 +12,6 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - "@cloudflare/workers-types@5.20260823.1"
+
+patchedDependencies:
+  expo-router: patches/expo-router.patch

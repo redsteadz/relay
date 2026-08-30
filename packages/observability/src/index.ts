@@ -404,8 +404,22 @@ export function createLogger(options: {
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
+/**
+ * Workers and Node expose `crypto` globally; Hermes does not, so a bare reference threw a
+ * `ReferenceError` on React Native before any request carrying a correlation ID was issued. These
+ * identifiers only correlate logs, so a runtime without Web Crypto falls back to a random value of
+ * the same shape rather than failing the operation it was meant to describe.
+ */
+function generatedRequestId(): string {
+  const webCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof webCrypto?.randomUUID === "function") return webCrypto.randomUUID();
+  const segment = (length: number): string =>
+    Array.from({ length }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+  return `${segment(8)}-${segment(4)}-4${segment(3)}-a${segment(3)}-${segment(12)}`;
+}
+
 export function requestId(value?: string | null): string {
   return value !== undefined && value !== null && REQUEST_ID_PATTERN.test(value)
     ? value
-    : crypto.randomUUID();
+    : generatedRequestId();
 }

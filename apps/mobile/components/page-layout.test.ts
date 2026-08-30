@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { interaction, spacing } from "../theme/tokens";
 
-import { getPageLayout } from "./page-layout";
+import { getContextualNoticeWidth, getPageLayout } from "./page-layout";
 
 describe("responsive page layout", () => {
   it("stacks the header and preserves content width on a narrow Android viewport", () => {
@@ -21,5 +21,11 @@ describe("responsive page layout", () => {
 
   it("keeps interactive primitives at an accessible target size", () => {
     expect(interaction.minimumTarget).toBeGreaterThanOrEqual(48);
+  });
+
+  it("keeps contextual notice bubbles inside narrow viewport gutters", () => {
+    expect(getContextualNoticeWidth(360)).toBe(296);
+    expect(getContextualNoticeWidth(280)).toBe(248);
+    expect(getContextualNoticeWidth(360, 120)).toBe(224);
   });
 });
