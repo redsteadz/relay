@@ -51,7 +51,12 @@ export function CategoryEditorDialog({
 
   return (
     <Portal>
-      <Dialog dismissable={!saving} onDismiss={onDismiss} visible={visible}>
+      <Dialog
+        dismissable={!saving}
+        onDismiss={onDismiss}
+        style={{ borderRadius: theme.relay.radii.lg }}
+        visible={visible}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <Dialog.Icon icon={category === null ? "shape-plus-outline" : "pencil-outline"} />
           <Dialog.Title style={[theme.relay.typography.heading, { textAlign: "center" }]}>

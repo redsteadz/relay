@@ -44,7 +44,12 @@ export function AccountDeletionDialog({
 
   return (
     <Portal>
-      <Dialog dismissable={!deleting} onDismiss={onDismiss} visible={visible}>
+      <Dialog
+        dismissable={!deleting}
+        onDismiss={onDismiss}
+        style={{ borderRadius: theme.relay.radii.lg }}
+        visible={visible}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <Dialog.Icon color={theme.relay.colors.danger} icon="delete-forever-outline" />
           <Dialog.Title style={[theme.relay.typography.heading, { textAlign: "center" }]}>

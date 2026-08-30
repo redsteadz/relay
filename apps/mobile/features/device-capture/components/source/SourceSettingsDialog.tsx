@@ -30,7 +30,11 @@ export function SourceSettingsDialog({
   const theme = useRelayTheme();
   return (
     <Portal>
-      <Dialog onDismiss={onDismiss} visible={visible}>
+      <Dialog
+        onDismiss={onDismiss}
+        style={{ borderRadius: theme.relay.radii.lg }}
+        visible={visible}
+      >
         <Dialog.Icon color={theme.relay.colors.action} icon="cog-outline" />
         <Dialog.Title style={[theme.relay.typography.heading, { textAlign: "center" }]}>
           {sourceName} settings

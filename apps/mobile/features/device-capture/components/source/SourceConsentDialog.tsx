@@ -41,7 +41,12 @@ export function SourceConsentDialog({
 
   return (
     <Portal>
-      <Dialog dismissable={!loading} onDismiss={onCancel} visible={visible}>
+      <Dialog
+        dismissable={!loading}
+        onDismiss={onCancel}
+        style={{ borderRadius: theme.relay.radii.lg }}
+        visible={visible}
+      >
         <Dialog.Icon color={theme.relay.colors.warning} icon="shield-alert-outline" />
         <Dialog.Title style={[theme.relay.typography.heading, { textAlign: "center" }]}>
           Authorize {sourceName}

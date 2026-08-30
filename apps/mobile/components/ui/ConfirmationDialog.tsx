@@ -27,7 +27,12 @@ export function ConfirmationDialog({
   const theme = useRelayTheme();
   return (
     <Portal>
-      <Dialog dismissable={!loading} onDismiss={onCancel} visible={visible}>
+      <Dialog
+        dismissable={!loading}
+        onDismiss={onCancel}
+        style={{ borderRadius: theme.relay.radii.lg }}
+        visible={visible}
+      >
         <Dialog.Icon color={theme.relay.colors.danger} icon="alert-octagon-outline" />
         <Dialog.Title style={[theme.relay.typography.heading, { textAlign: "center" }]}>
           {title}
