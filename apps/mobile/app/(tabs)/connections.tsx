@@ -10,6 +10,7 @@ import { AppText } from "@/components/ui";
 import { useSecureLocalCaptureScreen } from "@/hooks/useLocalCapturePreviews";
 import { useAuth } from "@/lib/auth-context";
 import { localDevelopmentAccessEnabled, notificationCaptureMode } from "@/lib/development-access";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress, { type DeviceCapabilities } from "@/modules/relay-device-ingress";
 
 type ScopedCapabilities = {
@@ -45,6 +46,11 @@ export default function ConnectionsScreen() {
       }
     } catch (error) {
       if (request === capabilityRequestRef.current) setScopedCapabilities(undefined);
+      logMobileError("capture.capabilities_refresh_failed", error, {
+        code: "CAPTURE_CAPABILITIES_REFRESH_FAILED",
+        integration: "relay-device-ingress",
+        operation: "getCapabilities",
+      });
       throw error;
     }
   }, [captureMode.stateKey]);
@@ -55,7 +61,7 @@ export default function ConnectionsScreen() {
       try {
         if (active) await refreshCapabilities();
       } catch {
-        // refreshCapabilities already clears only the latest failed request.
+        // refreshCapabilities already logs once and clears only the latest failed request.
       }
     };
     void refresh();

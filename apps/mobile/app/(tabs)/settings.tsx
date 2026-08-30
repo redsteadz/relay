@@ -6,6 +6,7 @@ import { Panel } from "@/components/Panel";
 import { AppButton, AppText, StatusMessage } from "@/components/ui";
 import { PrivacySettings } from "@/features/privacy/components/PrivacySettings";
 import { useAuth } from "@/lib/auth-context";
+import { reportUnexpectedUiError } from "@/lib/observability";
 
 export default function SettingsScreen() {
   const { clearDeletedAccountSession, configurationError, session, signOut } = useAuth();
@@ -30,7 +31,12 @@ export default function SettingsScreen() {
     setSignOutError(false);
     try {
       await signOut();
-    } catch {
+    } catch (error: unknown) {
+      reportUnexpectedUiError(error, "ui.sign_out_failed", {
+        code: "AUTH_SIGN_OUT_UI_FAILED",
+        integration: "supabase-auth",
+        operation: "signOut",
+      });
       setSignOutError(true);
     } finally {
       setSigningOut(false);

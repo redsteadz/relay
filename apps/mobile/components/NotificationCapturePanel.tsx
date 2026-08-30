@@ -9,6 +9,7 @@ import {
   toggleNotificationAppSelection,
 } from "@/lib/notification-capture";
 import { useLocalCapturePreviews } from "@/hooks/useLocalCapturePreviews";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress, {
   type DeviceCapabilities,
   type NotificationCapturePreview,
@@ -66,7 +67,12 @@ export function NotificationCapturePanel({
         try {
           const apps = await RelayDeviceIngress.getSelectableNotificationApps();
           if (active && currentGeneration === generation) setSelectableApps(apps);
-        } catch {
+        } catch (error: unknown) {
+          logMobileError("capture.notification_apps_load_failed", error, {
+            code: "NOTIFICATION_APPS_LOAD_FAILED",
+            integration: "relay-device-ingress",
+            operation: "getSelectableNotificationApps",
+          });
           if (active && currentGeneration === generation) {
             setAppListStatus("Could not load launchable apps.");
           }
@@ -132,7 +138,12 @@ export function NotificationCapturePanel({
     try {
       if (!(await save(paused))) return;
       await RelayDeviceIngress.openNotificationAccessSettings();
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.notification_access_open_failed", error, {
+        code: "NOTIFICATION_ACCESS_OPEN_FAILED",
+        integration: "relay-device-ingress",
+        operation: "openNotificationAccessSettings",
+      });
       setStatus("Could not save notification controls.");
     }
   }
@@ -142,7 +153,12 @@ export function NotificationCapturePanel({
     try {
       if (!(await save(paused))) setStatus("Add a valid app package before saving controls.");
       else setStatus("Notification controls saved.");
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.notification_controls_save_failed", error, {
+        code: "NOTIFICATION_CONTROLS_SAVE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "saveNotificationControls",
+      });
       setStatus("Could not save notification controls.");
     }
   }
@@ -155,7 +171,12 @@ export function NotificationCapturePanel({
     }
     try {
       if (!(await save(value))) setStatus("Add a valid app package before enabling capture.");
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.notification_state_update_failed", error, {
+        code: "NOTIFICATION_CAPTURE_STATE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "setNotificationCapturePaused",
+      });
       setStatus("Could not update capture state.");
     }
   }

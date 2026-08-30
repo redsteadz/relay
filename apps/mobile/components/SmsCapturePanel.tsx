@@ -3,6 +3,7 @@ import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-nat
 
 import { useLocalCapturePreviews } from "@/hooks/useLocalCapturePreviews";
 import { enableSmsCapture, isValidSmsSenderAllowlist, normalizeSmsSender } from "@/lib/sms-capture";
+import { logMobileError, runInBackground } from "@/lib/observability";
 import RelayDeviceIngress, {
   type DeviceCapabilities,
   type SmsCapturePreview,
@@ -82,7 +83,11 @@ export function SmsCapturePanel({
     }
     if (previewCountRef.current === localPreview.captures.length) return;
     previewCountRef.current = localPreview.captures.length;
-    void onChanged().catch(() => undefined);
+    runInBackground(onChanged(), "background.sms_capabilities_refresh_failed", {
+      code: "SMS_CAPABILITIES_REFRESH_FAILED",
+      integration: "relay-device-ingress",
+      operation: "refreshSmsCapabilities",
+    });
   }, [available, developmentLocal, localPreview.captures.length, localPreviewEnabled, onChanged]);
 
   const meta = !available
@@ -156,7 +161,12 @@ export function SmsCapturePanel({
       localPreview.refresh();
       await commitDraft();
       setStatus(`SMS capture enabled. ${result.captured.toString()} matching messages queued.`);
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_enable_failed", error, {
+        code: "SMS_CAPTURE_ENABLE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "enableSmsCapture",
+      });
       setStatus("Could not enable SMS capture.");
     } finally {
       setPendingAction(undefined);
@@ -173,7 +183,12 @@ export function SmsCapturePanel({
       }
       await commitDraft();
       setStatus("Selected contacts saved. SMS capture remains paused.");
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_controls_save_failed", error, {
+        code: "SMS_CONTROLS_SAVE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "saveSmsControls",
+      });
       setStatus("Could not save SMS controls.");
     } finally {
       setPendingAction(undefined);
@@ -206,7 +221,12 @@ export function SmsCapturePanel({
       setSenderLabels((current) => ({ ...current, [sender]: selectedContact.label }));
       setSetupVisible(true);
       setStatus("Contact selected. Review and save the SMS capture setup.");
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.contact_picker_failed", error, {
+        code: "CONTACT_PICKER_FAILED",
+        integration: "relay-device-ingress",
+        operation: "pickSmsContact",
+      });
       setStatus("Could not open the system contact picker.");
     } finally {
       setPickingContact(false);
@@ -242,7 +262,12 @@ export function SmsCapturePanel({
       if (!nextPaused && tenantId !== undefined) await RelayDeviceIngress.syncSmsInbox(tenantId);
       await onChanged();
       setStatus(nextPaused ? "SMS capture paused." : "SMS capture resumed.");
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_pause_update_failed", error, {
+        code: "SMS_CAPTURE_STATE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "setSmsCapturePaused",
+      });
       setStatus("Could not update SMS capture.");
     }
   }
@@ -253,7 +278,12 @@ export function SmsCapturePanel({
       await RelayDeviceIngress.deleteQueuedSms(tenantId);
       await onChanged();
       setStatus("Queued SMS deleted from this device.");
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_queue_delete_failed", error, {
+        code: "SMS_QUEUE_DELETE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "deleteQueuedSms",
+      });
       setStatus("Could not delete queued SMS.");
     }
   }

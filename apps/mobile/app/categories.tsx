@@ -11,7 +11,16 @@ import { CategoryEditorDialog } from "@/features/categories/components/CategoryE
 import { useCategoryManagement } from "@/features/categories/hooks/useCategoryManagement";
 import { categoryErrorMessage } from "@/features/categories/models/categoryPresentation";
 import { useAuth } from "@/lib/auth-context";
+import { reportUnexpectedUiError } from "@/lib/observability";
 import { useRelayTheme } from "@/theme";
+
+function reportCategoryUiFailure(error: unknown, operation: string): void {
+  reportUnexpectedUiError(error, "ui.category_operation_failed", {
+    code: "CATEGORY_UI_OPERATION_FAILED",
+    integration: "supabase-postgrest",
+    operation,
+  });
+}
 
 export default function CategoriesScreen() {
   const theme = useRelayTheme();
@@ -26,8 +35,9 @@ export default function CategoriesScreen() {
       if (editorCategory === null) await categories.create(request);
       else await categories.save(editorCategory, request);
       setEditorCategory(undefined);
-    } catch {
+    } catch (error: unknown) {
       // The fixed category error remains visible in the editor.
+      reportCategoryUiFailure(error, "saveCategory");
     }
   }
 
@@ -101,15 +111,29 @@ export default function CategoriesScreen() {
               disableMoveUp={index === 0}
               disabled={categories.isMutating}
               key={category.id}
-              onArchive={() => void categories.setArchived(category).catch(() => undefined)}
+              onArchive={() =>
+                void categories
+                  .setArchived(category)
+                  .catch((error: unknown) => reportCategoryUiFailure(error, "archiveCategory"))
+              }
               onEdit={() => {
                 categories.clearError();
                 setEditorCategory(category);
               }}
-              onMoveDown={() => void categories.move(category, 1).catch(() => undefined)}
-              onMoveUp={() => void categories.move(category, -1).catch(() => undefined)}
+              onMoveDown={() =>
+                void categories
+                  .move(category, 1)
+                  .catch((error: unknown) => reportCategoryUiFailure(error, "moveCategoryDown"))
+              }
+              onMoveUp={() =>
+                void categories
+                  .move(category, -1)
+                  .catch((error: unknown) => reportCategoryUiFailure(error, "moveCategoryUp"))
+              }
               onQuietChange={(quiet) =>
-                void categories.setQuiet(category, quiet).catch(() => undefined)
+                void categories
+                  .setQuiet(category, quiet)
+                  .catch((error: unknown) => reportCategoryUiFailure(error, "setCategoryQuiet"))
               }
             />
           ))}
@@ -131,7 +155,11 @@ export default function CategoriesScreen() {
                 disabled={categories.isMutating}
                 key={category.id}
                 onDelete={() => setDeleteTarget(category)}
-                onRestore={() => void categories.restore(category).catch(() => undefined)}
+                onRestore={() =>
+                  void categories
+                    .restore(category)
+                    .catch((error: unknown) => reportCategoryUiFailure(error, "restoreCategory"))
+                }
               />
             ))}
           </View>
@@ -170,7 +198,11 @@ export default function CategoriesScreen() {
         }
         loading={categories.isMutating}
         onCancel={() => setDeleteTarget(undefined)}
-        onConfirm={() => void deleteSelectedCategory()}
+        onConfirm={() =>
+          void deleteSelectedCategory().catch((error: unknown) =>
+            reportCategoryUiFailure(error, "deleteCategory"),
+          )
+        }
         title="Delete archived category?"
         visible={deleteTarget !== undefined}
       />
