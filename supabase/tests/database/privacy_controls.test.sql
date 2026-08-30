@@ -100,16 +100,18 @@ insert into public.action_rules (
     'google-tasks', 'insert', '{}'::jsonb
   );
 
+-- Action run identity is derived from the rule/event pair and enforced by a check constraint, so
+-- these ids are computed rather than chosen.
 insert into public.action_runs (
   id, user_id, action_rule_id, event_id, provider, status, input, completed_at
 ) values
   (
-    '71700000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001',
+    public.relay_action_run_id('71600000-0000-4000-8000-000000000001', '71500000-0000-4000-8000-000000000001'), '70000000-0000-4000-8000-000000000001',
     '71600000-0000-4000-8000-000000000001', '71500000-0000-4000-8000-000000000001',
     'google-tasks', 'approved', '{}'::jsonb, null
   ),
   (
-    '71700000-0000-4000-8000-000000000002', '70000000-0000-4000-8000-000000000001',
+    public.relay_action_run_id('71600000-0000-4000-8000-000000000001', '71500000-0000-4000-8000-000000000002'), '70000000-0000-4000-8000-000000000001',
     '71600000-0000-4000-8000-000000000001', '71500000-0000-4000-8000-000000000002',
     'google-tasks', 'succeeded', '{}'::jsonb, now()
   );
@@ -266,13 +268,19 @@ select results_eq(
 );
 
 select results_eq(
-  'select status::text from public.action_runs where id = ''71700000-0000-4000-8000-000000000001''',
+  format(
+    'select status::text from public.action_runs where id = %L',
+    public.relay_action_run_id('71600000-0000-4000-8000-000000000001', '71500000-0000-4000-8000-000000000001')
+  ),
   'values (''cancelled'')',
   'finalization cancels a pending action run'
 );
 
 select results_eq(
-  'select status::text from public.action_runs where id = ''71700000-0000-4000-8000-000000000002''',
+  format(
+    'select status::text from public.action_runs where id = %L',
+    public.relay_action_run_id('71600000-0000-4000-8000-000000000001', '71500000-0000-4000-8000-000000000002')
+  ),
   'values (''succeeded'')',
   'finalization leaves an already terminal action run alone'
 );
