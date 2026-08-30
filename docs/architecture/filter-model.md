@@ -60,6 +60,98 @@ raises `FilterEvaluationLimitError`, which carries the limit name and no field v
 read and normalized at most once per evaluation, so a plan holding the maximum number of predicates
 over `body` normalizes a megabyte-sized body once rather than once per predicate.
 
+## Semantic Evaluation
+
+A plan that passes deterministically and carries a semantic clause is `undecided` until the clause
+is resolved through the user's own OpenAI key. `evaluateFilterWithSemantics` in `apps/pipeline`
+runs the deterministic evaluator first and only then loads a credential, so a plan the user already
+excluded is never disclosed in order to discover that it was excluded.
+
+### Minimization
+
+`minimizeSemanticDisclosure` in `packages/domain` is pure and builds the entire payload. It reads
+only the clause's own `allowedFields`, so a clause about a subject cannot pull a body along with it,
+and it emits fields in the contract's canonical order rather than the order the intent happened to
+mention them, so two plans disclosing the same fields produce identical records.
+
+Each value is sanitized, redacted, and bounded, in that order:
+
+| Step     | Rule                                                                                                                                  |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Sanitize | Control and format characters are deleted; newline and tab survive as message layout                                                  |
+| Redact   | Email addresses, URLs, API-key-shaped tokens, payment cards, phone numbers, and digit runs of six or more become `[redacted:<class>]` |
+| Bound    | 2000 characters per field, 6000 across the whole disclosure                                                                           |
+
+Redaction runs before truncation on purpose. Cutting first could split a card number across the
+boundary, leaving a fragment that no longer matches its pattern and therefore is never removed.
+
+`attributes.amount` is the one exception to the digit rule: redacting it would strip the value an
+amount clause exists to judge. It is disclosed verbatim only while it is provably an exact decimal
+string, and redacted whole otherwise. A field that is absent, empty, or not a string is not
+disclosed at all, exactly as the deterministic evaluator treats it.
+
+The recorded `redactions` carry a field, a class, and a count. They never carry a removed value or
+its position, and the database enforces that shape so the rule cannot drift.
+
+### The Request
+
+The system message holds a fixed instruction block that is byte-identical for every evaluation. It
+is the only content with instruction authority. Both the user's question and the disclosed fields
+travel as JSON values in the user message, under `question` and `untrustedSourceData`, so
+`JSON.stringify` is the delimiter: a body containing quotes, braces, or a forged conversation turn
+becomes one escaped string value and cannot continue as message structure.
+
+Relay sends no tools. The response uses OpenAI structured outputs with `strict` set and
+`additionalProperties` false, admitting exactly `decision`, `confidence`, and `rationale`. A reply
+that also names a provider, endpoint, credential, or operation is rejected by the provider schema
+and rejected again by `semanticEvaluationSchema`, which is `.strict()` for the same reason. A reply
+carrying a `tool_calls` array, a refusal, or a non-`stop` finish reason is not an answer and is
+discarded rather than partially interpreted.
+
+Tests prove the structural property rather than model behaviour: for every fixture in the
+prompt-injection corpus the instruction block is unchanged, the user message parses back to exactly
+two keys, and the injected text appears only as a string value inside `untrustedSourceData`.
+
+### The Decision
+
+The decision is Relay's, not the model's. An answer below the clause's `minimumConfidence` is
+`undecided` whatever label it carried, and that applies to `no-match` as well as `match`: an
+uncertain rejection is as unusable as an uncertain acceptance.
+
+Every provider condition also yields `undecided`, so no failure can be mistaken for a match:
+
+| Condition                                                      | Reason                  |
+| -------------------------------------------------------------- | ----------------------- |
+| No key configured, or a key that cannot unwrap                 | `credential-missing`    |
+| 401 or 403 from the provider                                   | `credential-revoked`    |
+| 429 with `insufficient_quota`                                  | `quota-exhausted`       |
+| Any other 429                                                  | `rate-limited`          |
+| Deadline exceeded                                              | `timed-out`             |
+| Body over 32 KB                                                | `response-too-large`    |
+| Unparseable, refused, or off-schema answer                     | `invalid-response`      |
+| No allowlisted field held a value                              | `no-disclosable-fields` |
+| Anything else, including more than one active key for a tenant | `unavailable`           |
+
+Only the fixed reason string leaves the provider boundary. The 429 split reads the provider's
+`error.code` and nothing else, so no provider message text is retained.
+
+### The Record
+
+`record_semantic_disclosure_v1` writes one `ai_disclosures` row and one metadata-only audit row in
+the same transaction. The row holds provider, model, purpose, decision, disclosed field names,
+redaction summary, confidence, rationale, and any failure reason -- never the prompt, the response,
+or the source content.
+
+`disclosed` separates an attempt that sent something from one that sent nothing. It is set before
+the response is known, because a request that failed in flight may still have been received; an
+attempt that never reached the provider records no fields and no redactions, and the database
+rejects a row that claims otherwise. Disclosures are immutable once written and are removed only by
+the whole-account cascade.
+
+Queue redelivery re-evaluates and therefore re-discloses, and each attempt is a separate row.
+Collapsing them would make the history claim fewer disclosures than actually happened. Avoiding the
+repeat evaluation belongs to the processing path that calls the evaluator, not to the record.
+
 ## Compilation
 
 `POST /api/filters/compile` accepts only a name, user intent, optional enabled state, and optional

@@ -1094,6 +1094,147 @@ export const filterCompileResponseSchema = z
   .strict();
 export type FilterCompileResponse = z.infer<typeof filterCompileResponseSchema>;
 
+/**
+ * Semantic clause evaluation.
+ *
+ * A plan whose deterministic expression passes but that carries a semantic clause is `undecided`
+ * until the clause is resolved through the user's own OpenAI key. Everything below describes that
+ * exchange: what may leave Relay, what shape the model must answer in, and what is recorded.
+ *
+ * Source content is never an instruction. The question comes from compiled user intent; the item
+ * fields travel as delimited data. See `docs/architecture/filter-model.md`.
+ */
+
+/** Classes of value stripped from a disclosed field. Only the class and a count are ever recorded. */
+export const semanticRedactionKindSchema = z.enum([
+  "api-key",
+  "email-address",
+  "long-digit-sequence",
+  "payment-card",
+  "phone-number",
+  "url",
+]);
+export type SemanticRedactionKind = z.infer<typeof semanticRedactionKindSchema>;
+
+/**
+ * One redaction class applied to one field, with how many times it fired.
+ *
+ * Deliberately carries no value and no offset: a disclosure record explains what class of thing was
+ * removed, never what was removed. The database enforces the same shape so the rule cannot drift.
+ */
+export const semanticRedactionSchema = z
+  .object({
+    field: filterFieldSchema,
+    kind: semanticRedactionKindSchema,
+    count: z.int().min(1).max(10_000),
+  })
+  .strict();
+export type SemanticRedaction = z.infer<typeof semanticRedactionSchema>;
+
+/** Largest disclosed value per field. Bounds one clause's disclosure regardless of body size. */
+export const MAX_SEMANTIC_FIELD_CHARACTERS = 2000;
+/** Largest total disclosure across every allowlisted field in one evaluation. */
+export const MAX_SEMANTIC_DISCLOSURE_CHARACTERS = 6000;
+
+export const semanticDisclosedFieldSchema = z
+  .object({
+    field: filterFieldSchema,
+    value: z.string().min(1).max(MAX_SEMANTIC_FIELD_CHARACTERS),
+    truncated: z.boolean(),
+  })
+  .strict();
+export type SemanticDisclosedField = z.infer<typeof semanticDisclosedFieldSchema>;
+
+/**
+ * The minimized payload for one semantic clause, plus the metadata that describes it.
+ *
+ * `fields` holds values and never leaves the runtime that built it. `disclosedFields` and
+ * `redactions` are the metadata-only projection that is persisted and shown to the user.
+ */
+export const semanticDisclosureSchema = z
+  .object({
+    fields: z.array(semanticDisclosedFieldSchema).max(filterFieldSchema.options.length),
+    disclosedFields: z.array(filterFieldSchema).max(filterFieldSchema.options.length),
+    redactions: z.array(semanticRedactionSchema).max(64),
+  })
+  .strict();
+export type SemanticDisclosure = z.infer<typeof semanticDisclosureSchema>;
+
+/**
+ * The only answer shape Relay accepts from the model.
+ *
+ * `.strict()` is load-bearing: a response that also names a provider, endpoint, credential,
+ * operation, or action is rejected outright rather than having the extra keys quietly dropped. The
+ * model reports a judgement about content; it never selects an effect.
+ */
+export const semanticEvaluationSchema = z
+  .object({
+    decision: z.enum(["match", "no-match"]),
+    confidence: z.number().min(0).max(1),
+    rationale: z.string().min(1).max(500),
+  })
+  .strict();
+export type SemanticEvaluation = z.infer<typeof semanticEvaluationSchema>;
+
+/**
+ * Why an evaluation produced no usable answer. Every reason resolves to `undecided`, so none of
+ * them can trigger an automatic effect.
+ */
+export const semanticFailureReasonSchema = z.enum([
+  "credential-missing",
+  "credential-revoked",
+  "invalid-response",
+  "no-disclosable-fields",
+  "quota-exhausted",
+  "rate-limited",
+  "response-too-large",
+  "timed-out",
+  "unavailable",
+]);
+export type SemanticFailureReason = z.infer<typeof semanticFailureReasonSchema>;
+
+/** Fixed purpose recorded on every semantic-clause disclosure. */
+export const SEMANTIC_DISCLOSURE_PURPOSE = "filter-semantic-clause";
+
+/** OpenAI model used for semantic clauses. Pinned so a disclosure record names an exact model. */
+export const SEMANTIC_EVALUATION_MODEL = "gpt-4.1-mini";
+
+/**
+ * The outcome of resolving one semantic clause, whether or not the provider answered.
+ *
+ * `decision` is Relay's, not the model's: an answer below the clause's minimum confidence is
+ * `undecided` even when the model reported certainty. `disclosed` records whether the request
+ * actually reached OpenAI, which is what makes the difference between a disclosure that happened
+ * and one that was never attempted.
+ */
+export const semanticOutcomeSchema = z
+  .object({
+    decision: z.enum(["match", "no-match", "undecided"]),
+    provider: z.literal("openai"),
+    model: z.string().min(1).max(128),
+    purpose: z.literal(SEMANTIC_DISCLOSURE_PURPOSE),
+    disclosedFields: z.array(filterFieldSchema).max(filterFieldSchema.options.length),
+    redactions: z.array(semanticRedactionSchema).max(64),
+    disclosed: z.boolean(),
+    confidence: z.number().min(0).max(1).optional(),
+    rationale: z.string().min(1).max(500).optional(),
+    failureReason: semanticFailureReasonSchema.optional(),
+  })
+  .strict()
+  .refine((outcome) => outcome.failureReason === undefined || outcome.decision === "undecided", {
+    message: "A failed semantic evaluation cannot decide a filter",
+  })
+  .refine((outcome) => outcome.failureReason === undefined || outcome.confidence === undefined, {
+    message: "A failed semantic evaluation has no confidence",
+  })
+  .refine(
+    (outcome) =>
+      outcome.disclosed ||
+      (outcome.disclosedFields.length === 0 && outcome.redactions.length === 0),
+    { message: "An undisclosed evaluation cannot report disclosed fields or redactions" },
+  );
+export type SemanticOutcome = z.infer<typeof semanticOutcomeSchema>;
+
 export const actionProviderSchema = z.enum(["google-tasks", "nextcloud-budget", "webhook"]);
 export const actionIntentSchema = z.object({
   id: canonicalUuidSchema,

@@ -8,19 +8,20 @@ last_verified: 2026-08-30
 
 ## Data Classes
 
-| Class                            | Storage                                        | Default lifetime                               |
-| -------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
-| Raw email/notification/SMS       | AES-GCM ciphertext with wrapped per-record key | Seven days                                     |
-| Recoverable dead-letter payload  | Exact encrypted ingress bundle                 | Original raw-payload expiry, never restarted   |
-| Provider and OpenAI credentials  | AES-GCM ciphertext with wrapped per-record key | Until revoked/deleted                          |
-| Gmail terminal-message receipt   | Fixed reason plus message-ID SHA-256 digest    | Seven days                                     |
-| Gmail late-push tombstone        | Mailbox SHA-256 digest and ownership metadata  | Watch expiry plus Pub/Sub retention            |
-| Gmail disconnect receipt         | Action ID, fixed reason, evidence, rule count  | Product retention policy, currently unresolved |
-| Gmail disconnect intent          | Tenant and connection UUIDs                    | Until ownership rejection or durable phase     |
-| Gmail coordinator removal marker | UUIDs, action ID, fixed reason, phase, expiry  | Maximum watch horizon plus Pub/Sub retention   |
-| Derived facts/events             | Structured tenant-owned rows with provenance   | Until user deletion                            |
-| Audit metadata                   | No raw bodies or secrets                       | Product retention policy, currently unresolved |
-| Device offline queue             | Keystore-backed encryption                     | Until acknowledged or local expiry             |
+| Class                            | Storage                                                                                  | Default lifetime                               |
+| -------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Raw email/notification/SMS       | AES-GCM ciphertext with wrapped per-record key                                           | Seven days                                     |
+| Recoverable dead-letter payload  | Exact encrypted ingress bundle                                                           | Original raw-payload expiry, never restarted   |
+| Provider and OpenAI credentials  | AES-GCM ciphertext with wrapped per-record key                                           | Until revoked/deleted                          |
+| Gmail terminal-message receipt   | Fixed reason plus message-ID SHA-256 digest                                              | Seven days                                     |
+| Gmail late-push tombstone        | Mailbox SHA-256 digest and ownership metadata                                            | Watch expiry plus Pub/Sub retention            |
+| Gmail disconnect receipt         | Action ID, fixed reason, evidence, rule count                                            | Product retention policy, currently unresolved |
+| Gmail disconnect intent          | Tenant and connection UUIDs                                                              | Until ownership rejection or durable phase     |
+| Gmail coordinator removal marker | UUIDs, action ID, fixed reason, phase, expiry                                            | Maximum watch horizon plus Pub/Sub retention   |
+| Derived facts/events             | Structured tenant-owned rows with provenance                                             | Until user deletion                            |
+| Semantic disclosure record       | Provider, model, purpose, field names, redaction counts, decision, confidence, rationale | Until user deletion                            |
+| Audit metadata                   | No raw bodies or secrets                                                                 | Product retention policy, currently unresolved |
+| Device offline queue             | Keystore-backed encryption                                                               | Until acknowledged or local expiry             |
 
 Production wrapping key material must live in a versioned Cloudflare secret keyring, never Supabase
 or clients. Queue bundles include algorithm; current Supabase rows imply `AES-GCM-256` and store
@@ -93,6 +94,22 @@ OpenAI receives only semantic-clause allowlisted fields after redaction. Relay s
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and
 cannot choose tools or action configuration.
 
+Minimization is pure and happens before any credential is loaded, and a deterministic rejection ends
+evaluation without contacting a provider at all. Disclosed values have control and format characters
+removed, then email addresses, URLs, key-shaped tokens, payment cards, phone numbers, and long digit
+runs replaced with a fixed class placeholder, then a per-field and whole-disclosure character bound
+applied; redaction precedes truncation so a secret cannot survive by straddling the cut. The stored
+redaction summary carries a field name, a class, and a count, and a database check rejects a row
+whose redaction objects carry any other key, so a removed value cannot be recorded beside the note
+that it was removed. Each disclosure row also records the decision Relay reached, the model's
+confidence and one-sentence rationale, and whether the request actually left the runtime; a fixed
+failure reason replaces confidence when no usable answer was received. Every failure -- revoked key,
+rate limit, exhausted quota, timeout, oversized or off-schema response -- resolves to undecided, so
+no outage can be mistaken for a rule that fired. Disclosures are immutable once written and are
+removed only by the whole-account cascade. Queue redelivery re-evaluates and therefore re-discloses;
+each attempt is recorded separately rather than collapsed, so the history never claims fewer
+disclosures than occurred.
+
 Event extraction consumes only validated typed facts. Event titles and summaries render only bounded
 amount/currency plus fixed presence/kind labels; they never copy free-text sender, merchant, location,
 subject, body, source snippets, or reference values. Provenance stores fact ordinals and validated field
@@ -109,7 +126,11 @@ row, exactly as the scheduled cleanup does, so derived facts, classifications, e
 provenance survive; only the recoverable raw body is destroyed.
 
 Disclosure history lists what was sent to OpenAI -- provider, model, disclosed field names, and
-purpose -- never the prompt or the source content itself. The stored OpenAI key is revocable.
+purpose -- never the prompt or the source content itself. The row behind each entry also records
+what Relay concluded, how confident the model was, its one-sentence rationale, and whether anything
+actually left the runtime, so an attempt that failed before sending is distinguishable from one that
+disclosed and then failed. The stored OpenAI key is revocable, and revoking it disables every
+enabled filter revision with a semantic clause in the same transaction.
 
 Account deletion revokes provider credentials, cancels pending action runs, invalidates every
 device, deletes stored credentials, purges raw payloads, and then removes the identity, which

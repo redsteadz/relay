@@ -1,9 +1,11 @@
 import type { IngressEnvelope } from "@relay/contracts";
 
-export * from "./facts.js";
 export * from "./events.js";
+export * from "./facts.js";
+export * from "./field-access.js";
 export * from "./filter-compiler.js";
 export * from "./filter-evaluator.js";
+export * from "./semantic-disclosure.js";
 
 // Shared by contentFingerprint and normalizeCategoryName. The filter evaluator keeps its own copy
 // so the two can be versioned independently: this one feeds persisted fingerprints and category
