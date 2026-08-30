@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { enableSmsCapture, isValidSmsSenderAllowlist } from "@/lib/sms-capture";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 
 import { smsControlIntent } from "../models/capturePresentation";
@@ -33,7 +34,12 @@ export function useSmsCaptureController() {
       );
       await capture.refresh();
       setMessage("SMS capture paused.");
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_pause_update_failed", error, {
+        code: "SMS_CAPTURE_STATE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "setSmsCapturePaused",
+      });
       setMessage("Could not pause SMS capture.");
     } finally {
       setBusy(false);
@@ -69,7 +75,12 @@ export function useSmsCaptureController() {
           ? `SMS capture enabled. ${result.captured.toString()} matching messages queued.`
           : "SMS access was not granted. Capture remains paused.",
       );
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_enable_failed", error, {
+        code: "SMS_CAPTURE_ENABLE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "enableSmsCapture",
+      });
       setMessage("Could not enable SMS capture.");
     } finally {
       setBusy(false);

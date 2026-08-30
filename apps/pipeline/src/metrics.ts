@@ -1,3 +1,5 @@
+import { createLogger, normalizeError } from "@relay/observability";
+
 export type PipelineMetricName =
   | "dead_letter_parking_failed"
   | "gmail_maintenance_failed"
@@ -13,6 +15,7 @@ export function recordPipelineMetric(
   name: PipelineMetricName,
   count: number,
   latencyMs: number,
+  debugSpecification?: string,
 ): void {
   if (dataset === undefined) return;
   try {
@@ -20,7 +23,15 @@ export function recordPipelineMetric(
       doubles: [count, Math.max(0, latencyMs)],
       indexes: [name],
     });
-  } catch {
-    // Telemetry must not change persistence behavior.
+  } catch (error: unknown) {
+    createLogger({ debugSpecification, namespace: "relay:pipeline" }).error(
+      "telemetry.metric_write_failed",
+      normalizeError(error, {
+        code: "PIPELINE_METRIC_WRITE_FAILED",
+        integration: "cloudflare-analytics-engine",
+        operation: "writeDataPoint",
+      }),
+      { metric: name },
+    );
   }
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   enableSmsCapture,
@@ -7,6 +7,8 @@ import {
   parseSmsSenderAllowlist,
   saveSmsSenderAllowlist,
 } from "./sms-capture";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("SMS sender allowlist", () => {
   it("normalizes phone formatting and case without merging distinct senders", () => {
@@ -91,6 +93,7 @@ describe("SMS sender allowlist saving", () => {
 
   it("reports an active inbox sync failure after saving the allowlist", async () => {
     const calls: string[] = [];
+    const loggedError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const result = await saveSmsSenderAllowlist({
       configure: (paused) => {
         calls.push(`configure:${paused.toString()}`);
@@ -105,6 +108,13 @@ describe("SMS sender allowlist saving", () => {
 
     expect(result).toEqual({ captured: 0, inboxSync: "failed" });
     expect(calls).toEqual(["configure:false", "sync"]);
+    expect(loggedError).toHaveBeenCalledOnce();
+    expect(JSON.parse(loggedError.mock.calls[0]?.[0] as string)).toMatchObject({
+      event: "capture.sms_inbox_sync_failed",
+      error: { code: "SMS_INBOX_SYNC_FAILED" },
+      level: "error",
+    });
+    expect(loggedError.mock.calls[0]?.[0]).not.toContain("synthetic sync failure");
   });
 
   it("saves a paused allowlist without reading the inbox", async () => {

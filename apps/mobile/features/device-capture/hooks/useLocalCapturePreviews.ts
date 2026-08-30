@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import { AppState } from "react-native";
 
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
+import { logMobileError, runInBackground } from "@/lib/observability";
 
 const LOCAL_QUEUE_POLL_MS = 3_000;
 
@@ -43,7 +44,12 @@ export function useSecureLocalCaptureScreen(enabled: boolean) {
           secureWindowEnabled = true;
           activate();
         })
-        .catch(() => {
+        .catch((error: unknown) => {
+          logMobileError("capture.secure_preview_enable_failed", error, {
+            code: "SECURE_PREVIEW_ENABLE_FAILED",
+            integration: "relay-device-ingress",
+            operation: "setCapturePreviewSecure",
+          });
           if (!focused || generationRef.current !== generation) return;
           setReady(false);
           setError("Secure local preview is unavailable.");
@@ -64,7 +70,15 @@ export function useSecureLocalCaptureScreen(enabled: boolean) {
         const cleanupGeneration = ++generationRef.current;
         requestAnimationFrame(() => {
           if (generationRef.current !== cleanupGeneration) return;
-          void RelayDeviceIngress.setCapturePreviewSecure(false).catch(() => undefined);
+          runInBackground(
+            RelayDeviceIngress.setCapturePreviewSecure(false),
+            "capture.secure_preview_disable_failed",
+            {
+              code: "SECURE_PREVIEW_DISABLE_FAILED",
+              integration: "relay-device-ingress",
+              operation: "setCapturePreviewSecure",
+            },
+          );
         });
       };
     }, [enabled]),
@@ -119,7 +133,12 @@ export function useLocalCapturePreviews<T>({
             if (lifecycleRef.current.active && lifecycleRef.current.generation === generation) {
               setCaptures(nextCaptures);
             }
-          } catch {
+          } catch (error: unknown) {
+            logMobileError("capture.local_preview_load_failed", error, {
+              code: "LOCAL_CAPTURE_PREVIEW_LOAD_FAILED",
+              integration: "relay-device-ingress",
+              operation: "loadLocalCapturePreviews",
+            });
             if (lifecycleRef.current.active && lifecycleRef.current.generation === generation) {
               setCaptures([]);
               setError(errorMessage);

@@ -7,6 +7,7 @@ import { useCapturePreviewSecurity } from "@/features/device-capture/context/Cap
 import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
 import { useLocalCapturePreviews } from "@/features/device-capture/hooks/useLocalCapturePreviews";
 import { sourceQueueItemRoute } from "@/features/device-capture/models/sourceRoutes";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress, { type SmsCapturePreview } from "@/modules/relay-device-ingress";
 
 export default function SmsQueueScreen() {
@@ -56,7 +57,12 @@ export default function SmsQueueScreen() {
       setConfirmDelete(false);
       previews.refresh();
       await capture.refresh();
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_queue_delete_failed", error, {
+        code: "SMS_QUEUE_DELETE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "deleteQueuedSms",
+      });
       setDeleteError("Could not delete queued SMS.");
     } finally {
       setDeleting(false);

@@ -10,6 +10,7 @@ import {
   normalizeSmsSender,
   saveSmsSenderAllowlist,
 } from "@/lib/sms-capture";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 
 const INBOX_SYNC_FAILED_MESSAGE =
@@ -68,7 +69,12 @@ export default function SmsContactSelectorScreen() {
       }
       selection.add(sender);
       setLabels((current) => ({ ...current, [sender]: choice.label }));
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.contact_picker_failed", error, {
+        code: "CONTACT_PICKER_FAILED",
+        integration: "relay-device-ingress",
+        operation: "pickSmsContact",
+      });
       setError("Could not open the Android contact picker.");
     } finally {
       pickerInFlight.current = false;
@@ -106,7 +112,12 @@ export default function SmsContactSelectorScreen() {
         return;
       }
       shouldNavigateBack = true;
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_controls_save_failed", error, {
+        code: "SMS_CONTROLS_SAVE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "saveSmsControls",
+      });
       setError("Could not save the SMS contact allowlist.");
     } finally {
       operationInFlight.current = false;
@@ -129,7 +140,12 @@ export default function SmsContactSelectorScreen() {
     try {
       await RelayDeviceIngress.syncSmsInbox(tenantId);
       shouldNavigateBack = true;
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_inbox_sync_failed", error, {
+        code: "SMS_INBOX_SYNC_FAILED",
+        integration: "relay-device-ingress",
+        operation: "syncSmsInbox",
+      });
       setError(INBOX_SYNC_FAILED_MESSAGE);
     } finally {
       operationInFlight.current = false;

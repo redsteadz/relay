@@ -31,6 +31,7 @@ import {
   stopGmailWatch,
 } from "./gmail-provider";
 import { publishEncryptedIngress } from "./ingress";
+import { logPipelineError } from "./observability";
 
 const IDENTITY_KEY = "gmail:identity";
 const HISTORY_WORK_KEY = "gmail:history-work";
@@ -445,8 +446,8 @@ async function rpc(
       ...(signal === undefined ? {} : { signal }),
       timeoutMs: GMAIL_EXTERNAL_OPERATION_TIMEOUT_MS,
     });
-  } catch {
-    throw new Error("Gmail persistence response is invalid");
+  } catch (error: unknown) {
+    throw new Error("Gmail persistence response is invalid", { cause: error });
   }
 }
 
@@ -500,6 +501,7 @@ export async function handleVerifiedGmailCursor(
   env: Env,
   cursorCandidate: unknown,
   fetcher: Fetcher = fetch,
+  requestId?: string,
 ): Promise<Response> {
   const cursor = verifiedGmailCursorSchema.safeParse(cursorCandidate);
   if (!cursor.success)
@@ -507,14 +509,26 @@ export async function handleVerifiedGmailCursor(
   try {
     readGmailProviderConfiguration(env);
     supabaseConfiguration(env);
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "gmail.cursor_configuration_failed", error, {
+      code: "GMAIL_CONFIGURATION_INVALID",
+      integration: "google-gmail",
+      operation: "validateGmailConfiguration",
+      requestId,
+    });
     return Response.json({ accepted: false, reason: "configuration-invalid" }, { status: 503 });
   }
 
   let matches: ResolvedGmailConnection[];
   try {
     matches = await resolveGmailConnection(env, cursor.data, fetcher);
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "gmail.ownership_resolution_failed", error, {
+      code: "GMAIL_OWNERSHIP_UNAVAILABLE",
+      integration: "supabase",
+      operation: "resolveGmailConnection",
+      requestId,
+    });
     return Response.json({ accepted: false, reason: "ownership-unavailable" }, { status: 503 });
   }
   if (matches.length === 0) {
@@ -548,12 +562,22 @@ export async function handleVerifiedGmailCursor(
           },
           { status: response.status === 409 ? 409 : 503 },
         );
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "gmail.cursor_durability_failed", error, {
+      code: "GMAIL_CURSOR_DURABILITY_FAILED",
+      integration: "tenant-coordinator",
+      operation: "acceptGmailCursor",
+      requestId,
+    });
     return Response.json({ accepted: false, reason: "durability-failed" }, { status: 503 });
   }
 }
 
-export async function handleGmailDisconnect(env: Env, candidate: unknown): Promise<Response> {
+export async function handleGmailDisconnect(
+  env: Env,
+  candidate: unknown,
+  requestId?: string,
+): Promise<Response> {
   const request = gmailDisconnectRequestSchema.safeParse(candidate);
   if (!request.success) {
     return Response.json({ disconnected: false, reason: "invalid" }, { status: 400 });
@@ -565,7 +589,13 @@ export async function handleGmailDisconnect(env: Env, candidate: unknown): Promi
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request.data),
     });
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "gmail.disconnect_failed", error, {
+      code: "GMAIL_DISCONNECT_UNAVAILABLE",
+      integration: "tenant-coordinator",
+      operation: "handleGmailDisconnect",
+      requestId,
+    });
     return Response.json({ disconnected: false, reason: "unavailable" }, { status: 503 });
   }
 }
@@ -846,8 +876,8 @@ export async function loadGmailConnectionCredential(
       configuration.keyring,
       connectionCredentialEncryptionContext(identity.userId, identity.connectionId),
     );
-  } catch {
-    throw new Error("Gmail credential is unavailable");
+  } catch (error: unknown) {
+    throw new Error("Gmail credential is unavailable", { cause: error });
   }
   if (refreshToken.length === 0 || refreshToken.length > 8192) {
     throw new Error("Gmail credential is unavailable");
@@ -1303,7 +1333,12 @@ async function completeAutomaticGmailRevocation(
         GMAIL_EXTERNAL_OPERATION_TIMEOUT_MS,
         signal,
       );
-    } catch {
+    } catch (ownershipError: unknown) {
+      logPipelineError(env, "gmail.revocation_ownership_check_failed", ownershipError, {
+        code: "GMAIL_REVOCATION_OWNERSHIP_CHECK_FAILED",
+        integration: "supabase",
+        operation: "readGmailConnectionOwnership",
+      });
       throw error;
     }
     if (ownership !== "absent") throw error;
@@ -1414,8 +1449,12 @@ export async function runGmailDisconnect(
         if ((await readGmailConnectionOwnership(env, identity, fetcher, signal)) === "absent") {
           return abandonMissingGmailDisconnect(storage);
         }
-      } catch {
-        // Preserve original retryable database failure when ownership cannot be read.
+      } catch (ownershipError: unknown) {
+        logPipelineError(env, "gmail.disconnect_ownership_check_failed", ownershipError, {
+          code: "GMAIL_DISCONNECT_OWNERSHIP_CHECK_FAILED",
+          integration: "supabase",
+          operation: "readGmailConnectionOwnership",
+        });
       }
       throw error;
     }
@@ -1471,7 +1510,12 @@ export async function coordinateGmailDisconnect(
         ? Response.json({ disconnected: true })
         : Response.json({ disconnected: false, reason: "not-found" }, { status: 404 });
     }, GMAIL_ALARM_DEADLINE_MS);
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "gmail.disconnect_coordination_failed", error, {
+      code: "GMAIL_DISCONNECT_COORDINATION_FAILED",
+      integration: "google-gmail",
+      operation: "coordinateGmailDisconnect",
+    });
     return Response.json({ disconnected: false, reason: "unavailable" }, { status: 503 });
   }
 }
@@ -1971,7 +2015,12 @@ export async function runGmailAlarmReliably(
       return alarmHandled;
     }, GMAIL_ALARM_DEADLINE_MS);
     return handled;
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "gmail.alarm_failed", error, {
+      code: "GMAIL_ALARM_FAILED",
+      integration: "google-gmail",
+      operation: "coordinateGmailAlarm",
+    });
     const attempts = Math.min((retry?.attempts ?? 0) + 1, MAX_ALARM_RETRY_ATTEMPTS);
     const delay = Math.min(
       INITIAL_ALARM_RETRY_DELAY_MS * 2 ** (attempts - 1),

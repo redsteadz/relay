@@ -150,7 +150,7 @@ describe("Pipeline Gmail disconnect boundary", () => {
       env,
     );
     expect(response.status).toBe(200);
-    expect(handleGmailDisconnect).toHaveBeenCalledWith(env, body);
+    expect(handleGmailDisconnect).toHaveBeenCalledWith(env, body, expect.any(String));
   });
 });
 

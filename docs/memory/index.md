@@ -23,6 +23,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 ## Security
 
 - [Privacy and data lifecycle](../security/privacy.md)
+- [Error handling and observability](observability.md)
 - [Threat model](../security/threat-model.md)
 - [Secret provisioning and KEK rotation](../security/key-rotation.md)
 

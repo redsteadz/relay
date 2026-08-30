@@ -6,6 +6,7 @@ import { KeyboardAvoidingView, Platform, View } from "react-native";
 import { Dialog, Portal } from "react-native-paper";
 
 import { AppButton, AppText, AppTextInput, StatusMessage } from "@/components/ui";
+import { reportUnexpectedUiError } from "@/lib/observability";
 import { useRelayTheme } from "@/theme";
 
 import { privacyErrorMessage } from "../models/privacyPresentation";
@@ -88,7 +89,15 @@ export function AccountDeletionDialog({
             <AppButton
               label="Delete account"
               loading={deleting}
-              onPress={() => void handleSubmit(onDelete)().catch(() => undefined)}
+              onPress={() =>
+                void handleSubmit(onDelete)().catch((error: unknown) =>
+                  reportUnexpectedUiError(error, "ui.account_deletion_failed", {
+                    code: "ACCOUNT_DELETION_UI_FAILED",
+                    integration: "relay-api",
+                    operation: "deleteAccount",
+                  }),
+                )
+              }
               tone="destructive"
             />
           </Dialog.Actions>

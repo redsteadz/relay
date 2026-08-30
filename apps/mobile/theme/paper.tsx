@@ -10,6 +10,8 @@ import {
   type MD3Theme,
 } from "react-native-paper";
 
+import { logMobileError, runInBackground } from "@/lib/observability";
+
 import { readThemePreference, writeThemePreference } from "./storage";
 import {
   fontFamilies,
@@ -92,7 +94,13 @@ export function RelayThemeProvider({ children }: PropsWithChildren) {
       .then((storedPreference) => {
         if (active) setPreferenceState(storedPreference);
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        logMobileError("theme.preference_read_failed", error, {
+          code: "THEME_PREFERENCE_READ_FAILED",
+          integration: "async-storage",
+          operation: "readThemePreference",
+        });
+      });
     return () => {
       active = false;
     };
@@ -100,7 +108,11 @@ export function RelayThemeProvider({ children }: PropsWithChildren) {
 
   const setPreference = useCallback((nextPreference: ThemePreference) => {
     setPreferenceState(nextPreference);
-    void writeThemePreference(nextPreference).catch(() => undefined);
+    runInBackground(writeThemePreference(nextPreference), "theme.preference_write_failed", {
+      code: "THEME_PREFERENCE_WRITE_FAILED",
+      integration: "async-storage",
+      operation: "writeThemePreference",
+    });
   }, []);
   const colorScheme = resolveColorScheme(preference, systemScheme);
   const theme = useMemo(() => createRelayTheme(colorScheme), [colorScheme]);

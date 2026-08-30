@@ -15,7 +15,9 @@ describe("sendDemoIngress", () => {
 
     await sendDemoIngress("test-token", "19784902-e7a4-4f7f-b04d-e3a78c876629");
 
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:3000/api/ingest", {
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe("http://localhost:3000/api/ingest");
+    expect(init).toMatchObject({
       body: JSON.stringify({
         deviceId: "19784902-e7a4-4f7f-b04d-e3a78c876629",
         envelope: demoIngress,
@@ -26,5 +28,6 @@ describe("sendDemoIngress", () => {
       },
       method: "POST",
     });
+    expect(new Headers(init?.headers).get("x-relay-request-id")).toMatch(/^[0-9a-f-]+$/i);
   });
 });

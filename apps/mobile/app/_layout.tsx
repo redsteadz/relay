@@ -26,10 +26,15 @@ import {
   notificationCaptureMode,
 } from "@/lib/development-access";
 import { syncDeviceCaptures } from "@/lib/device-capture-sync";
+import { logMobileError, runInBackground } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { RelayThemeProvider, useRelayTheme } from "@/theme";
 
-void SplashScreen.preventAutoHideAsync();
+runInBackground(SplashScreen.preventAutoHideAsync(), "ui.splash_prevent_auto_hide_failed", {
+  code: "SPLASH_PREVENT_AUTO_HIDE_FAILED",
+  integration: "expo-splash-screen",
+  operation: "preventAutoHideAsync",
+});
 
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
@@ -72,7 +77,12 @@ function AuthenticatedStack() {
         generation,
       );
       if (active) setPreparedStateKey(captureMode.stateKey);
-    })().catch(() => {
+    })().catch((error: unknown) => {
+      logMobileError("background.capture_state_preparation_failed", error, {
+        code: "CAPTURE_STATE_PREPARATION_FAILED",
+        integration: "relay-device-ingress",
+        operation: "prepareNotificationCaptureState",
+      });
       if (active) setPreparationFailed(true);
     });
     return () => {
@@ -125,7 +135,12 @@ function DeviceCaptureSync() {
 
   useEffect(() => {
     if (session === null) return;
-    const sync = () => void syncDeviceCaptures(session).catch(() => undefined);
+    const sync = () =>
+      runInBackground(syncDeviceCaptures(session), "background.device_capture_sync_failed", {
+        code: "DEVICE_CAPTURE_SYNC_FAILED",
+        integration: "relay-device-ingress",
+        operation: "syncDeviceCaptures",
+      });
     sync();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") sync();
@@ -166,7 +181,13 @@ export default function RootLayout() {
   );
 
   useEffect(() => {
-    if (fontsLoaded || fontError !== null) void SplashScreen.hideAsync();
+    if (fontsLoaded || fontError !== null) {
+      runInBackground(SplashScreen.hideAsync(), "ui.splash_hide_failed", {
+        code: "SPLASH_HIDE_FAILED",
+        integration: "expo-splash-screen",
+        operation: "hideAsync",
+      });
+    }
   }, [fontError, fontsLoaded]);
 
   if (!fontsLoaded && fontError === null) return null;

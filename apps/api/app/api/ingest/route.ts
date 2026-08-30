@@ -2,6 +2,7 @@ import { deviceIngressRequestSchema } from "@relay/contracts";
 
 import { authenticateRequest } from "../../../lib/auth";
 import { authorizeDeviceIngress } from "../../../lib/devices";
+import { apiRequestId, loggedErrorResponse } from "../../../lib/observability";
 import { publishIngress } from "../../../lib/pipeline";
 
 export async function POST(request: Request) {
@@ -32,18 +33,31 @@ export async function POST(request: Request) {
           { status: 403 },
         );
       }
-    } catch {
-      return Response.json(
-        { error: { code: "device_check_unavailable", message: "Could not authorize device" } },
-        { status: 503 },
+    } catch (error: unknown) {
+      return loggedErrorResponse(
+        request,
+        error,
+        {
+          code: "DEVICE_AUTHORIZATION_FAILED",
+          event: "ingress.device_authorization_failed",
+          integration: "supabase",
+          operation: "authorizeDeviceIngress",
+        },
+        Response.json(
+          { error: { code: "device_check_unavailable", message: "Could not authorize device" } },
+          { status: 503 },
+        ),
       );
     }
   }
 
-  const pipelineResponse = await publishIngress({
-    userId: auth.userId,
-    envelope: parsed.data.envelope,
-  });
+  const pipelineResponse = await publishIngress(
+    {
+      userId: auth.userId,
+      envelope: parsed.data.envelope,
+    },
+    apiRequestId(request),
+  );
   if (pipelineResponse.status === 413) {
     return Response.json(
       { error: { code: "ingress_too_large", message: "Payload exceeds ingestion size limit" } },

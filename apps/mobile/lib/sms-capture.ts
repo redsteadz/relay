@@ -1,3 +1,5 @@
+import { logMobileError } from "./observability";
+
 const PHONE_LIKE = /^\+?[0-9\s().-]+$/u;
 
 function hasControlCharacter(value: string): boolean {
@@ -79,7 +81,12 @@ export async function saveSmsSenderAllowlist({
 
   try {
     return { captured: await syncInbox(), inboxSync: "succeeded" };
-  } catch {
+  } catch (error: unknown) {
+    logMobileError("capture.sms_inbox_sync_failed", error, {
+      code: "SMS_INBOX_SYNC_FAILED",
+      integration: "relay-device-ingress",
+      operation: "syncSmsInbox",
+    });
     return { captured: 0, inboxSync: "failed" };
   }
 }

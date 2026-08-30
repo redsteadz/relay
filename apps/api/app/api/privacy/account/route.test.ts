@@ -67,7 +67,7 @@ describe("DELETE /api/privacy/account", () => {
       deletion: { state: "completed" },
       revokedCredentials: 2,
     });
-    expect(deleteAccount).toHaveBeenCalledWith(userId, expect.anything());
+    expect(deleteAccount).toHaveBeenCalledWith(userId, expect.anything(), expect.any(String));
   });
 
   it("never deletes an account for an unauthenticated caller", async () => {

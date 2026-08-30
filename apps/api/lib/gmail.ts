@@ -4,6 +4,8 @@ import { canonicalUuidSchema, encryptedValueSchema } from "@relay/contracts";
 import { decryptValue, encryptValue, parseKekKeyring } from "@relay/crypto";
 
 import type { Database } from "../../../supabase/database.generated";
+import { AppError, categoryForHttpStatus } from "@relay/observability";
+import { databaseError } from "./observability";
 
 // Minimum scopes required for Gmail History/message retrieval.
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
@@ -28,6 +30,17 @@ export class DuplicateGmailConnectionError extends Error {
   constructor() {
     super("Gmail connection already exists");
   }
+}
+
+function googleHttpError(response: Response, code: string, operation: string): AppError {
+  return new AppError("Google operation failed", {
+    category: categoryForHttpStatus(response.status),
+    cause: new Error(`Google returned status ${response.status.toString()}`),
+    code,
+    integration: "google-gmail",
+    operation,
+    statusCode: response.status,
+  });
 }
 
 export function loadGmailEnv(): GmailEnv | null {
@@ -291,12 +304,17 @@ export async function exchangeCodeForTokens(
   });
 
   if (!response.ok) {
-    throw new Error("Token exchange failed");
+    throw googleHttpError(response, "GMAIL_TOKEN_EXCHANGE_FAILED", "exchangeCodeForTokens");
   }
 
   const candidate = await readBoundedJson(response, MAX_OAUTH_RESPONSE_BYTES);
   if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
-    throw new Error("Token exchange returned invalid response");
+    throw new AppError("Gmail token response was malformed", {
+      category: "malformed-response",
+      code: "GMAIL_TOKEN_RESPONSE_INVALID",
+      integration: "google-gmail",
+      operation: "exchangeCodeForTokens",
+    });
   }
   const data = candidate as Record<string, unknown>;
   const accessToken = data.access_token;
@@ -319,7 +337,12 @@ export async function exchangeCodeForTokens(
     scope.length === 0 ||
     scope.length > 8192
   ) {
-    throw new Error("Token exchange returned invalid response");
+    throw new AppError("Gmail token response was malformed", {
+      category: "malformed-response",
+      code: "GMAIL_TOKEN_RESPONSE_INVALID",
+      integration: "google-gmail",
+      operation: "exchangeCodeForTokens",
+    });
   }
 
   return { accessToken, refreshToken, expiresIn, scope };
@@ -335,7 +358,7 @@ export async function fetchGmailAddress(accessToken: string): Promise<string> {
   });
 
   if (!response.ok) {
-    throw new Error("Failed to retrieve Gmail address");
+    throw googleHttpError(response, "GMAIL_PROFILE_REQUEST_FAILED", "fetchGmailAddress");
   }
 
   const candidate = await readBoundedJson(response, MAX_OAUTH_RESPONSE_BYTES);
@@ -416,11 +439,15 @@ export async function persistConnection(
     if (error.code === "23505") {
       throw new DuplicateGmailConnectionError();
     }
-    throw new Error("Failed to persist connection");
+    throw databaseError(error, "GMAIL_CONNECTION_STORE_FAILED", "persistConnection");
   }
   const persistedId = canonicalUuidSchema.safeParse(data);
   if (!persistedId.success || persistedId.data !== connectionId) {
-    throw new Error("Failed to persist connection");
+    throw databaseError(
+      persistedId.error,
+      "GMAIL_CONNECTION_RESPONSE_INVALID",
+      "persistConnection",
+    );
   }
   return { id: persistedId.data };
 }

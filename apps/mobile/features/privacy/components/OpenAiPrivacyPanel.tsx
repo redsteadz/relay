@@ -8,6 +8,7 @@ import {
   EditorialSurface,
   StatusMessage,
 } from "@/components/ui";
+import { reportUnexpectedUiError } from "@/lib/observability";
 
 import { formatPrivacyDate, privacyErrorMessage } from "../models/privacyPresentation";
 
@@ -76,7 +77,15 @@ export function OpenAiPrivacyPanel({
         detail="Relay will delete its encrypted copy immediately. Semantic clauses will remain undecided until a new key is configured."
         loading={revoking}
         onCancel={() => setConfirming(false)}
-        onConfirm={() => void revoke().catch(() => undefined)}
+        onConfirm={() =>
+          void revoke().catch((error: unknown) =>
+            reportUnexpectedUiError(error, "ui.privacy_openai_revoke_failed", {
+              code: "PRIVACY_OPENAI_REVOKE_FAILED",
+              integration: "relay-api",
+              operation: "revokeOpenAiKey",
+            }),
+          )
+        }
         title="Revoke OpenAI key?"
         visible={confirming}
       />

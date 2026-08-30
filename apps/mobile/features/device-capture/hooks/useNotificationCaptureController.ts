@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { isValidNotificationAllowlist } from "@/lib/notification-capture";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 
 import { notificationControlIntent } from "../models/capturePresentation";
@@ -37,7 +38,12 @@ export function useNotificationCaptureController() {
     setMessage(undefined);
     try {
       if (await configure(true)) setMessage("Notification capture paused.");
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.notification_state_update_failed", error, {
+        code: "NOTIFICATION_CAPTURE_STATE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "setNotificationCapturePaused",
+      });
       setMessage("Could not pause notification capture.");
     } finally {
       setBusy(false);
@@ -58,7 +64,24 @@ export function useNotificationCaptureController() {
         setConsentVisible(false);
         setMessage("Notification capture resumed.");
       }
-    } catch {
+    } catch (error: unknown) {
+      logMobileError(
+        intent === "authorize"
+          ? "capture.notification_access_open_failed"
+          : "capture.notification_state_update_failed",
+        error,
+        {
+          code:
+            intent === "authorize"
+              ? "NOTIFICATION_ACCESS_OPEN_FAILED"
+              : "NOTIFICATION_CAPTURE_STATE_FAILED",
+          integration: "relay-device-ingress",
+          operation:
+            intent === "authorize"
+              ? "openNotificationAccessSettings"
+              : "setNotificationCapturePaused",
+        },
+      );
       setMessage(
         intent === "authorize"
           ? "Could not open Android notification access settings."
@@ -66,6 +89,20 @@ export function useNotificationCaptureController() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function openSystemSettings() {
+    setMessage(undefined);
+    try {
+      await RelayDeviceIngress.openNotificationAccessSettings();
+    } catch (error: unknown) {
+      logMobileError("capture.notification_access_open_failed", error, {
+        code: "NOTIFICATION_ACCESS_OPEN_FAILED",
+        integration: "relay-device-ingress",
+        operation: "openNotificationAccessSettings",
+      });
+      setMessage("Could not open Android notification access settings.");
     }
   }
 
@@ -78,7 +115,7 @@ export function useNotificationCaptureController() {
     intent,
     message,
     openConsent: () => setConsentVisible(true),
-    openSystemSettings: () => void RelayDeviceIngress.openNotificationAccessSettings(),
+    openSystemSettings,
     pause,
   };
 }

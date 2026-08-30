@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "../../../supabase/database.generated";
 import { revokeGoogleToken } from "./google-tasks";
+import { databaseError, logApiIntegrationError } from "./observability";
 import { publishGmailDisconnect } from "./pipeline";
 
 export type PrivacyEnv = {
@@ -55,6 +56,7 @@ async function attemptGmailDisconnect(
   userId: string,
   connectionId: string,
   signal: AbortSignal,
+  requestId: string,
 ): Promise<boolean> {
   if (signal.aborted) return false;
 
@@ -72,12 +74,31 @@ async function attemptGmailDisconnect(
           userId,
         },
         signal,
+        requestId,
       ),
     )
-    .then(
-      (response) => response.ok,
-      () => false,
-    );
+    .then((response) => {
+      if (response.ok) return true;
+      logApiIntegrationError(new Error(`Pipeline returned status ${response.status.toString()}`), {
+        code: "ACCOUNT_DELETION_GMAIL_DISCONNECT_FAILED",
+        event: "integration.gmail_disconnect_failed",
+        integration: "relay-pipeline",
+        operation: "accountDeletionGmailDisconnect",
+        requestId,
+        statusCode: response.status,
+      });
+      return false;
+    })
+    .catch((error: unknown) => {
+      logApiIntegrationError(error, {
+        code: "ACCOUNT_DELETION_GMAIL_DISCONNECT_FAILED",
+        event: "integration.gmail_disconnect_failed",
+        integration: "relay-pipeline",
+        operation: "accountDeletionGmailDisconnect",
+        requestId,
+      });
+      return false;
+    });
 
   try {
     return await Promise.race([published, aborted]);
@@ -89,6 +110,7 @@ async function attemptGmailDisconnect(
 async function disconnectGmailConnections(
   userId: string,
   connectionIds: string[],
+  requestId: string,
 ): Promise<{ failed: number; revoked: number }> {
   if (connectionIds.length === 0) return { failed: 0, revoked: 0 };
 
@@ -105,7 +127,12 @@ async function disconnectGmailConnections(
       nextIndex += 1;
       const connectionId = connectionIds[index];
       if (connectionId === undefined) return;
-      outcomes[index] = await attemptGmailDisconnect(userId, connectionId, controller.signal);
+      outcomes[index] = await attemptGmailDisconnect(
+        userId,
+        connectionId,
+        controller.signal,
+        requestId,
+      );
     }
   };
 
@@ -148,7 +175,9 @@ export async function getRetentionStatus(
     .eq("user_id", userId)
     .not("raw_ciphertext", "is", null)
     .order("raw_expires_at", { ascending: true });
-  if (error !== null) throw new Error("Retention status unavailable");
+  if (error !== null) {
+    throw databaseError(error, "PRIVACY_RETENTION_QUERY_FAILED", "getRetentionStatus");
+  }
 
   const expiries = (data ?? []).map((row) => row.raw_expires_at);
   return {
@@ -159,7 +188,11 @@ export async function getRetentionStatus(
   };
 }
 
-export async function purgeRawPayloads(userId: string, env: PrivacyEnv): Promise<number> {
+export async function purgeRawPayloads(
+  userId: string,
+  env: PrivacyEnv,
+  requestId = crypto.randomUUID(),
+): Promise<number> {
   const supabase = serviceClient(env);
   const { data, error } = await supabase
     .from("source_items")
@@ -174,16 +207,30 @@ export async function purgeRawPayloads(userId: string, env: PrivacyEnv): Promise
     .eq("user_id", userId)
     .not("raw_ciphertext", "is", null)
     .select("id");
-  if (error !== null) throw new Error("Raw payload purge failed");
+  if (error !== null) {
+    throw databaseError(error, "PRIVACY_RAW_PURGE_FAILED", "purgeRawPayloads");
+  }
 
   const purgedCount = data?.length ?? 0;
-  await supabase.from("audit_log").insert({
+  const { error: auditError } = await supabase.from("audit_log").insert({
     action: "privacy.raw_payloads_purged",
     actor_type: "user",
     metadata: { purgedCount },
     target_type: "source_items",
     user_id: userId,
   });
+  if (auditError !== null) {
+    logApiIntegrationError(
+      databaseError(auditError, "PRIVACY_AUDIT_WRITE_FAILED", "purgeRawPayloads.audit"),
+      {
+        code: "PRIVACY_AUDIT_WRITE_FAILED",
+        event: "database.audit_write_failed",
+        integration: "supabase",
+        operation: "purgeRawPayloads.audit",
+        requestId,
+      },
+    );
+  }
   return purgedCount;
 }
 
@@ -208,7 +255,9 @@ export async function listDisclosures(
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error !== null) throw new Error("Disclosure history unavailable");
+  if (error !== null) {
+    throw databaseError(error, "PRIVACY_DISCLOSURES_QUERY_FAILED", "listDisclosures");
+  }
 
   // Deliberately no prompt, response, redaction payload, or source body: the history explains what
   // was disclosed, not the content that was disclosed.
@@ -251,11 +300,14 @@ export async function getAccountDeletionStatus(
   env: PrivacyEnv,
 ): Promise<AccountDeletionStatus | null> {
   const supabase = serviceClient(env);
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("account_deletions")
     .select("state, attempt_count, requested_at, connectors_revoked_at, completed_at")
     .eq("user_id", userId)
     .maybeSingle();
+  if (error !== null) {
+    throw databaseError(error, "ACCOUNT_DELETION_STATUS_FAILED", "getAccountDeletionStatus");
+  }
   return data === null ? null : toStatus(data);
 }
 
@@ -271,19 +323,27 @@ export async function getAccountDeletionStatus(
 export async function revokeProviderCredentials(
   userId: string,
   env: PrivacyEnv,
+  requestId = crypto.randomUUID(),
 ): Promise<{ revoked: number; failed: number }> {
   const supabase = serviceClient(env);
   const { data: connections, error: connectionError } = await supabase
     .from("connections")
     .select("id, provider, status")
     .eq("user_id", userId);
-  if (connectionError !== null) throw new Error("Provider connections unavailable");
+  if (connectionError !== null) {
+    throw databaseError(
+      connectionError,
+      "PROVIDER_CONNECTIONS_QUERY_FAILED",
+      "revokeProviderCredentials",
+    );
+  }
 
   const gmail = await disconnectGmailConnections(
     userId,
     (connections ?? [])
       .filter((connection) => connection.provider === "gmail" && connection.status === "active")
       .map((connection) => connection.id),
+    requestId,
   );
   let revoked = gmail.revoked;
   let failed = gmail.failed;
@@ -297,7 +357,13 @@ export async function revokeProviderCredentials(
     )
     .eq("user_id", userId)
     .like("provider", "google%");
-  if (credentialError !== null) throw new Error("Provider credentials unavailable");
+  if (credentialError !== null) {
+    throw databaseError(
+      credentialError,
+      "PROVIDER_CREDENTIALS_QUERY_FAILED",
+      "revokeProviderCredentials",
+    );
+  }
 
   for (const row of data ?? []) {
     if (!row.provider.startsWith("google")) continue;
@@ -314,9 +380,16 @@ export async function revokeProviderCredentials(
         parseKekKeyring(env.kekKeyring),
         connectionCredentialContext(userId, row.id),
       );
-      if (await revokeGoogleToken(refreshToken)) revoked += 1;
+      if (await revokeGoogleToken(refreshToken, requestId)) revoked += 1;
       else failed += 1;
-    } catch {
+    } catch (error: unknown) {
+      logApiIntegrationError(error, {
+        code: "PROVIDER_CREDENTIAL_REVOCATION_FAILED",
+        event: "integration.credential_revocation_failed",
+        integration: "google",
+        operation: "revokeProviderCredential",
+        requestId,
+      });
       failed += 1;
     }
   }
@@ -334,6 +407,7 @@ export async function revokeProviderCredentials(
 export async function deleteAccount(
   userId: string,
   env: PrivacyEnv,
+  requestId = crypto.randomUUID(),
 ): Promise<{
   status: AccountDeletionStatus;
   revokedCredentials: number;
@@ -344,28 +418,44 @@ export async function deleteAccount(
   const { error: requestError } = await supabase.rpc("request_account_deletion", {
     p_user_id: userId,
   });
-  if (requestError !== null) throw new Error("Account deletion could not be requested");
+  if (requestError !== null) {
+    throw databaseError(requestError, "ACCOUNT_DELETION_REQUEST_FAILED", "deleteAccount.request");
+  }
 
-  const revocation = await revokeProviderCredentials(userId, env);
+  const revocation = await revokeProviderCredentials(userId, env, requestId);
 
   const { error: markError } = await supabase.rpc("mark_account_connectors_revoked", {
     p_user_id: userId,
   });
-  if (markError !== null) throw new Error("Account deletion could not advance");
+  if (markError !== null) {
+    throw databaseError(markError, "ACCOUNT_DELETION_ADVANCE_FAILED", "deleteAccount.advance");
+  }
 
   const { data: finalized, error: finalizeError } = await supabase.rpc(
     "finalize_account_deletion",
     { p_user_id: userId },
   );
   if (finalizeError !== null || finalized === null) {
-    throw new Error("Account deletion could not be finalized");
+    throw databaseError(
+      finalizeError ?? new Error("Account deletion response was empty"),
+      "ACCOUNT_DELETION_FINALIZE_FAILED",
+      "deleteAccount.finalize",
+    );
   }
 
   // Removing the auth user cascades every remaining tenant row, including the deletion record
   // itself. A failure here leaves a resumable `completed` database state rather than a half-deleted
   // account holding live credentials, because revocation and credential removal already happened.
   const { error: authError } = await supabase.auth.admin.deleteUser(userId);
-  if (authError !== null) throw new Error("Account identity could not be removed");
+  if (authError !== null) {
+    throw databaseError(
+      authError,
+      "ACCOUNT_IDENTITY_DELETE_FAILED",
+      "deleteAccount.identity",
+      undefined,
+      "Account identity could not be removed",
+    );
+  }
 
   return {
     failedRevocations: revocation.failed,

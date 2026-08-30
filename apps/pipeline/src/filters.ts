@@ -15,8 +15,9 @@ export class FilterCompilationError extends Error {
       | "filter_compilation_response_invalid"
       | "filter_compilation_unavailable"
       | "filter_revision_conflict",
+    cause?: unknown,
   ) {
-    super("Filter compilation failed");
+    super("Filter compilation failed", cause === undefined ? undefined : { cause });
   }
 }
 
@@ -49,9 +50,13 @@ export async function compileAndPersistFilter(
   if (!categoriesResponse.ok) {
     throw new FilterCompilationError("filter_compilation_unavailable");
   }
-  const categories = filterCompilerCategorySchema
-    .array()
-    .safeParse(await categoriesResponse.json().catch(() => undefined));
+  let categoriesBody: unknown;
+  try {
+    categoriesBody = await categoriesResponse.json();
+  } catch (error: unknown) {
+    throw new FilterCompilationError("filter_compilation_response_invalid", error);
+  }
+  const categories = filterCompilerCategorySchema.array().safeParse(categoriesBody);
   if (!categories.success) {
     throw new FilterCompilationError("filter_compilation_response_invalid");
   }
@@ -83,7 +88,13 @@ export async function compileAndPersistFilter(
     );
   }
 
-  const row = revisionRecord(await persistenceResponse.json().catch(() => undefined));
+  let persistenceBody: unknown;
+  try {
+    persistenceBody = await persistenceResponse.json();
+  } catch (error: unknown) {
+    throw new FilterCompilationError("filter_compilation_response_invalid", error);
+  }
+  const row = revisionRecord(persistenceBody);
   const response = filterCompileResponseSchema.safeParse({
     rule: {
       id: row?.id,

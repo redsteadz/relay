@@ -5,12 +5,14 @@ import {
   ingressEnvelopeSchema,
   relayUserIdSchema,
 } from "@relay/contracts";
+import { requestId as resolveRequestId } from "@relay/observability";
 
 import { readPersistenceConfiguration } from "./configuration";
 import type { Env } from "./env";
 import { compileAndPersistFilter, FilterCompilationError } from "./filters";
 import { handleGmailDisconnect, handleVerifiedGmailCursor } from "./gmail";
 import { publishEncryptedIngress } from "./ingress";
+import { logPipelineError } from "./observability";
 import { listDeadLetterItems, replayDeadLetterItem } from "./recovery";
 
 function isInternalRequest(request: Request, env: Env): boolean {
@@ -25,6 +27,7 @@ function isRecoveryRequest(request: Request, env: Env): boolean {
 
 export async function handlePipelineRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const operationRequestId = resolveRequestId(request.headers.get("x-relay-request-id"));
   if (request.method === "GET" && url.pathname === "/health") {
     return Response.json(
       healthResponseSchema.parse({ service: "relay-pipeline", status: "ok", version: "0.1.0" }),
@@ -42,7 +45,13 @@ export async function handlePipelineRequest(request: Request, env: Env): Promise
       }
       try {
         return Response.json({ items: await listDeadLetterItems(env, Number(rawLimit)) });
-      } catch {
+      } catch (error: unknown) {
+        logPipelineError(env, "recovery.list_failed", error, {
+          code: "RECOVERY_LIST_FAILED",
+          integration: "supabase",
+          operation: "listDeadLetterItems",
+          requestId: operationRequestId,
+        });
         return Response.json({ error: "recovery-unavailable" }, { status: 503 });
       }
     }
@@ -60,7 +69,13 @@ export async function handlePipelineRequest(request: Request, env: Env): Promise
         return accepted
           ? Response.json({ accepted: true, ...replay.data }, { status: 202 })
           : Response.json({ accepted: false, reason: "unavailable" }, { status: 409 });
-      } catch {
+      } catch (error: unknown) {
+        logPipelineError(env, "recovery.replay_failed", error, {
+          code: "RECOVERY_REPLAY_FAILED",
+          integration: "supabase",
+          operation: "replayDeadLetterItem",
+          requestId: operationRequestId,
+        });
         return Response.json({ accepted: false, reason: "recovery-unavailable" }, { status: 503 });
       }
     }
@@ -103,18 +118,24 @@ export async function handlePipelineRequest(request: Request, env: Env): Promise
       if (error instanceof FilterCompilationError && error.reason === "filter_revision_conflict") {
         return Response.json({ error: "filter-revision-conflict" }, { status: 409 });
       }
+      logPipelineError(env, "filter.compilation_failed", error, {
+        code: "FILTER_COMPILATION_FAILED",
+        integration: "supabase",
+        operation: "compileAndPersistFilter",
+        requestId: operationRequestId,
+      });
       return Response.json({ error: "filter-compilation-unavailable" }, { status: 503 });
     }
   }
 
   if (request.method === "POST" && url.pathname === "/internal/gmail/cursor") {
     const value = await request.json<unknown>().catch(() => undefined);
-    return handleVerifiedGmailCursor(env, value);
+    return handleVerifiedGmailCursor(env, value, fetch, operationRequestId);
   }
 
   if (request.method === "POST" && url.pathname === "/internal/gmail/disconnect") {
     const value = await request.json<unknown>().catch(() => undefined);
-    return handleGmailDisconnect(env, value);
+    return handleGmailDisconnect(env, value, operationRequestId);
   }
 
   if (request.method === "POST" && url.pathname === "/internal/ingest") {
