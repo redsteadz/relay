@@ -1,6 +1,10 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-import type { GmailDisconnectRequest, VerifiedGmailCursor } from "@relay/contracts";
+import type {
+  FilterCompileInternalRequest,
+  GmailDisconnectRequest,
+  VerifiedGmailCursor,
+} from "@relay/contracts";
 
 type PipelineMessage = {
   userId: string;
@@ -8,7 +12,11 @@ type PipelineMessage = {
 };
 
 async function publishPrivate(
-  path: "/internal/gmail/cursor" | "/internal/gmail/disconnect" | "/internal/ingest",
+  path:
+    | "/internal/filters/compile"
+    | "/internal/gmail/cursor"
+    | "/internal/gmail/disconnect"
+    | "/internal/ingest",
   message: unknown,
   allowLocalStub: boolean,
   signal?: AbortSignal,
@@ -17,11 +25,11 @@ async function publishPrivate(
   if (secret === undefined) {
     return Response.json({ accepted: false, reason: "internal-secret-missing" }, { status: 503 });
   }
-  const body = JSON.stringify(message);
   const headers = {
     "content-type": "application/json",
     "x-relay-internal-secret": secret,
   };
+  const body = JSON.stringify(message);
   const init: RequestInit = { method: "POST", headers, body };
   if (signal !== undefined) init.signal = signal;
   const pipelineUrl = process.env.RELAY_PIPELINE_URL;
@@ -46,6 +54,12 @@ async function publishPrivate(
 
 export async function publishIngress(message: PipelineMessage): Promise<Response> {
   return publishPrivate("/internal/ingest", message, true);
+}
+
+export async function publishFilterCompilation(
+  request: FilterCompileInternalRequest,
+): Promise<Response> {
+  return publishPrivate("/internal/filters/compile", request, false);
 }
 
 export async function publishGmailCursor(cursor: VerifiedGmailCursor): Promise<Response> {

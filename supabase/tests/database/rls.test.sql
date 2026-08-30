@@ -83,12 +83,14 @@ insert into public.filter_rules (id, user_id, name, intent, plan) values
   (
     '12000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000001',
-    'Synthetic one', 'test isolation', '{"deterministic":true}'
+    'Synthetic one', 'test isolation',
+    '{"schemaVersion":1,"compilerVersion":1,"intent":"test isolation"}'
   ),
   (
     '23000000-0000-0000-0000-000000000002',
     '20000000-0000-0000-0000-000000000002',
-    'Synthetic two', 'test isolation', '{"deterministic":true}'
+    'Synthetic two', 'test isolation',
+    '{"schemaVersion":1,"compilerVersion":1,"intent":"test isolation"}'
   );
 
 insert into public.relay_events (
@@ -353,16 +355,13 @@ select results_eq(
   'user cannot update another tenant category'
 );
 
-select results_eq(
-  $$with changed as (
-      update public.filter_rules
-      set enabled = false
-      where id = '23000000-0000-0000-0000-000000000002'
-      returning 1
-    )
-    select count(*)::bigint from changed$$,
-  'values (0::bigint)',
-  'user cannot update another tenant filter rule'
+select throws_ok(
+  $$update public.filter_rules
+    set enabled = false
+    where id = '23000000-0000-0000-0000-000000000002'$$,
+  '42501',
+  null,
+  'user cannot directly update compiled filter revisions'
 );
 
 select results_eq(

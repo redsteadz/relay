@@ -18,6 +18,11 @@ Run deterministic predicates first. Use encrypted user-provided OpenAI key only 
 clauses, with field allowlists, redaction, strict structured output, confidence threshold, and
 disclosure audit.
 
+Compilation itself is source-free and deterministic in compiler version 1. It receives user intent
+and trusted active category descriptors, never source text, and does not call an AI provider. Any
+future AI-assisted compiler requires a separate decision and disclosure policy. Filter plans cannot
+select actions, providers, endpoints, operations, or credentials.
+
 ## Consequences
 
 Some intentions cannot compile completely and remain visibly semantic. Low-confidence results do not

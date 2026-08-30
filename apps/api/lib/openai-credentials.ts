@@ -1,7 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 
 import { encryptValue, parseKekKeyring } from "@relay/crypto";
-import type { OpenAiCredentialStatus } from "@relay/contracts";
+import {
+  openAiCredentialRevocationResultSchema,
+  type OpenAiCredentialStatus,
+} from "@relay/contracts";
 
 import type { Database } from "../../../supabase/database.generated";
 
@@ -211,57 +214,12 @@ export async function revokeOpenAiCredential(
   env: OpenAiEnv,
 ): Promise<{ revoked: boolean }> {
   const supabase = serviceClient(env);
-  const { data: existing } = await supabase
-    .from("connections")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("provider", OPENAI_PROVIDER)
-    .maybeSingle();
-  if (existing === null) return { revoked: false };
-
-  const { error } = await supabase
-    .from("connections")
-    .delete()
-    .eq("id", existing.id)
-    .eq("user_id", userId);
-  if (error !== null) throw new Error("Failed to revoke OpenAI credential");
-
-  // Semantic filter clauses cannot evaluate without a live OpenAI key; disable rather than
-  // silently leaving an evaluator that can never resolve them.
-  const { data: enabledRules } = await supabase
-    .from("filter_rules")
-    .select("id, plan")
-    .eq("user_id", userId)
-    .eq("enabled", true);
-  const semanticRuleIds = (enabledRules ?? [])
-    .filter((rule) => {
-      const plan = rule.plan as unknown as { semantic?: unknown } | null;
-      return (
-        plan !== null &&
-        typeof plan === "object" &&
-        "semantic" in plan &&
-        plan.semantic !== undefined &&
-        plan.semantic !== null
-      );
-    })
-    .map((rule) => rule.id);
-  if (semanticRuleIds.length > 0) {
-    await supabase
-      .from("filter_rules")
-      .update({ enabled: false })
-      .eq("user_id", userId)
-      .in("id", semanticRuleIds);
-  }
-
-  await supabase.from("audit_log").insert({
-    user_id: userId,
-    actor_type: "user",
-    actor_id: userId,
-    action: "connector.revoked",
-    target_type: "connection",
-    target_id: existing.id,
-    metadata: { provider: OPENAI_PROVIDER },
+  const { data, error } = await supabase.rpc("revoke_openai_connection", {
+    p_user_id: userId,
   });
-
-  return { revoked: true };
+  const result = openAiCredentialRevocationResultSchema.safeParse(data);
+  if (error !== null || !result.success) {
+    throw new Error("Failed to revoke OpenAI credential");
+  }
+  return { revoked: result.data.revoked };
 }

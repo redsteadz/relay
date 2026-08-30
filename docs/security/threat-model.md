@@ -21,6 +21,7 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Database disclosure                 | Envelope encryption, Cloudflare-held wrapping key, seven-day raw expiry  |
 | Wrapping-key loss or compromise     | Required: versioned keyring, data-key rewrap, recovery/incident runbooks |
 | Prompt injection from source        | Strict data boundary, schema output, fixed provider/rule allowlist       |
+| Filter compiler authority injection | Source-free strict requests, typed plan, no action/provider fields       |
 | Queue replay                        | Source IDs, fingerprints, unique DB constraints, stable action IDs       |
 | Dead-letter operator overreach      | Dedicated secret, metadata-only API, backend-only RPCs, no decrypt route |
 | Retention resurrection by replay    | Authenticated original expiry, atomic claim, terminal ciphertext purge   |

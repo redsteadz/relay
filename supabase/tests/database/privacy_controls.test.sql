@@ -83,7 +83,8 @@ select public.create_gmail_connection_v1(
 
 insert into public.filter_rules (id, user_id, name, intent, plan) values
   ('71400000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001',
-   'synthetic rule', 'synthetic intent', '{}'::jsonb);
+   'synthetic rule', 'synthetic intent',
+   '{"schemaVersion":1,"compilerVersion":1,"intent":"synthetic intent"}'::jsonb);
 
 insert into public.action_rules (
   id, user_id, filter_rule_id, connection_id, provider, operation, input_template

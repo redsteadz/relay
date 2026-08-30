@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { publishGmailDisconnect, publishIngress } from "./pipeline";
+import { publishFilterCompilation, publishGmailDisconnect, publishIngress } from "./pipeline";
 
 const openNext = vi.hoisted(() => ({ getCloudflareContext: vi.fn() }));
 
@@ -69,5 +69,38 @@ describe("publishIngress", () => {
         signal,
       },
     );
+  });
+});
+
+describe("publishFilterCompilation", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("forwards validated intent to the private compiler route", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("RELAY_INGEST_SHARED_SECRET", "synthetic-secret");
+    vi.stubEnv("RELAY_PIPELINE_URL", "http://127.0.0.1:8787");
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({}, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = {
+      userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
+      name: "Receipts",
+      intent: "from gmail",
+    };
+
+    const response = await publishFilterCompilation(request);
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/internal/filters/compile", {
+      body: JSON.stringify(request),
+      headers: {
+        "content-type": "application/json",
+        "x-relay-internal-secret": "synthetic-secret",
+      },
+      method: "POST",
+    });
   });
 });
