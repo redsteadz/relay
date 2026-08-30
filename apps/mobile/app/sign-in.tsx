@@ -12,13 +12,17 @@ export default function SignInScreen() {
   const { configurationError, requestMagicLink } = useAuth();
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
-  const [statusTone, setStatusTone] = useState<"error" | "success">("error");
+  const [statusTone, setStatusTone] = useState<"error" | "info" | "success">(
+    reason === "settings" && !configurationError ? "info" : "error",
+  );
   const [status, setStatus] = useState(
-    reason === "invalid-link"
-      ? "This sign-in link is invalid or expired. Request a new link."
-      : configurationError
-        ? "Supabase public configuration is unavailable."
-        : "",
+    configurationError
+      ? "Supabase public configuration is unavailable."
+      : reason === "invalid-link"
+        ? "This sign-in link is invalid or expired. Request a new link."
+        : reason === "settings"
+          ? "Sign in to manage categories and privacy controls from Settings."
+          : "",
   );
 
   async function submit() {

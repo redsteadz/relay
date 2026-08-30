@@ -1,4 +1,4 @@
-import { router, type Href } from "expo-router";
+import { router } from "expo-router";
 
 import { Panel } from "@/components/Panel";
 import { AppButton, AppText, StatusMessage } from "@/components/ui";
@@ -11,22 +11,35 @@ import { RetentionPanel } from "./RetentionPanel";
 type PrivacySettingsProps = {
   accessToken: string | undefined;
   clearDeletedAccountSession: () => Promise<void>;
+  configurationError: boolean;
+  onSignIn: () => void;
   userId: string | undefined;
 };
 
 export function PrivacySettings({
   accessToken,
   clearDeletedAccountSession,
+  configurationError,
+  onSignIn,
   userId,
 }: PrivacySettingsProps) {
   const privacy = usePrivacySettings(userId, accessToken);
 
   if (accessToken === undefined || userId === undefined) {
     return (
-      <Panel title="Privacy controls" meta="SIGN-IN REQUIRED">
-        <StatusMessage tone="warning">
-          Sign in to inspect retained data, disclosure history, credentials, and deletion status.
+      <Panel
+        title="Privacy controls"
+        meta={configurationError ? "NOT CONFIGURED" : "SIGN-IN REQUIRED"}
+      >
+        <StatusMessage tone={configurationError ? "error" : "warning"}>
+          {configurationError
+            ? "Relay account services are unavailable in this build."
+            : "Sign in to inspect retention, purge raw payloads, review AI disclosures, revoke credentials, and delete the account."}
         </StatusMessage>
+        <AppText tone="muted">
+          Your privacy controls remain in Settings and are scoped to your Relay account.
+        </AppText>
+        <AppButton label="Sign in to manage privacy" onPress={onSignIn} tone="secondary" />
       </Panel>
     );
   }
@@ -48,7 +61,7 @@ export function PrivacySettings({
         </AppText>
         <AppButton
           label="View disclosure history"
-          onPress={() => router.push("/disclosures" as Href)}
+          onPress={() => router.push("/disclosures")}
           tone="secondary"
         />
       </Panel>
