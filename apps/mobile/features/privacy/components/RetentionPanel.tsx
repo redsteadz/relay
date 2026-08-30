@@ -1,8 +1,13 @@
 import type { PrivacyRetentionStatus } from "@relay/contracts";
 import { useState } from "react";
 
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, ConfirmationDialog, StatusMessage } from "@/components/ui";
+import {
+  AppButton,
+  AppText,
+  ConfirmationDialog,
+  EditorialSurface,
+  StatusMessage,
+} from "@/components/ui";
 
 import { formatPrivacyDate, privacyErrorMessage } from "../models/privacyPresentation";
 
@@ -37,7 +42,11 @@ export function RetentionPanel({
   }
 
   return (
-    <Panel title="Raw data retention" meta="FIXED · 7 DAYS">
+    <EditorialSurface
+      icon="database-clock-outline"
+      title="Raw data retention"
+      meta="Fixed · 7 days"
+    >
       <AppText tone="muted">
         Encrypted source payloads expire automatically. Purging destroys only recoverable raw
         bodies; derived facts, classifications, events, and provenance remain.
@@ -84,6 +93,6 @@ export function RetentionPanel({
         title="Purge retained raw data?"
         visible={confirming}
       />
-    </Panel>
+    </EditorialSurface>
   );
 }

@@ -1,7 +1,6 @@
-import { router, type Href } from "expo-router";
+import { router } from "expo-router";
 
-import { Panel } from "@/components/Panel";
-import { AppButton, AppText, StatusMessage } from "@/components/ui";
+import { AppButton, AppText, EditorialSurface, StatusMessage } from "@/components/ui";
 
 import { usePrivacySettings } from "../hooks/usePrivacySettings";
 import { AccountDeletionPanel } from "./AccountDeletionPanel";
@@ -23,11 +22,11 @@ export function PrivacySettings({
 
   if (accessToken === undefined || userId === undefined) {
     return (
-      <Panel title="Privacy controls" meta="SIGN-IN REQUIRED">
+      <EditorialSurface icon="shield-lock-outline" title="Privacy controls" meta="Sign-in required">
         <StatusMessage tone="warning">
           Sign in to inspect retained data, disclosure history, credentials, and deletion status.
         </StatusMessage>
-      </Panel>
+      </EditorialSurface>
     );
   }
 
@@ -41,17 +40,17 @@ export function PrivacySettings({
         purging={privacy.purge.isPending}
         retention={privacy.overview.data?.retention}
       />
-      <Panel title="AI disclosure history" meta="METADATA ONLY">
+      <EditorialSurface icon="file-eye-outline" title="AI disclosure history" meta="Metadata only">
         <AppText tone="muted">
-          Inspect provider, model, disclosed field names, purpose, and time—never prompts or source
-          content.
+          Inspect provider, model, disclosed field names, purpose, and time. Prompts and source
+          content stay excluded.
         </AppText>
         <AppButton
           label="View disclosure history"
-          onPress={() => router.push("/disclosures" as Href)}
+          onPress={() => router.push("/disclosures")}
           tone="secondary"
         />
-      </Panel>
+      </EditorialSurface>
       <OpenAiPrivacyPanel
         error={privacy.revoke.error ?? privacy.openAi.error}
         loading={privacy.openAi.isPending}
