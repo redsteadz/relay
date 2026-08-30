@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   deleteRelayAccount,
@@ -8,7 +8,11 @@ import {
 } from "./privacy";
 
 describe("privacy API boundary", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => vi.stubEnv("EXPO_PUBLIC_API_URL", "https://api.relay.test"));
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 
   it("parses the privacy overview contract", async () => {
     vi.stubGlobal(

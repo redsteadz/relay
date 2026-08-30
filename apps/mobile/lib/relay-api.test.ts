@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RelayApiError, requestRelayApi } from "./relay-api";
 
 describe("requestRelayApi", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => vi.stubEnv("EXPO_PUBLIC_API_URL", "https://api.relay.test/"));
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 
   it("binds bearer authority and JSON without tenant-controlled headers", async () => {
     const fetchMock = vi
@@ -16,7 +20,7 @@ describe("requestRelayApi", () => {
       method: "DELETE",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:3000/api/privacy/raw-payloads", {
+    expect(fetchMock).toHaveBeenCalledWith("https://api.relay.test/api/privacy/raw-payloads", {
       body: JSON.stringify({ requested: true }),
       headers: {
         authorization: "Bearer synthetic-access-token",
@@ -24,6 +28,22 @@ describe("requestRelayApi", () => {
       },
       method: "DELETE",
     });
+  });
+
+  it("fails closed when the Relay API URL is missing or invalid", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.stubEnv("EXPO_PUBLIC_API_URL", "");
+    await expect(requestRelayApi("token", "/api/privacy")).rejects.toEqual(
+      new RelayApiError("not-configured"),
+    );
+
+    vi.stubEnv("EXPO_PUBLIC_API_URL", "file:///relay-api");
+    await expect(requestRelayApi("token", "/api/privacy")).rejects.toEqual(
+      new RelayApiError("not-configured"),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("maps server failures to fixed client reasons without reflecting messages", async () => {

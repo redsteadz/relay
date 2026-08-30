@@ -22,12 +22,30 @@ function errorCode(value: unknown): string | undefined {
   return typeof error.code === "string" ? error.code : undefined;
 }
 
+function configuredBaseUrl(): string {
+  const candidate = process.env.EXPO_PUBLIC_API_URL?.trim();
+  if (candidate === undefined || candidate.length === 0) {
+    throw new RelayApiError("not-configured");
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("Unsupported Relay API protocol");
+    }
+  } catch {
+    throw new RelayApiError("not-configured");
+  }
+
+  return candidate.replace(/\/+$/u, "");
+}
+
 export async function requestRelayApi(
   accessToken: string,
   path: string,
   init: { body?: unknown; method?: "DELETE" | "GET" } = {},
 ): Promise<unknown> {
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+  const baseUrl = configuredBaseUrl();
   const hasBody = init.body !== undefined;
   let response: Response;
   try {
