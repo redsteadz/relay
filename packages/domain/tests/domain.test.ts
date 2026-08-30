@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { ingressEnvelopeSchema, type FilterPlan, type IngressEnvelope } from "@relay/contracts";
 
+import appointmentEventFixture from "./fixtures/event-appointment.json" with { type: "json" };
+import deliveryEventFixture from "./fixtures/event-delivery.json" with { type: "json" };
+import securityEventFixture from "./fixtures/event-security.json" with { type: "json" };
+import transactionEventFixture from "./fixtures/event-transaction.json" with { type: "json" };
 import gmailFixture from "./fixtures/gmail.json" with { type: "json" };
 import notificationFixture from "./fixtures/notification.json" with { type: "json" };
 import smsFixture from "./fixtures/sms.json" with { type: "json" };
@@ -10,8 +14,10 @@ import {
   contentFingerprint,
   compileFilterPlan,
   evaluateFilter,
+  extractSourceEvents,
   normalizeCategoryName,
   normalizeSourceFacts,
+  sourceEventSetFingerprint,
   sourceFactSetFingerprint,
   sourceIdentity,
 } from "../src/index.js";
@@ -304,6 +310,160 @@ describe("normalizeSourceFacts", () => {
         uncertaintyReason: "invalid",
         provenance: [{ field: "attributes.amount" }],
       }),
+    );
+  });
+});
+
+describe("extractSourceEvents", () => {
+  it("creates a concise transaction fact without copying source text or reference values", () => {
+    const envelope = ingressEnvelopeSchema.parse(transactionEventFixture);
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event).toMatchObject({
+      kind: "fact",
+      title: "USD 14.20 transaction",
+      confidence: 0.95,
+      requiresReview: false,
+      temporalStatus: "none",
+      timeZone: null,
+    });
+    expect(event?.summary).toContain("Transaction reference available.");
+    expect(JSON.stringify(event)).not.toContain(envelope.body);
+    expect(JSON.stringify(event)).not.toContain(envelope.subject);
+    expect(JSON.stringify(event)).not.toContain("TX-SYNTHETIC-25");
+  });
+
+  it("creates a delivery task from typed tracking evidence", () => {
+    const event = extractSourceEvents(
+      normalizeSourceFacts(ingressEnvelopeSchema.parse(deliveryEventFixture)),
+    ).events[0];
+
+    expect(event).toMatchObject({
+      kind: "task",
+      title: "Track delivery",
+      summary: "Location available. Tracking reference available.",
+      confidence: 0.85,
+      requiresReview: false,
+      temporalStatus: "none",
+      timeZone: null,
+    });
+    expect(JSON.stringify(event)).not.toContain("TRACK-SYNTHETIC-25");
+  });
+
+  it("keeps a low-confidence security reminder visible and review-only", () => {
+    const envelope = ingressEnvelopeSchema.parse(securityEventFixture);
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event).toMatchObject({
+      kind: "reminder",
+      title: "Reminder",
+      confidence: 0.6,
+      requiresReview: true,
+      temporalStatus: "resolved",
+      timeZone: "UTC",
+      dueAt: "2026-08-31T10:00:00.000000000Z",
+    });
+    expect(JSON.stringify(event)).not.toContain("SYNTHETIC-SECRET-25");
+    expect(event?.provenance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fields: [{ field: "attributes.dates[1]" }] }),
+      ]),
+    );
+  });
+
+  it("creates an appointment with exact UTC times and explicit time zone", () => {
+    const event = extractSourceEvents(
+      normalizeSourceFacts(ingressEnvelopeSchema.parse(appointmentEventFixture)),
+    ).events[0];
+
+    expect(event).toMatchObject({
+      kind: "calendar-event",
+      title: "Calendar event",
+      temporalStatus: "resolved",
+      timeZone: "UTC",
+      startsAt: "2026-09-02T03:30:00.000000000Z",
+      endsAt: "2026-09-02T04:00:00.000000000Z",
+      confidence: 0.95,
+      requiresReview: false,
+    });
+  });
+
+  it("marks an unresolved local date ambiguous without inventing a time zone", () => {
+    const envelope = ingressEnvelopeSchema.parse({
+      ...securityEventFixture,
+      attributes: { dates: { role: "due", instant: "2026-09-01 09:00" } },
+    });
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event).toMatchObject({
+      kind: "fact",
+      temporalStatus: "ambiguous",
+      timeZone: null,
+      dateAmbiguity: "invalid",
+      requiresReview: true,
+    });
+    expect(event).not.toHaveProperty("startsAt");
+    expect(event).not.toHaveProperty("dueAt");
+  });
+
+  it("marks an end without a start ambiguous and review-only", () => {
+    const envelope = ingressEnvelopeSchema.parse({
+      ...deliveryEventFixture,
+      attributes: {
+        ...deliveryEventFixture.attributes,
+        dates: { role: "end", instant: "2026-09-01T09:00:00Z" },
+      },
+    });
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event).toMatchObject({
+      kind: "task",
+      temporalStatus: "ambiguous",
+      timeZone: null,
+      dateAmbiguity: "inconsistent-range",
+      confidence: 0.5,
+      requiresReview: true,
+    });
+    expect(event).not.toHaveProperty("endsAt");
+  });
+
+  it("never renders untrusted free-text fact values or a body aliased into them", () => {
+    const secret = "SYNTHETIC-SECRET-ALIASED-IN-FACTS-25";
+    const envelope = ingressEnvelopeSchema.parse({
+      ...transactionEventFixture,
+      sender: secret,
+      body: secret,
+      attributes: {
+        ...transactionEventFixture.attributes,
+        merchant: secret,
+        location: { label: secret, role: "merchant" },
+        reference: { kind: "transaction", value: secret },
+      },
+    });
+    const event = extractSourceEvents(normalizeSourceFacts(envelope)).events[0];
+
+    expect(event?.title).toBe("USD 14.20 transaction");
+    expect(event?.summary).toBe(
+      "Amount: USD 14.20. Merchant available. Location available. Transaction reference available.",
+    );
+    expect(JSON.stringify(event)).not.toContain(secret);
+  });
+
+  it("fingerprints complete output by source and extractor version", async () => {
+    const events = extractSourceEvents(
+      normalizeSourceFacts(ingressEnvelopeSchema.parse(transactionEventFixture)),
+    );
+    const nextVersion = {
+      ...events,
+      extractorVersion: 2,
+      events: events.events.map((event) => ({ ...event, extractorVersion: 2 })),
+    };
+
+    await expect(sourceEventSetFingerprint(events)).resolves.toBe(
+      await sourceEventSetFingerprint(events),
+    );
+    await expect(sourceEventSetFingerprint(nextVersion)).resolves.not.toBe(
+      await sourceEventSetFingerprint(events),
     );
   });
 });

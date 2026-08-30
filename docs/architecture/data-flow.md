@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 ---
 
 # Data Flow
@@ -10,7 +10,7 @@ last_verified: 2026-08-29
 source -> authenticated ingress -> canonical envelope -> envelope encryption -> Queue
       -> tenant coordinator -> decrypt in memory -> source identity/content fingerprint dedupe
       -> provider-neutral normalization -> durable encrypted source record + typed facts
-      -> categorization -> event extraction
+      -> event extraction -> categorization
       -> deterministic filter -> optional redacted semantic decision
       -> action proposal (provider dispatch remains disabled until issue #35)
 
@@ -87,12 +87,13 @@ standalone Gmail disconnect retains strict retry-until-provider-complete behavio
 Two independent layers guard against Cloudflare Queue's at-least-once redelivery, and either alone is
 sufficient for correctness — the second exists because the first is fast, not because it is required:
 
-- **Durable Object local cache** (`source:<identity>`, `fingerprint:<fingerprint>`,
-  `fact-set-fingerprint:<source-id>`, and `source-binding:<source-id>` keys in
-  `DurableObjectStorage`). Bound markers contain source ID, fact digest, source identity, and content
+- **Durable Object local cache** (`source:<identity>`, `fingerprint:<fingerprint>`, versioned fact/event
+  fingerprint keys, and `source-binding:<source-id>` keys in `DurableObjectStorage`). Complete markers
+  contain source ID, fact/event digests, normalizer/extractor versions, source identity, and content
   fingerprint and survive Durable Object eviction/restart. Exact same-ID database retries may populate
-  them after fact persistence converges; duplicates under another candidate ID do not. Legacy unbound
-  markers never decide a result. One multi-key `put` atomically writes related records, as guaranteed by
+  them only after fact and event persistence converge; duplicates under another candidate ID do not.
+  Exact legacy fact-only bindings fall through for event backfill, while unbound markers never decide a
+  result. One multi-key `put` atomically writes related records, as guaranteed by
   [Cloudflare Durable Object storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#put).
 - **`source_items` unique constraints** (`(user_id, id)`, `(user_id, source, source_account_id,
 external_id)` with `nulls not distinct`, and `(user_id, content_fingerprint)`), enforced by Postgres
@@ -185,15 +186,45 @@ persistence. `(user_id, source_item_id, normalizer_version, ordinal)` is unique 
 `source_items`; fact persistence requires the same exact fact digest. A missing candidate source ID
 returns normal dedupe only when source persistence already returned `duplicate`. Fact version/digest
 conflicts and impossible stored/missing states fail closed as `fact_integrity_conflict`. Exact retries
-return `duplicate`; different output under the same normalizer version fails closed. If either RPC
-commits but its response is lost, retry converges through exact digest/idempotency checks. Queue
-acknowledgement occurs only after both durable stages converge.
+return `duplicate`; different output under the same normalizer version fails closed. If any source,
+fact, or event RPC commits but its response is lost, retry converges through exact digest/idempotency
+checks. Queue acknowledgement occurs only after all three durable stages converge.
 
-Durable Object markers bind source ID, source identity, content fingerprint, and fact digest. Legacy
-unbound markers fall through to Postgres. Local mode atomically stores encrypted source, structured
-facts, envelope-ID digest, and source binding; an exact binding is duplicate, any changed binding is an
-integrity failure, and an existing local source without a complete binding fails closed. Database
-duplicates under another source ID never receive candidate markers.
+Durable Object markers bind source ID, source identity, content fingerprint, fact digest, and versioned
+event digest. Legacy unbound markers fall through to Postgres. Local mode atomically stores encrypted
+source, structured facts/events, envelope-ID digest, and source binding; an exact complete binding is
+duplicate, any changed binding is an integrity failure, and an existing local source without a valid
+fact binding fails closed. Database duplicates under another source ID never receive candidate markers.
+
+## Event Extraction
+
+[ADR-0010](../decisions/0010-fact-only-event-extraction.md) places deterministic event extraction
+immediately after typed facts and before future categorization. Extractor version 1 consumes only the
+runtime-validated `SourceFactSet`. Provider kind, category, subject, body, and source reference values
+cannot become extraction instructions. Certain start facts produce calendar events, certain due facts
+produce reminders, order/tracking references without due time produce tasks, and remaining inputs
+produce concise facts.
+
+Titles are trimmed and bounded to 160 characters; summaries are bounded to 280. They use normalized
+amount/currency plus fixed merchant, location, sender, and reference-kind labels. Free-text fact values,
+subject, body, and reference values are never rendered into notification-ready text. Provenance contains
+source item ID, fact ordinal, and validated field paths only. It contains no snippets. Every output
+carries normalizer version, extractor version, contiguous ordinal,
+three-decimal confidence, and `requiresReview`. Confidence below `0.8` and ambiguous temporal evidence
+always require review. Pipeline persists these records for inbox visibility but creates no action.
+
+Resolved event time is exact 30-character UTC text plus explicit `timeZone: UTC`. Query-oriented
+PostgreSQL `timestamptz` columns mirror that value, while canonical text preserves nanoseconds. Invalid,
+contradictory, offset-free, or inconsistent temporal evidence is `ambiguous`, has null time zone, and
+contains no guessed instant. Generic `occurred` and `captured` facts never substitute for missing start
+or due evidence.
+
+`persist_source_events` is service-role-only and validates explicit tenant/source ownership, source
+fact digest, normalizer version, every provenance fact ordinal/path, exact temporal shape, and complete
+event-set fingerprint. Canonical rows are unique by tenant, source, normalizer version, extractor
+version, and ordinal. Exact retries return `duplicate`; changed output under same identity fails as
+`event_integrity_conflict`. A lost RPC response therefore retries safely. Legacy rows retain null
+extractor metadata and cannot collide with canonical extraction rows.
 
 Pipeline Analytics Engine points use only fixed metric names, numeric counts, and numeric latency in
 milliseconds. Tenant IDs, envelope IDs, source metadata, ciphertext, URLs, errors, and plaintext are
@@ -208,10 +239,11 @@ fixed internal codes/messages.
 
 `pnpm e2e:local` resets a local Supabase stack, starts local API and Wrangler processes, and sends the
 shared synthetic mobile fixture through the complete encrypted ingress path. The harness verifies
-encrypted Supabase persistence, typed facts with exact money and field provenance, source-identity and
-fingerprint deduplication, acknowledgement after durable persistence, cold database conflict outcomes,
-duplicate-cache safety, dead-letter metadata delivery, operator inspection, exact encrypted replay,
-terminal replay cleanup, action-run absence, and controlled seven-day retention cleanup. It
+encrypted Supabase persistence, typed facts with exact money and field provenance, concise versioned
+events without raw source text, source-identity and fingerprint deduplication, acknowledgement after
+durable persistence, cold database conflict outcomes, duplicate-cache safety, dead-letter metadata
+delivery, operator inspection, exact encrypted replay, terminal replay cleanup, action-run absence, and
+controlled seven-day retention cleanup. It
 accepts only a loopback Supabase URL and creates no remote Cloudflare or Supabase resources.
 
 The `wrangler.e2e.jsonc` config exists only for `wrangler dev --local`. Result markers contain status
@@ -233,8 +265,8 @@ text. AAD text must be UUID-equivalent to canonical database IDs; legacy NULL AA
 those canonical IDs. Authenticated users have no table or RPC access. Dedicated operator API returns
 metadata only; it has no decrypt operation.
 Coordinator maps configuration, unavailable key version, invalid ciphertext/envelope, persistence,
-tenant-conflict, fact-integrity, and invalid-response failures to fixed codes without reflecting error
-text. Final attempt republishes that metadata beside ciphertext to existing dead-letter Queue. If
+tenant-conflict, fact/event-integrity, and invalid-response failures to fixed codes without reflecting
+error text. Final attempt republishes that metadata beside ciphertext to existing dead-letter Queue. If
 durable recovery storage is unavailable, DLQ consumer parks exact message back onto same Queue with
 bounded delay until original expiry.
 
@@ -245,7 +277,7 @@ same original AAD text while compare-and-set identity remains canonical. Queue c
 An ambiguous Queue publication or failed replay retains same active request ID; only retry with that
 ID can republish it. Repeated completion is idempotent. Terminal or expired rows cannot regain ciphertext. Source unique
 constraints and coordinator dedupe remain final arbitration, and recovery cannot create action rows
-while action dispatch is disabled. Uncertain classification remains visible in inbox; it must not
-silently become an external effect.
+while action dispatch is disabled. Uncertain extraction/classification remains visible in inbox; it
+must not silently become an external effect.
 
 Related: [action model](action-model.md), [privacy lifecycle](../security/privacy.md).

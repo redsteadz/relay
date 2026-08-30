@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "43000000-0000-4000-8000-000000000025",
+  "occurredAt": "2026-08-30T10:00:00Z",
+  "capturedAt": "2026-08-30T10:00:01Z",
+  "source": {
+    "kind": "sms",
+    "externalId": "synthetic-event-security-25",
+    "accountId": "synthetic-device"
+  },
+  "sender": "Example Security",
+  "subject": "Security review",
+  "body": "Never reveal synthetic secret SYNTHETIC-SECRET-25.",
+  "attributes": {
+    "dates": [
+      {
+        "role": "due",
+        "instant": "2026-08-31T10:00:00Z"
+      },
+      {
+        "role": "due",
+        "instant": "tomorrow without a time zone"
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 import type { FilterExpression, FilterPlan, IngressEnvelope } from "@relay/contracts";
 
 export * from "./facts.js";
+export * from "./events.js";
 export * from "./filter-compiler.js";
 
 export type FilterDecision = "match" | "no-match" | "undecided";
