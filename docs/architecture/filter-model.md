@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 ---
 
 # Filter Model
@@ -16,6 +16,49 @@ semantic clause is `undecided` until minimized fields are evaluated through the 
 Every semantic clause declares allowed fields and minimum confidence. Relay records model,
 disclosed fields, redactions, purpose, confidence, and rationale. Low confidence remains
 undecided and cannot trigger automatic effects.
+
+## Deterministic Evaluation
+
+`evaluateFilterPlan` in `packages/domain` decides a compiled plan against one item. It is pure: it
+never calls a provider, never mutates the item, and never logs or returns a field value. Only field
+names, operators, and positions leave the evaluator.
+
+It returns the decision, the plan's `schemaVersion` and `compilerVersion`, and `matchedPredicates` --
+every predicate that evaluated true, with its position in the expression such as `all[0].any[1]`. A
+predicate under `not` can therefore appear while the decision is `no-match`; the list explains the
+evaluation and does not by itself justify the decision.
+
+### Tri-State Rules
+
+| Situation                                                                 | Result                                                 |
+| ------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Deterministic expression fails                                            | `no-match`, and the semantic clause is never consulted |
+| Deterministic passes, no semantic clause                                  | `match`                                                |
+| Deterministic passes, semantic clause present                             | `undecided`                                            |
+| Field absent, `null`, empty, or not a string, under a comparison operator | that predicate is **false**                            |
+| Field absent, `null`, or empty, under `exists`                            | that predicate is **false**                            |
+
+An absent field makes its predicate false rather than unknown. Treating absence as unknown would
+promote items to `undecided` and send more content to OpenAI purely because a field was missing,
+which contradicts [deterministic filters before BYOK AI](../decisions/0003-deterministic-before-ai.md).
+`undecided` therefore arises only from a semantic clause.
+
+One consequence is worth stating plainly: because absence is false, `not` over a comparison on an
+absent field is true. `not (subject contains "x")` matches an item that has no subject at all. Use
+`exists` to test presence explicitly when that distinction matters.
+
+Comparisons normalize both sides with Unicode NFKC, trim, collapse internal whitespace, and
+lowercase, so `café` and `café` compare equal. Money is the exception in spirit rather than
+mechanism: `attributes.amount` is compared as its exact decimal string, so `10.50` does not equal
+`10.5`, because the repository forbids routing money through a float to decide equality.
+
+### Bounds
+
+Evaluation re-checks the depth (8) and node (64) limits that `filterPlanSchema` already enforces, so
+a plan built in memory without passing the schema cannot recurse without bound; exceeding either
+raises `FilterEvaluationLimitError`, which carries the limit name and no field values. Each field is
+read and normalized at most once per evaluation, so a plan holding the maximum number of predicates
+over `body` normalizes a megabyte-sized body once rather than once per predicate.
 
 ## Compilation
 

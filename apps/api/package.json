@@ -6,6 +6,7 @@
   "scripts": {
     "build": "next build",
     "build:dependencies": "pnpm --filter \"@relay/api^...\" build",
+    "build:dependencies:workers": "node -e \"if (process.env.WORKERS_CI === '1') require('node:child_process').execFileSync('pnpm', ['build:dependencies'], { shell: process.platform === 'win32', stdio: 'inherit' })\"",
     "build:worker": "pnpm build:dependencies && pnpm preflight:cloudflare && opennextjs-cloudflare build && wrangler deploy --dry-run --outdir .open-next/dry-run",
     "cf-typegen": "rm -rf .open-next && wrangler types --env-interface CloudflareEnv --include-runtime false cloudflare-env.generated.d.ts",
     "cf-typegen:check": "rm -rf .open-next && wrangler types --env-interface CloudflareEnv --include-runtime false --check cloudflare-env.generated.d.ts",
@@ -13,6 +14,7 @@
     "deploy:hosted": "pnpm build:dependencies && pnpm preflight:cloudflare && opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "dev": "next dev",
     "lint": "eslint app lib next.config.ts open-next.config.ts",
+    "prebuild": "pnpm build:dependencies:workers",
     "preflight:cloudflare": "test -n \"$NEXT_PUBLIC_SUPABASE_URL\" && test -n \"$NEXT_PUBLIC_SUPABASE_ANON_KEY\"",
     "preview": "pnpm build:dependencies && pnpm preflight:cloudflare && opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "test": "vitest run --passWithNoTests",

@@ -33,6 +33,8 @@ import {
   normalizationDateCandidateSchema,
   sourceFactSchema,
   sourceFactSetSchema,
+  sourceEventSetSchema,
+  relayEventSchema,
   uncertainFactSchema,
 } from "../src/index.js";
 
@@ -541,6 +543,182 @@ describe("source fact contracts", () => {
         kind: "amount",
         certainty: "certain",
         value: "14.20",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("source event contracts", () => {
+  const identity = {
+    sourceItemId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+    normalizerVersion: 1,
+    extractorVersion: 1,
+    ordinal: 0,
+    provenance: [{ factOrdinal: 0, fields: [{ field: "attributes.reference" }] }],
+  } as const;
+
+  it.each([
+    {
+      kind: "task",
+      temporalStatus: "none",
+      timeZone: null,
+      confidence: 0.85,
+      requiresReview: false,
+    },
+    {
+      kind: "reminder",
+      temporalStatus: "resolved",
+      timeZone: "UTC",
+      dueAt: "2026-08-30T09:00:00.000000000Z",
+      confidence: 0.9,
+      requiresReview: false,
+    },
+    {
+      kind: "calendar-event",
+      temporalStatus: "resolved",
+      timeZone: "UTC",
+      startsAt: "2026-08-30T09:00:00.000000000Z",
+      endsAt: "2026-08-30T10:00:00.000000000Z",
+      confidence: 0.95,
+      requiresReview: false,
+    },
+    {
+      kind: "fact",
+      temporalStatus: "none",
+      timeZone: null,
+      confidence: 0.75,
+      requiresReview: true,
+    },
+  ] as const)("accepts a strict $kind event", (variant) => {
+    expect(
+      sourceEventSetSchema.safeParse({
+        schemaVersion: 1,
+        sourceItemId: identity.sourceItemId,
+        normalizerVersion: 1,
+        extractorVersion: 1,
+        events: [
+          { ...identity, ...variant, title: "Synthetic event", summary: "Bounded summary." },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("keeps ambiguous and low-confidence dates review-only without a guessed instant", () => {
+    const eventSet = {
+      schemaVersion: 1,
+      sourceItemId: identity.sourceItemId,
+      normalizerVersion: 1,
+      extractorVersion: 1,
+      events: [
+        {
+          ...identity,
+          kind: "reminder",
+          title: "Synthetic reminder",
+          summary: "Date needs review.",
+          confidence: 0.6,
+          requiresReview: true,
+          temporalStatus: "ambiguous",
+          timeZone: null,
+          dateAmbiguity: "invalid",
+        },
+      ],
+    } as const;
+
+    expect(sourceEventSetSchema.safeParse(eventSet).success).toBe(true);
+    expect(
+      sourceEventSetSchema.safeParse({
+        ...eventSet,
+        events: [{ ...eventSet.events[0], requiresReview: false }],
+      }).success,
+    ).toBe(false);
+    expect(
+      sourceEventSetSchema.safeParse({
+        ...eventSet,
+        events: [
+          {
+            ...eventSet.events[0],
+            timeZone: "UTC",
+            dueAt: "2026-08-30T09:00:00.000000000Z",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects offset event times, plaintext provenance, and changed set identity", () => {
+    const event = {
+      ...identity,
+      kind: "calendar-event",
+      title: "Synthetic appointment",
+      summary: "Synthetic location.",
+      confidence: 0.95,
+      requiresReview: false,
+      temporalStatus: "resolved",
+      timeZone: "UTC",
+      startsAt: "2026-08-30T10:00:00.000000000+01:00",
+    } as const;
+    const set = {
+      schemaVersion: 1,
+      sourceItemId: identity.sourceItemId,
+      normalizerVersion: 1,
+      extractorVersion: 1,
+      events: [event],
+    } as const;
+
+    expect(sourceEventSetSchema.safeParse(set).success).toBe(false);
+    expect(
+      sourceEventSetSchema.safeParse({
+        ...set,
+        events: [
+          {
+            ...event,
+            startsAt: "2026-08-30T09:00:00.000000000Z",
+            provenance: [
+              {
+                factOrdinal: 0,
+                fields: [{ field: "attributes.reference", snippet: "plaintext forbidden" }],
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      sourceEventSetSchema.safeParse({
+        ...set,
+        sourceItemId: "06f96f7d-3e1a-4a66-b98e-58be9766b96e",
+        events: [{ ...event, startsAt: "2026-08-30T09:00:00.000000000Z" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts dedicated event integrity dead-letter metadata", () => {
+    expect(deadLetterFailureCodeSchema.safeParse("event_integrity_conflict").success).toBe(true);
+  });
+
+  it("keeps pre-extractor event rows explicit without weakening canonical writes", () => {
+    expect(
+      relayEventSchema.safeParse({
+        id: "06f96f7d-3e1a-4a66-b98e-58be9766b96e",
+        sourceItemId: identity.sourceItemId,
+        kind: "fact",
+        title: "Legacy event",
+        summary: "",
+        confidence: 0.5,
+        provenance: {},
+      }).success,
+    ).toBe(true);
+    expect(
+      relayEventSchema.safeParse({
+        id: "06f96f7d-3e1a-4a66-b98e-58be9766b96e",
+        ...identity,
+        kind: "fact",
+        title: "Canonical event",
+        summary: "Canonical summary.",
+        confidence: 0.6,
+        requiresReview: false,
+        temporalStatus: "none",
+        timeZone: null,
       }).success,
     ).toBe(false);
   });

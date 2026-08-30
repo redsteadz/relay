@@ -242,6 +242,7 @@ export const deadLetterFailureCodeSchema = z.enum([
   "persistence_unavailable",
   "tenant_id_conflict",
   "fact_integrity_conflict",
+  "event_integrity_conflict",
   "persistence_response_invalid",
   "coordinator_unavailable",
   "retry_exhausted_unknown",
@@ -599,18 +600,223 @@ export const categorySchema = z
   .strict();
 export type Category = z.infer<typeof categorySchema>;
 
+export const EVENT_TITLE_MAX_LENGTH = 160;
+export const EVENT_SUMMARY_MAX_LENGTH = 280;
+export const EVENT_AUTOMATION_MIN_CONFIDENCE = 0.8;
+
 export const eventKindSchema = z.enum(["task", "reminder", "calendar-event", "fact"]);
-export const relayEventSchema = z.object({
-  id: canonicalUuidSchema,
+export type EventKind = z.infer<typeof eventKindSchema>;
+export const eventTemporalStatusSchema = z.enum(["none", "resolved", "ambiguous"]);
+export const eventDateAmbiguitySchema = z.enum(["invalid", "contradictory", "inconsistent-range"]);
+
+export const eventProvenanceSchema = z
+  .object({
+    factOrdinal: z.int().min(0).max(63),
+    fields: z.array(factProvenanceSchema).min(1).max(16),
+  })
+  .strict();
+export type EventProvenance = z.infer<typeof eventProvenanceSchema>;
+
+const sourceEventIdentityShape = {
   sourceItemId: canonicalUuidSchema,
-  kind: eventKindSchema,
-  title: z.string().min(1).max(512),
-  summary: z.string().max(4096),
-  startsAt: z.iso.datetime({ offset: true }).optional(),
-  dueAt: z.iso.datetime({ offset: true }).optional(),
-  confidence: z.number().min(0).max(1),
-  provenance: z.array(z.string().min(1)).min(1),
-});
+  normalizerVersion: postgresIntegerSchema,
+  extractorVersion: postgresIntegerSchema,
+  ordinal: z.int().min(0).max(15),
+  title: z
+    .string()
+    .min(1)
+    .max(EVENT_TITLE_MAX_LENGTH)
+    .refine((value) => value === value.trim(), "Event title must not have surrounding whitespace"),
+  summary: z
+    .string()
+    .min(1)
+    .max(EVENT_SUMMARY_MAX_LENGTH)
+    .refine(
+      (value) => value === value.trim(),
+      "Event summary must not have surrounding whitespace",
+    ),
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .refine(
+      (value) => Number.isInteger(value * 1000),
+      "Event confidence supports at most three decimal places",
+    ),
+  requiresReview: z.boolean(),
+  temporalStatus: eventTemporalStatusSchema,
+  timeZone: z.literal("UTC").nullable(),
+  startsAt: canonicalFactInstantSchema.optional(),
+  endsAt: canonicalFactInstantSchema.optional(),
+  dueAt: canonicalFactInstantSchema.optional(),
+  dateAmbiguity: eventDateAmbiguitySchema.optional(),
+  provenance: z.array(eventProvenanceSchema).min(1).max(16),
+};
+
+function validateEventTemporalShape(
+  value: {
+    kind: EventKind;
+    confidence: number;
+    requiresReview: boolean;
+    temporalStatus: z.infer<typeof eventTemporalStatusSchema>;
+    timeZone: "UTC" | null;
+    startsAt?: string | undefined;
+    endsAt?: string | undefined;
+    dueAt?: string | undefined;
+    dateAmbiguity?: z.infer<typeof eventDateAmbiguitySchema> | undefined;
+    provenance: EventProvenance[];
+  },
+  context: z.RefinementCtx,
+): void {
+  const hasTemporalValue =
+    value.startsAt !== undefined || value.endsAt !== undefined || value.dueAt !== undefined;
+  if (value.temporalStatus === "resolved") {
+    if (value.timeZone !== "UTC" || !hasTemporalValue || value.dateAmbiguity !== undefined) {
+      context.addIssue({ code: "custom", message: "Resolved event time must be explicit UTC" });
+    }
+  } else if (
+    value.timeZone !== null ||
+    hasTemporalValue ||
+    (value.temporalStatus === "ambiguous") !== (value.dateAmbiguity !== undefined)
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Unresolved event time cannot contain a guessed instant or time zone",
+    });
+  }
+
+  if (value.kind === "calendar-event") {
+    if (value.temporalStatus === "none") {
+      context.addIssue({ code: "custom", message: "Calendar event requires temporal evidence" });
+    } else if (
+      value.temporalStatus === "resolved" &&
+      (value.startsAt === undefined || value.dueAt !== undefined)
+    ) {
+      context.addIssue({ code: "custom", message: "Calendar event requires a start time" });
+    }
+  } else if (value.kind === "reminder") {
+    if (
+      value.temporalStatus === "none" ||
+      (value.temporalStatus === "resolved" &&
+        (value.dueAt === undefined || value.startsAt !== undefined || value.endsAt !== undefined))
+    ) {
+      context.addIssue({ code: "custom", message: "Reminder requires a due time" });
+    }
+  } else if (
+    value.kind === "task" &&
+    (value.startsAt !== undefined || value.endsAt !== undefined)
+  ) {
+    context.addIssue({ code: "custom", message: "Task cannot contain calendar times" });
+  } else if (value.kind === "fact" && value.temporalStatus === "resolved") {
+    context.addIssue({ code: "custom", message: "Fact cannot contain resolved action time" });
+  }
+  if (
+    value.startsAt !== undefined &&
+    value.endsAt !== undefined &&
+    value.endsAt <= value.startsAt
+  ) {
+    context.addIssue({ code: "custom", message: "Event end must follow start" });
+  }
+
+  const mustReview =
+    value.confidence < EVENT_AUTOMATION_MIN_CONFIDENCE || value.temporalStatus === "ambiguous";
+  if (value.requiresReview !== mustReview) {
+    context.addIssue({
+      code: "custom",
+      message: "Event review state must match confidence and time",
+    });
+  }
+
+  if (
+    new Set(value.provenance.map((entry) => entry.factOrdinal)).size !== value.provenance.length
+  ) {
+    context.addIssue({ code: "custom", message: "Event fact provenance must be unique" });
+  }
+}
+
+function sourceEventVariant(kind: EventKind) {
+  return z
+    .object({ ...sourceEventIdentityShape, kind: z.literal(kind) })
+    .strict()
+    .superRefine(validateEventTemporalShape);
+}
+
+export const taskEventSchema = sourceEventVariant("task");
+export const reminderEventSchema = sourceEventVariant("reminder");
+export const calendarEventSchema = sourceEventVariant("calendar-event");
+export const factEventSchema = sourceEventVariant("fact");
+export const sourceEventSchema = z.union([
+  taskEventSchema,
+  reminderEventSchema,
+  calendarEventSchema,
+  factEventSchema,
+]);
+export type SourceEvent = z.infer<typeof sourceEventSchema>;
+
+export const sourceEventSetSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    sourceItemId: canonicalUuidSchema,
+    normalizerVersion: postgresIntegerSchema,
+    extractorVersion: postgresIntegerSchema,
+    events: z.array(sourceEventSchema).min(1).max(16),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    value.events.forEach((event, index) => {
+      if (event.sourceItemId !== value.sourceItemId) {
+        context.addIssue({
+          code: "custom",
+          message: "Event source item must match its event set",
+          path: ["events", index, "sourceItemId"],
+        });
+      }
+      if (event.normalizerVersion !== value.normalizerVersion) {
+        context.addIssue({
+          code: "custom",
+          message: "Event normalizer version must match its event set",
+          path: ["events", index, "normalizerVersion"],
+        });
+      }
+      if (event.extractorVersion !== value.extractorVersion) {
+        context.addIssue({
+          code: "custom",
+          message: "Event extractor version must match its event set",
+          path: ["events", index, "extractorVersion"],
+        });
+      }
+      if (event.ordinal !== index) {
+        context.addIssue({
+          code: "custom",
+          message: "Event ordinals must be contiguous and ordered",
+          path: ["events", index, "ordinal"],
+        });
+      }
+    });
+  });
+export type SourceEventSet = z.infer<typeof sourceEventSetSchema>;
+
+export const canonicalRelayEventSchema = z
+  .object({ id: canonicalUuidSchema, ...sourceEventIdentityShape, kind: eventKindSchema })
+  .strict()
+  .superRefine(validateEventTemporalShape);
+
+// Rows created before versioned extraction have no extractor metadata and historically accepted
+// arbitrary JSON provenance. Keep them explicit so canonical writes cannot omit current invariants.
+export const legacyRelayEventSchema = z
+  .object({
+    id: canonicalUuidSchema,
+    sourceItemId: canonicalUuidSchema,
+    kind: eventKindSchema,
+    title: z.string().min(1).max(512),
+    summary: z.string().max(4096),
+    startsAt: z.iso.datetime({ offset: true }).optional(),
+    dueAt: z.iso.datetime({ offset: true }).optional(),
+    confidence: z.number().min(0).max(1),
+    provenance: z.json(),
+  })
+  .strict();
+export const relayEventSchema = z.union([canonicalRelayEventSchema, legacyRelayEventSchema]);
 export type RelayEvent = z.infer<typeof relayEventSchema>;
 
 export const filterFieldSchema = z.enum([

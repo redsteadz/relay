@@ -93,6 +93,13 @@ OpenAI receives only semantic-clause allowlisted fields after redaction. Relay s
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and
 cannot choose tools or action configuration.
 
+Event extraction consumes only validated typed facts. Event titles and summaries render only bounded
+amount/currency plus fixed presence/kind labels; they never copy free-text sender, merchant, location,
+subject, body, source snippets, or reference values. Provenance stores fact ordinals and validated field
+paths. Resolved times retain canonical UTC text, while ambiguous dates retain no guessed instant or
+zone. Low-confidence or ambiguous events stay tenant-visible with `requiresReview=true` and cannot
+authorize an automatic effect.
+
 ## User Controls
 
 Raw payload retention is fixed at seven days and is not user-configurable. A tenant can read how
