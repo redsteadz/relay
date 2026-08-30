@@ -9,8 +9,9 @@ export class SourcePersistenceError extends Error {
   constructor(
     readonly reason:
       "persistence_response_invalid" | "persistence_unavailable" | "tenant_id_conflict",
+    cause?: unknown,
   ) {
-    super("Source persistence failed");
+    super("Source persistence failed", cause === undefined ? undefined : { cause });
   }
 }
 
@@ -46,7 +47,12 @@ export async function parseSourcePersistenceResponse(
       response.status === 409 ? "tenant_id_conflict" : "persistence_unavailable",
     );
   }
-  const stored = await response.json<unknown>().catch(() => undefined);
+  let stored: unknown;
+  try {
+    stored = await response.json<unknown>();
+  } catch (error: unknown) {
+    throw new SourcePersistenceError("persistence_response_invalid", error);
+  }
   if (stored === true) return "stored";
   if (stored === false) return "duplicate";
   throw new SourcePersistenceError("persistence_response_invalid");
@@ -60,7 +66,12 @@ export async function parseSourcePersistenceV3Response(
       response.status === 409 ? "tenant_id_conflict" : "persistence_unavailable",
     );
   }
-  const stored = await response.json<unknown>().catch(() => undefined);
+  let stored: unknown;
+  try {
+    stored = await response.json<unknown>();
+  } catch (error: unknown) {
+    throw new SourcePersistenceError("persistence_response_invalid", error);
+  }
   if (
     stored === "stored" ||
     stored === "duplicate" ||

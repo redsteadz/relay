@@ -43,6 +43,7 @@ describe("POST /api/connectors/google-tasks/disconnect", () => {
       "638ce145-a77d-4c32-b798-cb398e881fc9",
       connectionId,
       env,
+      expect.any(String),
     );
     await expect(response.json()).resolves.toEqual({
       disconnected: true,

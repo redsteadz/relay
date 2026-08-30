@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 ---
 
 # Threat Model
@@ -21,6 +21,8 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Database disclosure                 | Envelope encryption, Cloudflare-held wrapping key, seven-day raw expiry  |
 | Wrapping-key loss or compromise     | Required: versioned keyring, data-key rewrap, recovery/incident runbooks |
 | Prompt injection from source        | Strict data boundary, schema output, fixed provider/rule allowlist       |
+| Filter compiler authority injection | Source-free strict requests, typed plan, no action/provider fields       |
+| Derived-content leakage             | Fact-only bounded events, path provenance, no body/reference copies      |
 | Queue replay                        | Source IDs, fingerprints, unique DB constraints, stable action IDs       |
 | Dead-letter operator overreach      | Dedicated secret, metadata-only API, backend-only RPCs, no decrypt route |
 | Retention resurrection by replay    | Authenticated original expiry, atomic claim, terminal ciphertext purge   |
@@ -34,8 +36,8 @@ filter intent, financial records, calendars/tasks, and action authority.
 ## Open Risks
 
 Gmail restricted-scope verification, Google API Limited Use review, SMS distribution approval,
-provider reconciliation details, abuse/rate limits, and account deletion completion need tracked
-implementation and release issues.
+provider reconciliation details, abuse/rate limits, and account-deletion fresh-auth, external receipt,
+post-delete verification, and provider-failure tradeoff need tracked release issues.
 
 One hosted runtime creates shared quota, deployment, backup, and operator blast radius. ADR-0007
 accepts that topology for current stage; tenant controls remain mandatory. Account enrollment remains

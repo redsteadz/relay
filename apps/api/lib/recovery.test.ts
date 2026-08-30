@@ -40,15 +40,15 @@ describe("recovery boundary", () => {
 
     await requestPipelineRecovery("/internal/recovery/dead-letters?limit=10");
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8787/internal/recovery/dead-letters?limit=10",
-      {
-        headers: {
-          "content-type": "application/json",
-          "x-relay-recovery-secret": "synthetic-recovery-secret",
-        },
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe("http://127.0.0.1:8787/internal/recovery/dead-letters?limit=10");
+    expect(init).toMatchObject({
+      headers: {
+        "content-type": "application/json",
+        "x-relay-recovery-secret": "synthetic-recovery-secret",
       },
-    );
+    });
+    expect(new Headers(init?.headers).get("x-relay-request-id")).toMatch(/^[0-9a-f-]+$/i);
     expect(openNext.getCloudflareContext).not.toHaveBeenCalled();
   });
 });

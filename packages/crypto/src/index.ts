@@ -69,8 +69,8 @@ export function parseKekKeyring(serialized: string): KekKeyring {
   let value: unknown;
   try {
     value = JSON.parse(serialized) as unknown;
-  } catch {
-    throw new Error(INVALID_KEYRING);
+  } catch (error: unknown) {
+    throw new Error(INVALID_KEYRING, { cause: error });
   }
 
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -110,8 +110,8 @@ export function parseKekKeyring(serialized: string): KekKeyring {
       uniqueKeys.add(canonicalKey);
       keys[version] = key;
     }
-  } catch {
-    throw new Error(INVALID_KEYRING);
+  } catch (error: unknown) {
+    throw new Error(INVALID_KEYRING, { cause: error });
   }
 
   const activeVersion = candidate.activeVersion;

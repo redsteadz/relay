@@ -212,7 +212,7 @@ describe("processIngressQueue", () => {
     const fetch = vi
       .fn()
       .mockRejectedValueOnce(new Error("synthetic decryption failure"))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      .mockResolvedValueOnce(Response.json({ accepted: true, reason: "persisted" }));
     const env = {
       TENANT_COORDINATOR: { getByName: vi.fn(() => ({ fetch })) },
     } as unknown as Env;

@@ -1,8 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { canonicalUuidSchema, encryptedValueSchema } from "@relay/contracts";
 import { decryptValue, encryptValue, parseKekKeyring } from "@relay/crypto";
 
 import type { Database } from "../../../supabase/database.generated";
+import { AppError, categoryForHttpStatus } from "@relay/observability";
+import { databaseError } from "./observability";
 
 // Minimum scopes required for Gmail History/message retrieval.
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
@@ -10,10 +13,11 @@ const OAUTH_COOKIE_NAME = "relay_gmail_oauth";
 const OAUTH_COOKIE_MAX_AGE_SECONDS = 600;
 const GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
-const GOOGLE_USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo";
-const GOOGLE_REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
+const GOOGLE_PROFILE_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/profile";
+const OAUTH_COOKIE_CONTEXT = "oauth:gmail:cookie:v1";
+const MAX_OAUTH_RESPONSE_BYTES = 32_768;
 
-type GmailEnv = {
+export type GmailEnv = {
   googleClientId: string;
   googleClientSecret: string;
   kekKeyring: string;
@@ -21,6 +25,23 @@ type GmailEnv = {
   supabaseServiceRoleKey: string;
   relayEnvironment: string;
 };
+
+export class DuplicateGmailConnectionError extends Error {
+  constructor() {
+    super("Gmail connection already exists");
+  }
+}
+
+function googleHttpError(response: Response, code: string, operation: string): AppError {
+  return new AppError("Google operation failed", {
+    category: categoryForHttpStatus(response.status),
+    cause: new Error(`Google returned status ${response.status.toString()}`),
+    code,
+    integration: "google-gmail",
+    operation,
+    statusCode: response.status,
+  });
+}
 
 export function loadGmailEnv(): GmailEnv | null {
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
@@ -66,6 +87,16 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+function base64UrlToBytes(value: string): Uint8Array {
+  if (!/^[A-Za-z0-9_-]+$/u.test(value)) throw new Error("OAuth cookie is invalid");
+  const padded = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
 export function generateCodeVerifier(): string {
   return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 }
@@ -90,60 +121,93 @@ type OAuthCookiePayload = {
   expiresAt: number;
 };
 
-export function buildOAuthCookie(state: string, codeVerifier: string, userId: string): string {
+export async function buildOAuthCookie(
+  state: string,
+  codeVerifier: string,
+  userId: string,
+  env: GmailEnv,
+): Promise<string> {
   const payload: OAuthCookiePayload = {
     state,
     codeVerifier,
     userId,
     expiresAt: Date.now() + OAUTH_COOKIE_MAX_AGE_SECONDS * 1000,
   };
-  const encoded = btoa(JSON.stringify(payload));
-  const isProduction = process.env.NODE_ENV === "production";
+  const encrypted = await encryptValue(
+    JSON.stringify(payload),
+    parseKekKeyring(env.kekKeyring),
+    OAUTH_COOKIE_CONTEXT,
+  );
+  const encoded = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(encrypted)));
   const parts = [
     `${OAUTH_COOKIE_NAME}=${encoded}`,
     "HttpOnly",
     "Path=/api/connectors/gmail",
     `Max-Age=${OAUTH_COOKIE_MAX_AGE_SECONDS.toString()}`,
     `SameSite=Lax`,
+    "Secure",
   ];
-  if (isProduction) parts.push("Secure");
   return parts.join("; ");
 }
 
-export function parseOAuthCookie(request: Request): OAuthCookiePayload | null {
+export async function parseOAuthCookie(
+  request: Request,
+  env: GmailEnv,
+): Promise<OAuthCookiePayload | null> {
   const cookieHeader = request.headers.get("cookie");
   if (cookieHeader === null) return null;
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${OAUTH_COOKIE_NAME}=([^;]+)`));
   if (match === null || match[1] === undefined) return null;
   try {
-    const payload = JSON.parse(atob(match[1])) as unknown;
+    const encryptedCandidate = JSON.parse(
+      new TextDecoder().decode(base64UrlToBytes(match[1])),
+    ) as unknown;
+    const encrypted = encryptedValueSchema.parse(encryptedCandidate);
+    const payload = JSON.parse(
+      await decryptValue(encrypted, parseKekKeyring(env.kekKeyring), OAUTH_COOKIE_CONTEXT),
+    ) as unknown;
     if (typeof payload !== "object" || payload === null) return null;
     const candidate = payload as Record<string, unknown>;
+    const parsedUserId = canonicalUuidSchema.safeParse(candidate.userId);
     if (
+      Object.keys(candidate).length !== 4 ||
       typeof candidate.state !== "string" ||
+      !/^[A-Za-z0-9_-]{43,128}$/u.test(candidate.state) ||
       typeof candidate.codeVerifier !== "string" ||
+      !/^[A-Za-z0-9_-]{43,128}$/u.test(candidate.codeVerifier) ||
       typeof candidate.userId !== "string" ||
-      typeof candidate.expiresAt !== "number"
+      !parsedUserId.success ||
+      typeof candidate.expiresAt !== "number" ||
+      !Number.isSafeInteger(candidate.expiresAt)
     ) {
       return null;
     }
-    if (candidate.expiresAt < Date.now()) return null;
-    return candidate as OAuthCookiePayload;
+    if (
+      candidate.expiresAt <= Date.now() ||
+      candidate.expiresAt > Date.now() + OAUTH_COOKIE_MAX_AGE_SECONDS * 1000
+    ) {
+      return null;
+    }
+    return {
+      state: candidate.state,
+      codeVerifier: candidate.codeVerifier,
+      userId: parsedUserId.data,
+      expiresAt: candidate.expiresAt,
+    };
   } catch {
     return null;
   }
 }
 
 export function clearOAuthCookie(): string {
-  const isProduction = process.env.NODE_ENV === "production";
   const parts = [
     `${OAUTH_COOKIE_NAME}=`,
     "HttpOnly",
     "Path=/api/connectors/gmail",
     "Max-Age=0",
     "SameSite=Lax",
+    "Secure",
   ];
-  if (isProduction) parts.push("Secure");
   return parts.join("; ");
 }
 
@@ -188,6 +252,38 @@ type TokenResponse = {
   scope: string;
 };
 
+async function readBoundedJson(response: Response, maximumBytes: number): Promise<unknown> {
+  const contentLength = response.headers.get("content-length");
+  if (
+    contentLength !== null &&
+    (!/^\d+$/u.test(contentLength) || Number(contentLength) > maximumBytes)
+  ) {
+    throw new Error("Provider response is invalid");
+  }
+  if (response.body === null) throw new Error("Provider response is invalid");
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  while (true) {
+    const next = await reader.read();
+    if (next.done) break;
+    bytes += next.value.byteLength;
+    if (bytes > maximumBytes) {
+      await reader.cancel();
+      throw new Error("Provider response is invalid");
+    }
+    chunks.push(next.value);
+  }
+  const combined = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(combined)) as unknown;
+}
+
 export async function exchangeCodeForTokens(
   code: string,
   codeVerifier: string,
@@ -208,10 +304,19 @@ export async function exchangeCodeForTokens(
   });
 
   if (!response.ok) {
-    throw new Error("Token exchange failed");
+    throw googleHttpError(response, "GMAIL_TOKEN_EXCHANGE_FAILED", "exchangeCodeForTokens");
   }
 
-  const data = (await response.json()) as Record<string, unknown>;
+  const candidate = await readBoundedJson(response, MAX_OAUTH_RESPONSE_BYTES);
+  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+    throw new AppError("Gmail token response was malformed", {
+      category: "malformed-response",
+      code: "GMAIL_TOKEN_RESPONSE_INVALID",
+      integration: "google-gmail",
+      operation: "exchangeCodeForTokens",
+    });
+  }
+  const data = candidate as Record<string, unknown>;
   const accessToken = data.access_token;
   const refreshToken = data.refresh_token;
   const expiresIn = data.expires_in;
@@ -219,11 +324,25 @@ export async function exchangeCodeForTokens(
 
   if (
     typeof accessToken !== "string" ||
+    accessToken.length === 0 ||
+    accessToken.length > 8192 ||
     typeof refreshToken !== "string" ||
+    refreshToken.length === 0 ||
+    refreshToken.length > 8192 ||
     typeof expiresIn !== "number" ||
-    typeof scope !== "string"
+    !Number.isSafeInteger(expiresIn) ||
+    expiresIn < 1 ||
+    expiresIn > 86_400 ||
+    typeof scope !== "string" ||
+    scope.length === 0 ||
+    scope.length > 8192
   ) {
-    throw new Error("Token exchange returned invalid response");
+    throw new AppError("Gmail token response was malformed", {
+      category: "malformed-response",
+      code: "GMAIL_TOKEN_RESPONSE_INVALID",
+      integration: "google-gmail",
+      operation: "exchangeCodeForTokens",
+    });
   }
 
   return { accessToken, refreshToken, expiresIn, scope };
@@ -234,20 +353,41 @@ export async function exchangeCodeForTokens(
 // ---------------------------------------------------------------------------
 
 export async function fetchGmailAddress(accessToken: string): Promise<string> {
-  const response = await fetch(GOOGLE_USERINFO_ENDPOINT, {
+  const response = await fetch(GOOGLE_PROFILE_ENDPOINT, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
 
   if (!response.ok) {
-    throw new Error("Failed to retrieve Gmail address");
+    throw googleHttpError(response, "GMAIL_PROFILE_REQUEST_FAILED", "fetchGmailAddress");
   }
 
-  const data = (await response.json()) as Record<string, unknown>;
-  if (typeof data.email !== "string" || data.email.length === 0) {
+  const candidate = await readBoundedJson(response, MAX_OAUTH_RESPONSE_BYTES);
+  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+    throw new Error("Gmail address unavailable");
+  }
+  const data = candidate as Record<string, unknown>;
+  if (typeof data.emailAddress !== "string") {
     throw new Error("Gmail address unavailable");
   }
 
-  return data.email;
+  return normalizeGmailMailbox(data.emailAddress);
+}
+
+export function normalizeGmailMailbox(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  const hasForbiddenCharacter = [...normalized].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return /\s/u.test(character) || codePoint <= 31 || codePoint === 127;
+  });
+  if (
+    normalized.length < 3 ||
+    normalized.length > 320 ||
+    !normalized.includes("@") ||
+    hasForbiddenCharacter
+  ) {
+    throw new Error("Gmail address unavailable");
+  }
+  return normalized;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,18 +401,6 @@ function base64ToPostgresBytea(value: string): string {
     hex += binary.charCodeAt(index).toString(16).padStart(2, "0");
   }
   return `\\x${hex}`;
-}
-
-function postgresByteaToBase64(value: unknown): string {
-  if (typeof value !== "string" || !/^\\x(?:[0-9a-f]{2})+$/iu.test(value)) {
-    throw new Error("Encrypted database value is invalid");
-  }
-  const hex = value.slice(2);
-  let binary = "";
-  for (let index = 0; index < hex.length; index += 2) {
-    binary += String.fromCharCode(Number.parseInt(hex.slice(index, index + 2), 16));
-  }
-  return btoa(binary);
 }
 
 function connectionCredentialContext(userId: string, connectionId: string): string {
@@ -293,116 +421,33 @@ export async function persistConnection(
   const encrypted = await encryptValue(refreshToken, keyring, context);
 
   const supabase = serviceClient(env);
-  const { data, error } = await supabase
-    .from("connections")
-    .insert({
-      id: connectionId,
-      user_id: userId,
-      provider: "gmail",
-      external_account_id: email,
-      credential_ciphertext: base64ToPostgresBytea(encrypted.ciphertext),
-      credential_nonce: base64ToPostgresBytea(encrypted.nonce),
-      wrapped_data_key: base64ToPostgresBytea(encrypted.wrappedKey),
-      wrap_nonce: base64ToPostgresBytea(encrypted.wrapNonce),
-      key_version: encrypted.keyVersion,
-      encryption_environment: env.relayEnvironment,
-      scopes: grantedScopes,
-      status: "active",
-    })
-    .select("id")
-    .single();
+  const normalizedEmail = normalizeGmailMailbox(email);
+  const { data, error } = await supabase.rpc("create_gmail_connection_v1", {
+    p_id: connectionId,
+    p_user_id: userId,
+    p_normalized_email: normalizedEmail,
+    p_credential_ciphertext: base64ToPostgresBytea(encrypted.ciphertext),
+    p_credential_nonce: base64ToPostgresBytea(encrypted.nonce),
+    p_wrapped_data_key: base64ToPostgresBytea(encrypted.wrappedKey),
+    p_wrap_nonce: base64ToPostgresBytea(encrypted.wrapNonce),
+    p_key_version: encrypted.keyVersion,
+    p_encryption_environment: env.relayEnvironment,
+    p_scopes: grantedScopes,
+  });
 
   if (error !== null) {
     if (error.code === "23505") {
-      throw new Error("Gmail account is already connected");
+      throw new DuplicateGmailConnectionError();
     }
-    throw new Error("Failed to persist connection");
+    throw databaseError(error, "GMAIL_CONNECTION_STORE_FAILED", "persistConnection");
   }
-  if (data === null) throw new Error("Failed to persist connection");
-  return { id: data.id };
-}
-
-// ---------------------------------------------------------------------------
-// Disconnect
-// ---------------------------------------------------------------------------
-
-export async function revokeGoogleToken(token: string): Promise<boolean> {
-  try {
-    const response = await fetch(GOOGLE_REVOKE_ENDPOINT, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token }),
-    });
-    return response.ok;
-  } catch {
-    // Revocation is best-effort; we still delete the local credential.
-    return false;
+  const persistedId = canonicalUuidSchema.safeParse(data);
+  if (!persistedId.success || persistedId.data !== connectionId) {
+    throw databaseError(
+      persistedId.error,
+      "GMAIL_CONNECTION_RESPONSE_INVALID",
+      "persistConnection",
+    );
   }
-}
-
-export async function disconnectGmail(
-  userId: string,
-  connectionId: string,
-  env: GmailEnv,
-): Promise<{ deleted: boolean; revoked: boolean }> {
-  const supabase = serviceClient(env);
-
-  // Retrieve encrypted credential for revocation.
-  const { data: row } = await supabase
-    .from("connections")
-    .select(
-      "credential_ciphertext, credential_nonce, wrapped_data_key, wrap_nonce, key_version, provider",
-    )
-    .eq("id", connectionId)
-    .eq("user_id", userId)
-    .eq("provider", "gmail")
-    .single();
-
-  let revoked = false;
-
-  if (row !== null) {
-    try {
-      const keyring = parseKekKeyring(env.kekKeyring);
-      const context = connectionCredentialContext(userId, connectionId);
-      const refreshToken = await decryptValue(
-        {
-          algorithm: "AES-GCM-256",
-          ciphertext: postgresByteaToBase64(row.credential_ciphertext),
-          nonce: postgresByteaToBase64(row.credential_nonce),
-          wrappedKey: postgresByteaToBase64(row.wrapped_data_key),
-          wrapNonce: postgresByteaToBase64(row.wrap_nonce),
-          keyVersion: row.key_version,
-        },
-        keyring,
-        context,
-      );
-      revoked = await revokeGoogleToken(refreshToken);
-    } catch {
-      // Revocation failure must not prevent credential deletion.
-    }
-  }
-
-  const { error } = await supabase
-    .from("connections")
-    .delete()
-    .eq("id", connectionId)
-    .eq("user_id", userId)
-    .eq("provider", "gmail");
-
-  const deleted = error === null;
-
-  // Audit log entry for disconnect.
-  if (deleted) {
-    await supabase.from("audit_log").insert({
-      user_id: userId,
-      actor_type: "user",
-      actor_id: userId,
-      action: "connector.disconnected",
-      target_type: "connection",
-      target_id: connectionId,
-      metadata: { provider: "gmail", revoked },
-    });
-  }
-
-  return { deleted, revoked };
+  return { id: persistedId.data };
 }

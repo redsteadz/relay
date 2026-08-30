@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SourceSelectorScreen } from "@/features/device-capture/components/selector/SourceSelectorScreen";
 import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
 import { useTransactionalSelection } from "@/features/device-capture/hooks/useTransactionalSelection";
+import { logMobileError } from "@/lib/observability";
 import { isValidSmsSenderAllowlist, normalizeSmsSender } from "@/lib/sms-capture";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 
@@ -47,7 +48,12 @@ export default function SmsContactSelectorScreen() {
       }
       selection.add(sender);
       setLabels((current) => ({ ...current, [sender]: choice.label }));
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.contact_picker_failed", error, {
+        code: "CONTACT_PICKER_FAILED",
+        integration: "relay-device-ingress",
+        operation: "pickSmsContact",
+      });
       setError("Could not open the Android contact picker.");
     } finally {
       setPicking(false);
@@ -73,7 +79,12 @@ export default function SmsContactSelectorScreen() {
       );
       selection.confirm();
       router.back();
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.sms_controls_save_failed", error, {
+        code: "SMS_CONTROLS_SAVE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "saveSmsControls",
+      });
       setError("Could not save the SMS contact allowlist.");
     } finally {
       setSaving(false);

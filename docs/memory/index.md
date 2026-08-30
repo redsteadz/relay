@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 ---
 
 # Relay Memory Index
@@ -23,6 +23,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 ## Security
 
 - [Privacy and data lifecycle](../security/privacy.md)
+- [Error handling and observability](observability.md)
 - [Threat model](../security/threat-model.md)
 - [Secret provisioning and KEK rotation](../security/key-rotation.md)
 
@@ -46,6 +47,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0007: Shared hosted runtime](../decisions/0007-shared-hosted-runtime.md)
 - [ADR-0008: Mobile styling and components](../decisions/0008-mobile-styling-and-components.md)
 - [ADR-0009: Local Android capture diagnostics](../decisions/0009-local-android-capture-diagnostics.md)
+- [ADR-0010: Fact-only event extraction](../decisions/0010-fact-only-event-extraction.md)
 
 ## Delivery
 

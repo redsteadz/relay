@@ -21,10 +21,12 @@ import { FeedbackState, LoadingState } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import {
   canEnterApp,
+  canEnterSignIn,
   localDevelopmentAccessEnabled,
   notificationCaptureMode,
 } from "@/lib/development-access";
 import { syncDeviceCaptures } from "@/lib/device-capture-sync";
+import { logMobileError, runInBackground } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { RelayThemeProvider, useRelayTheme } from "@/theme";
 
@@ -71,7 +73,12 @@ function AuthenticatedStack() {
         generation,
       );
       if (active) setPreparedStateKey(captureMode.stateKey);
-    })().catch(() => {
+    })().catch((error: unknown) => {
+      logMobileError("background.capture_state_preparation_failed", error, {
+        code: "CAPTURE_STATE_PREPARATION_FAILED",
+        integration: "relay-device-ingress",
+        operation: "prepareNotificationCaptureState",
+      });
       if (active) setPreparationFailed(true);
     });
     return () => {
@@ -108,7 +115,7 @@ function AuthenticatedStack() {
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />
         </Stack.Protected>
-        <Stack.Protected guard={!appAccessAllowed}>
+        <Stack.Protected guard={canEnterSignIn(session !== null)}>
           <Stack.Screen name="sign-in" />
         </Stack.Protected>
         <Stack.Protected guard={session === null}>
@@ -124,7 +131,12 @@ function DeviceCaptureSync() {
 
   useEffect(() => {
     if (session === null) return;
-    const sync = () => void syncDeviceCaptures(session).catch(() => undefined);
+    const sync = () =>
+      runInBackground(syncDeviceCaptures(session), "background.device_capture_sync_failed", {
+        code: "DEVICE_CAPTURE_SYNC_FAILED",
+        integration: "relay-device-ingress",
+        operation: "syncDeviceCaptures",
+      });
     sync();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") sync();

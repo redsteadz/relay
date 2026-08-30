@@ -1,6 +1,7 @@
 import { privacyDisclosuresResponseSchema } from "@relay/contracts";
 
 import { authenticateRequest } from "../../../../lib/auth";
+import { loggedErrorResponse } from "../../../../lib/observability";
 import { listDisclosures, loadPrivacyEnv } from "../../../../lib/privacy";
 
 export async function GET(request: Request) {
@@ -29,10 +30,20 @@ export async function GET(request: Request) {
         disclosures: await listDisclosures(auth.userId, env, Number(rawLimit)),
       }),
     );
-  } catch {
-    return Response.json(
-      { error: { code: "disclosures_unavailable", message: "Disclosure history unavailable" } },
-      { status: 503 },
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "PRIVACY_DISCLOSURES_FAILED",
+        event: "privacy.disclosures_failed",
+        integration: "supabase",
+        operation: "listDisclosures",
+      },
+      Response.json(
+        { error: { code: "disclosures_unavailable", message: "Disclosure history unavailable" } },
+        { status: 503 },
+      ),
     );
   }
 }

@@ -5,6 +5,7 @@ import { AppState, Platform } from "react-native";
 
 import { useAuth } from "@/lib/auth-context";
 import { localDevelopmentAccessEnabled, notificationCaptureMode } from "@/lib/development-access";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress, { type DeviceCapabilities } from "@/modules/relay-device-ingress";
 
 type ScopedCapabilities = {
@@ -39,7 +40,12 @@ export function useDeviceCaptureCapabilities() {
       if (request === requestRef.current) {
         setScopedCapabilities({ capabilities: nextCapabilities, stateKey: mode.stateKey });
       }
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.capabilities_refresh_failed", error, {
+        code: "CAPTURE_CAPABILITIES_REFRESH_FAILED",
+        integration: "relay-device-ingress",
+        operation: "getCapabilities",
+      });
       if (request === requestRef.current) {
         setScopedCapabilities(undefined);
         setError("Could not read source permissions and capture settings.");

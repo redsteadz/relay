@@ -8,6 +8,7 @@ import {
   EditorialSurface,
   StatusMessage,
 } from "@/components/ui";
+import { reportUnexpectedUiError } from "@/lib/observability";
 
 import { formatPrivacyDate, privacyErrorMessage } from "../models/privacyPresentation";
 
@@ -36,7 +37,12 @@ export function RetentionPanel({
       const response = (await onPurge()) as { purgedCount: number };
       setPurgedCount(response.purgedCount);
       setConfirming(false);
-    } catch {
+    } catch (error: unknown) {
+      reportUnexpectedUiError(error, "ui.privacy_raw_purge_failed", {
+        code: "PRIVACY_RAW_PURGE_FAILED",
+        integration: "relay-api",
+        operation: "purgeRawPayloads",
+      });
       setConfirming(false);
     }
   }
@@ -74,7 +80,15 @@ export function RetentionPanel({
           <StatusMessage tone="error">{privacyErrorMessage(error)}</StatusMessage>
           <AppButton
             label="Retry retention status"
-            onPress={() => void onRetry()}
+            onPress={() =>
+              void onRetry().catch((error: unknown) =>
+                reportUnexpectedUiError(error, "ui.privacy_retention_retry_failed", {
+                  code: "PRIVACY_RETENTION_RETRY_FAILED",
+                  integration: "relay-api",
+                  operation: "retryRetentionStatus",
+                }),
+              )
+            }
             tone="secondary"
           />
         </>

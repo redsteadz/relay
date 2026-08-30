@@ -66,6 +66,29 @@ describe("POST /api/ingest", () => {
     expect(publishIngress).not.toHaveBeenCalled();
   });
 
+  it("rejects reserved Gmail source before generic Queue publication", async () => {
+    const response = await POST(
+      new Request("https://relay.test/api/ingest", {
+        method: "POST",
+        body: JSON.stringify({
+          ...requestBody,
+          envelope: {
+            ...envelope,
+            source: {
+              kind: "gmail",
+              externalId: "synthetic-message",
+              accountId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(authorizeDeviceIngress).not.toHaveBeenCalled();
+    expect(publishIngress).not.toHaveBeenCalled();
+  });
+
   it("returns an explicit durable acknowledgement after Queue publication", async () => {
     vi.mocked(publishIngress).mockResolvedValue(Response.json({ accepted: true }, { status: 202 }));
     const response = await POST(

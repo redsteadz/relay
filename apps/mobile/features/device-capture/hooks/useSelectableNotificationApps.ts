@@ -1,6 +1,7 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress, { type SelectableNotificationApp } from "@/modules/relay-device-ingress";
 
 export function useSelectableNotificationApps(enabled: boolean) {
@@ -14,7 +15,12 @@ export function useSelectableNotificationApps(enabled: boolean) {
     setError(undefined);
     try {
       setApps(await RelayDeviceIngress.getSelectableNotificationApps());
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.notification_apps_load_failed", error, {
+        code: "NOTIFICATION_APPS_LOAD_FAILED",
+        integration: "relay-device-ingress",
+        operation: "getSelectableNotificationApps",
+      });
       setApps([]);
       setError("Could not load launchable apps.");
     } finally {

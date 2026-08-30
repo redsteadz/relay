@@ -2,6 +2,7 @@ import { deviceMutationRequestSchema } from "@relay/contracts";
 
 import { authenticateRequest } from "../../../../lib/auth";
 import { DeviceUnavailableError, revokeDevice } from "../../../../lib/devices";
+import { loggedErrorResponse } from "../../../../lib/observability";
 
 export async function POST(request: Request) {
   const auth = await authenticateRequest(request);
@@ -16,9 +17,22 @@ export async function POST(request: Request) {
     return new Response(null, { status: 204 });
   } catch (error) {
     const unavailable = error instanceof DeviceUnavailableError;
-    return Response.json(
+    const response = Response.json(
       { error: { code: unavailable ? "device_unavailable" : "device_revocation_unavailable" } },
       { status: unavailable ? 404 : 503 },
     );
+    return unavailable
+      ? response
+      : loggedErrorResponse(
+          request,
+          error,
+          {
+            code: "DEVICE_REVOCATION_FAILED",
+            event: "device.revocation_failed",
+            integration: "supabase",
+            operation: "revokeDevice",
+          },
+          response,
+        );
   }
 }

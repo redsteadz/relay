@@ -7,6 +7,7 @@ import {
   generateState,
   loadGoogleTasksEnv,
 } from "../../../../../lib/google-tasks";
+import { loggedErrorResponse } from "../../../../../lib/observability";
 
 export async function GET(request: Request) {
   const env = loadGoogleTasksEnv();
@@ -25,18 +26,40 @@ export async function GET(request: Request) {
   const auth = await authenticateRequest(request);
   if ("error" in auth) return auth.error;
 
-  const state = generateState();
-  const codeVerifier = generateCodeVerifier();
-  const redirectUri = buildCallbackUrl(request);
-  const googleUrl = await buildGoogleAuthUrl(env.googleClientId, redirectUri, state, codeVerifier);
-  const cookie = buildOAuthCookie(state, codeVerifier, auth.userId);
+  try {
+    const state = generateState();
+    const codeVerifier = generateCodeVerifier();
+    const redirectUri = buildCallbackUrl(request);
+    const googleUrl = await buildGoogleAuthUrl(
+      env.googleClientId,
+      redirectUri,
+      state,
+      codeVerifier,
+    );
+    const cookie = buildOAuthCookie(state, codeVerifier, auth.userId);
 
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: googleUrl,
-      "set-cookie": cookie,
-      "cache-control": "no-store",
-    },
-  });
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: googleUrl,
+        "set-cookie": cookie,
+        "cache-control": "no-store",
+      },
+    });
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "GOOGLE_TASKS_AUTHORIZATION_START_FAILED",
+        event: "connector.authorization_start_failed",
+        integration: "google-tasks",
+        operation: "buildGoogleAuthUrl",
+      },
+      Response.json(
+        { error: { code: "google_tasks_unavailable", message: "Google Tasks is unavailable" } },
+        { status: 503 },
+      ),
+    );
+  }
 }

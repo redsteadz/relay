@@ -9,6 +9,7 @@ import {
   isValidNotificationAllowlist,
   normalizeNotificationAppChoices,
 } from "@/lib/notification-capture";
+import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 
 export default function NotificationAppSelectorScreen() {
@@ -68,7 +69,12 @@ export default function NotificationAppSelectorScreen() {
       );
       selection.confirm();
       router.back();
-    } catch {
+    } catch (error: unknown) {
+      logMobileError("capture.notification_controls_save_failed", error, {
+        code: "NOTIFICATION_CONTROLS_SAVE_FAILED",
+        integration: "relay-device-ingress",
+        operation: "saveNotificationControls",
+      });
       setSaveError("Could not save the notification app allowlist.");
     } finally {
       setSaving(false);

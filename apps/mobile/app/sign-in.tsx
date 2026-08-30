@@ -5,19 +5,24 @@ import { StyleSheet } from "react-native";
 import { AppScreen } from "@/components/AppScreen";
 import { AppButton, AppText, AppTextInput, EditorialSurface, StatusMessage } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
+import { reportUnexpectedUiError } from "@/lib/observability";
 
 export default function SignInScreen() {
   const { reason } = useLocalSearchParams<{ reason?: string }>();
   const { configurationError, requestMagicLink } = useAuth();
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
-  const [statusTone, setStatusTone] = useState<"error" | "success">("error");
+  const [statusTone, setStatusTone] = useState<"error" | "info" | "success">(
+    reason === "settings" && !configurationError ? "info" : "error",
+  );
   const [status, setStatus] = useState(
-    reason === "invalid-link"
-      ? "This sign-in link is invalid or expired. Request a new link."
-      : configurationError
-        ? "Supabase public configuration is unavailable."
-        : "",
+    configurationError
+      ? "Supabase public configuration is unavailable."
+      : reason === "invalid-link"
+        ? "This sign-in link is invalid or expired. Request a new link."
+        : reason === "settings"
+          ? "Sign in to manage categories and privacy controls from Settings."
+          : "",
   );
 
   async function submit() {
@@ -33,7 +38,12 @@ export default function SignInScreen() {
       await requestMagicLink(candidate);
       setStatusTone("success");
       setStatus("Check your email. The link returns only to Relay.");
-    } catch {
+    } catch (error: unknown) {
+      reportUnexpectedUiError(error, "ui.magic_link_request_failed", {
+        code: "AUTH_MAGIC_LINK_UI_FAILED",
+        integration: "supabase-auth",
+        operation: "requestMagicLink",
+      });
       setStatusTone("error");
       setStatus("Could not request a sign-in link.");
     } finally {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildCallbackUrl,
+  DuplicateGoogleTasksConnectionError,
   exchangeCodeForTokens,
   loadGoogleTasksEnv,
   parseOAuthCookie,
@@ -11,6 +12,7 @@ import { GET } from "./route";
 
 vi.mock("../../../../../lib/google-tasks", () => ({
   buildCallbackUrl: vi.fn(),
+  DuplicateGoogleTasksConnectionError: class DuplicateGoogleTasksConnectionError extends Error {},
   clearOAuthCookie: vi.fn(() => "relay_google_tasks_oauth=; Max-Age=0"),
   exchangeCodeForTokens: vi.fn(),
   loadGoogleTasksEnv: vi.fn(),
@@ -95,7 +97,7 @@ describe("GET /api/connectors/google-tasks/callback", () => {
       expiresIn: 3600,
       scope: "https://www.googleapis.com/auth/tasks",
     });
-    vi.mocked(persistConnection).mockRejectedValue(new Error("Google Tasks is already connected"));
+    vi.mocked(persistConnection).mockRejectedValue(new DuplicateGoogleTasksConnectionError());
 
     const response = await GET(callbackRequest("?code=abc&state=synthetic-state"));
     expect(response.status).toBe(409);

@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 ---
 
 # Data Flow
@@ -10,13 +10,26 @@ last_verified: 2026-08-29
 source -> authenticated ingress -> canonical envelope -> envelope encryption -> Queue
       -> tenant coordinator -> decrypt in memory -> source identity/content fingerprint dedupe
       -> provider-neutral normalization -> durable encrypted source record + typed facts
-      -> categorization -> event extraction
+      -> event extraction -> categorization
       -> deterministic filter -> optional redacted semantic decision
       -> action proposal (provider dispatch remains disabled until issue #35)
 
 Queue retry exhaustion -> dead-letter Queue -> ciphertext-only dead-letter ledger
 operator recovery credential -> metadata inspection -> atomic replay claim -> original Queue
 ```
+
+Gmail adds authenticated cursor stage before canonical ingress:
+
+```text
+Google Pub/Sub -> API JWT verification -> bounded/validated cursor -> private Pipeline binding
+  -> exact active mailbox ownership -> gmail:<connection-id> Durable Object pending cursor
+  -> encrypted credential decrypt in memory -> Gmail History/message retrieval
+  -> deterministic bounded Gmail envelope -> provider-authenticated encrypted ingress -> Queue
+```
+
+API performs only authenticated OAuth callback protocol exchanges and mailbox-profile verification.
+After connector creation, Pipeline exclusively owns watch, History, message, stop, token revocation,
+ordering, retry, and reconciliation work.
 
 ## Delivery Semantics
 
@@ -26,18 +39,61 @@ payloads with different delivery IDs. One Durable Object instance per tenant exp
 decryption, deduplication, and persistence. Supabase unique constraints remain final durable
 arbitration through `persist_encrypted_source_item_v3`; its fixed result reports stored, duplicate,
 fact-integrity conflict, or tenant conflict without reflecting database details.
+Gmail source rows use connection-bound `persist_encrypted_source_item_v4`, which retains v3 conflict
+semantics while requiring active matching Gmail `(user_id, connection_id)` and writing
+`source_items.connection_id`. Non-Gmail ingress remains on v3 during rolling deployment.
+
+Gmail Pub/Sub cursor acknowledgement has separate durable boundary. Pipeline resolves normalized
+mailbox to exactly one active connection, or acknowledges one unexpired disconnect tombstone without
+routing work. Unique active ownership takes precedence over an old tombstone after reconnect. Active routing then uses
+`gmail:<connection-id>` Durable Object, which atomically stores
+identity and highest pending decimal History ID before returning success. IDs remain strings and are
+compared with `BigInt`, never `Number`. Alarm retries reload Supabase cursor and encrypted credential,
+so eviction loses no correctness state. Durable continuation limits an alarm to one History page or
+ten message fetch/publications, records successful message progress, removes seen/chunk/page markers as
+each page drains, and keeps newer pushes separate
+from immutable active start/target cursors. Changed message IDs are deduplicated; deterministic
+envelope UUID makes lost Queue responses safe. Cursor compare-and-set RPC treats already-advanced value
+as idempotent lost-response retry and otherwise requires expected predecessor. Cursor never advances
+before all pages and message publications complete. First-watch in-flight and returned-baseline states
+prevent crash recovery from repeating `watch` and guessing an initial cursor; ambiguous initialization
+instead enters explicit resync-required state. Explicit rejected watch responses clear in-flight state
+and retry, while response loss after possible success remains ambiguous. Canonical provider details live in
+[Gmail integration](../integrations/gmail.md).
+
+Deterministic malformed/over-limit Gmail messages become tenant-bound metadata-only terminal receipts
+keyed by message-ID digest. Receipt commit is equivalent to Queue acceptance only for advancing that
+specific message; transient provider/Queue failures remain retryable, and receipts expire after seven
+days. Durable alarm retry metadata and
+explicit bounded backoff continue after Cloudflare automatic alarm retries would end.
+
+Gmail consent withdrawal follows same private boundary: authenticated API forwards tenant/connection
+identity to mailbox Durable Object; Pipeline durably executes `users.stop`, Google token revocation,
+and idempotent Supabase credential deletion in that order. Failure before stop or revoke completion
+retains encrypted credential for retry. Permanent Supabase receipt arbitrates lost delete responses.
+Active Gmail rows deny direct authenticated table deletion. Same-tenant completed receipt makes API
+retries successful after row deletion. Mailbox-digest tombstone absorbs late provider notifications
+through saved watch expiration plus configured Pub/Sub retention without routing work.
+
+Account deletion uses same private Gmail boundary before local finalization, but with explicit
+best-effort exception: API sends only authenticated tenant/connection UUID in bounded, idempotent
+request; Pipeline alone may decrypt credential and perform stop/revoke/receipt ordering. Pipeline or
+provider failure is counted and does not block local credential, tenant-row, and identity deletion.
+API never directly handles Gmail credential or provider call, and no plaintext enters logs. Ordinary
+standalone Gmail disconnect retains strict retry-until-provider-complete behavior above.
 
 ## Deduplication
 
 Two independent layers guard against Cloudflare Queue's at-least-once redelivery, and either alone is
 sufficient for correctness — the second exists because the first is fast, not because it is required:
 
-- **Durable Object local cache** (`source:<identity>`, `fingerprint:<fingerprint>`,
-  `fact-set-fingerprint:<source-id>`, and `source-binding:<source-id>` keys in
-  `DurableObjectStorage`). Bound markers contain source ID, fact digest, source identity, and content
+- **Durable Object local cache** (`source:<identity>`, `fingerprint:<fingerprint>`, versioned fact/event
+  fingerprint keys, and `source-binding:<source-id>` keys in `DurableObjectStorage`). Complete markers
+  contain source ID, fact/event digests, normalizer/extractor versions, source identity, and content
   fingerprint and survive Durable Object eviction/restart. Exact same-ID database retries may populate
-  them after fact persistence converges; duplicates under another candidate ID do not. Legacy unbound
-  markers never decide a result. One multi-key `put` atomically writes related records, as guaranteed by
+  them only after fact and event persistence converge; duplicates under another candidate ID do not.
+  Exact legacy fact-only bindings fall through for event backfill, while unbound markers never decide a
+  result. One multi-key `put` atomically writes related records, as guaranteed by
   [Cloudflare Durable Object storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#put).
 - **`source_items` unique constraints** (`(user_id, id)`, `(user_id, source, source_account_id,
 external_id)` with `nulls not distinct`, and `(user_id, content_fingerprint)`), enforced by Postgres
@@ -62,12 +118,16 @@ boundary) rather than a silent behavior change.
 
 Neither layer ever deletes a `source_items` row on a fingerprint or identity match — a conflict only
 suppresses a _new_ insert. Cross-source content similarity is not a deletion trigger anywhere in this
-codebase; the only automated deletion is the unrelated seven-day raw-payload retention purge
-(`purge_expired_raw_payloads`, see [privacy lifecycle](../security/privacy.md)), which is time-based
-and has no fingerprint or similarity input.
+codebase. Automated retention is time-based and has no fingerprint or similarity input:
+`purge_expired_raw_payloads` destroys seven-day raw/dead-letter encryption fields and deletes expired
+Gmail terminal receipts and disconnect tombstones (see [privacy lifecycle](../security/privacy.md)).
 
 Queue and dead-letter payloads contain ciphertext, wrapped data key, nonces, key version, tenant ID,
 envelope ID, recovery ID, original acceptance time, and original expiry, never raw source bodies.
+Encrypted plaintext also authenticates trusted producer. `gmail-provider` is required exactly for
+reserved Gmail source; generic device ingress cannot claim provider ownership. Producer-aware payloads
+use schema version 2. Queue drain accepts legacy version 1 only for non-Gmail source and canonicalizes
+its implied producer to `device`.
 Normal runtime UUID contracts canonicalize valid input to lowercase before new encryption context
 creation. Encrypted Queue wire UUIDs instead validate while preserving original casing because user and
 envelope IDs are authenticated encryption context. Consumers route by canonical tenant ID, decrypt
@@ -126,28 +186,64 @@ persistence. `(user_id, source_item_id, normalizer_version, ordinal)` is unique 
 `source_items`; fact persistence requires the same exact fact digest. A missing candidate source ID
 returns normal dedupe only when source persistence already returned `duplicate`. Fact version/digest
 conflicts and impossible stored/missing states fail closed as `fact_integrity_conflict`. Exact retries
-return `duplicate`; different output under the same normalizer version fails closed. If either RPC
-commits but its response is lost, retry converges through exact digest/idempotency checks. Queue
-acknowledgement occurs only after both durable stages converge.
+return `duplicate`; different output under the same normalizer version fails closed. If any source,
+fact, or event RPC commits but its response is lost, retry converges through exact digest/idempotency
+checks. Queue acknowledgement occurs only after all three durable stages converge.
 
-Durable Object markers bind source ID, source identity, content fingerprint, and fact digest. Legacy
-unbound markers fall through to Postgres. Local mode atomically stores encrypted source, structured
-facts, envelope-ID digest, and source binding; an exact binding is duplicate, any changed binding is an
-integrity failure, and an existing local source without a complete binding fails closed. Database
-duplicates under another source ID never receive candidate markers.
+Durable Object markers bind source ID, source identity, content fingerprint, fact digest, and versioned
+event digest. Legacy unbound markers fall through to Postgres. Local mode atomically stores encrypted
+source, structured facts/events, envelope-ID digest, and source binding; an exact complete binding is
+duplicate, any changed binding is an integrity failure, and an existing local source without a valid
+fact binding fails closed. Database duplicates under another source ID never receive candidate markers.
+
+## Event Extraction
+
+[ADR-0010](../decisions/0010-fact-only-event-extraction.md) places deterministic event extraction
+immediately after typed facts and before future categorization. Extractor version 1 consumes only the
+runtime-validated `SourceFactSet`. Provider kind, category, subject, body, and source reference values
+cannot become extraction instructions. Certain start facts produce calendar events, certain due facts
+produce reminders, order/tracking references without due time produce tasks, and remaining inputs
+produce concise facts.
+
+Titles are trimmed and bounded to 160 characters; summaries are bounded to 280. They use normalized
+amount/currency plus fixed merchant, location, sender, and reference-kind labels. Free-text fact values,
+subject, body, and reference values are never rendered into notification-ready text. Provenance contains
+source item ID, fact ordinal, and validated field paths only. It contains no snippets. Every output
+carries normalizer version, extractor version, contiguous ordinal,
+three-decimal confidence, and `requiresReview`. Confidence below `0.8` and ambiguous temporal evidence
+always require review. Pipeline persists these records for inbox visibility but creates no action.
+
+Resolved event time is exact 30-character UTC text plus explicit `timeZone: UTC`. Query-oriented
+PostgreSQL `timestamptz` columns mirror that value, while canonical text preserves nanoseconds. Invalid,
+contradictory, offset-free, or inconsistent temporal evidence is `ambiguous`, has null time zone, and
+contains no guessed instant. Generic `occurred` and `captured` facts never substitute for missing start
+or due evidence.
+
+`persist_source_events` is service-role-only and validates explicit tenant/source ownership, source
+fact digest, normalizer version, every provenance fact ordinal/path, exact temporal shape, and complete
+event-set fingerprint. Canonical rows are unique by tenant, source, normalizer version, extractor
+version, and ordinal. Exact retries return `duplicate`; changed output under same identity fails as
+`event_integrity_conflict`. A lost RPC response therefore retries safely. Legacy rows retain null
+extractor metadata and cannot collide with canonical extraction rows.
 
 Pipeline Analytics Engine points use only fixed metric names, numeric counts, and numeric latency in
 milliseconds. Tenant IDs, envelope IDs, source metadata, ciphertext, URLs, errors, and plaintext are
 not metric dimensions or values.
 
+Gmail callback/provider paths emit no dynamic logs or metric dimensions. Push body, Gmail text,
+mailbox, tenant, connection, credentials, bearer/access/refresh tokens, authorization headers,
+provider bodies, and request/provider URLs remain excluded. Provider and persistence failures use
+fixed internal codes/messages.
+
 ## Local End-To-End Harness
 
 `pnpm e2e:local` resets a local Supabase stack, starts local API and Wrangler processes, and sends the
 shared synthetic mobile fixture through the complete encrypted ingress path. The harness verifies
-encrypted Supabase persistence, typed facts with exact money and field provenance, source-identity and
-fingerprint deduplication, acknowledgement after durable persistence, cold database conflict outcomes,
-duplicate-cache safety, dead-letter metadata delivery, operator inspection, exact encrypted replay,
-terminal replay cleanup, action-run absence, and controlled seven-day retention cleanup. It
+encrypted Supabase persistence, typed facts with exact money and field provenance, concise versioned
+events without raw source text, source-identity and fingerprint deduplication, acknowledgement after
+durable persistence, cold database conflict outcomes, duplicate-cache safety, dead-letter metadata
+delivery, operator inspection, exact encrypted replay, terminal replay cleanup, action-run absence, and
+controlled seven-day retention cleanup. It
 accepts only a loopback Supabase URL and creates no remote Cloudflare or Supabase resources.
 
 The `wrangler.e2e.jsonc` config exists only for `wrangler dev --local`. Result markers contain status
@@ -169,8 +265,8 @@ text. AAD text must be UUID-equivalent to canonical database IDs; legacy NULL AA
 those canonical IDs. Authenticated users have no table or RPC access. Dedicated operator API returns
 metadata only; it has no decrypt operation.
 Coordinator maps configuration, unavailable key version, invalid ciphertext/envelope, persistence,
-tenant-conflict, fact-integrity, and invalid-response failures to fixed codes without reflecting error
-text. Final attempt republishes that metadata beside ciphertext to existing dead-letter Queue. If
+tenant-conflict, fact/event-integrity, and invalid-response failures to fixed codes without reflecting
+error text. Final attempt republishes that metadata beside ciphertext to existing dead-letter Queue. If
 durable recovery storage is unavailable, DLQ consumer parks exact message back onto same Queue with
 bounded delay until original expiry.
 
@@ -181,7 +277,7 @@ same original AAD text while compare-and-set identity remains canonical. Queue c
 An ambiguous Queue publication or failed replay retains same active request ID; only retry with that
 ID can republish it. Repeated completion is idempotent. Terminal or expired rows cannot regain ciphertext. Source unique
 constraints and coordinator dedupe remain final arbitration, and recovery cannot create action rows
-while action dispatch is disabled. Uncertain classification remains visible in inbox; it must not
-silently become an external effect.
+while action dispatch is disabled. Uncertain extraction/classification remains visible in inbox; it
+must not silently become an external effect.
 
 Related: [action model](action-model.md), [privacy lifecycle](../security/privacy.md).

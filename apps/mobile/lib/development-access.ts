@@ -19,6 +19,15 @@ export function canEnterApp(hasSession: boolean, localDevelopmentAccess: boolean
   return hasSession || localDevelopmentAccess;
 }
 
+/**
+ * Local development access only bypasses the app-shell guard for native capture diagnostics. It
+ * must never hide the real sign-in route: category RLS and authenticated Relay APIs still require
+ * a Supabase session.
+ */
+export function canEnterSignIn(hasSession: boolean): boolean {
+  return !hasSession;
+}
+
 export function notificationCaptureTenantId(
   authenticatedTenantId: string | undefined,
   localDevelopmentAccess: boolean,

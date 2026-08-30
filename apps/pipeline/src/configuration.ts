@@ -15,8 +15,14 @@ export type PersistenceConfiguration = {
 };
 
 export class PersistenceConfigurationError extends Error {
-  constructor(readonly reason: "encryption-keyring-invalid" | "persistence-configuration-invalid") {
-    super("Pipeline persistence configuration is invalid");
+  constructor(
+    readonly reason: "encryption-keyring-invalid" | "persistence-configuration-invalid",
+    cause?: unknown,
+  ) {
+    super(
+      "Pipeline persistence configuration is invalid",
+      cause === undefined ? undefined : { cause },
+    );
   }
 }
 
@@ -31,8 +37,8 @@ function parseSupabaseUrl(value: string, environment: RelayEnvironment): string 
   let url: URL;
   try {
     url = new URL(value);
-  } catch {
-    throw new PersistenceConfigurationError("persistence-configuration-invalid");
+  } catch (error: unknown) {
+    throw new PersistenceConfigurationError("persistence-configuration-invalid", error);
   }
   const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost";
   if (
@@ -51,15 +57,15 @@ export function readPersistenceConfiguration(env: Env): PersistenceConfiguration
   let environment: RelayEnvironment;
   try {
     environment = parseRelayEnvironment(env.RELAY_ENVIRONMENT);
-  } catch {
-    throw new PersistenceConfigurationError("persistence-configuration-invalid");
+  } catch (error: unknown) {
+    throw new PersistenceConfigurationError("persistence-configuration-invalid", error);
   }
 
   let keyring: KekKeyring;
   try {
     keyring = parseKekKeyring(env.RELAY_CREDENTIAL_KEK_KEYRING);
-  } catch {
-    throw new PersistenceConfigurationError("encryption-keyring-invalid");
+  } catch (error: unknown) {
+    throw new PersistenceConfigurationError("encryption-keyring-invalid", error);
   }
 
   const allowLocalDurability = env.RELAY_ALLOW_LOCAL_DURABILITY === "true";

@@ -1,6 +1,7 @@
 import { deadLetterMetadataSchema, deadLetterReplayRequestSchema } from "@relay/contracts";
 
 import { authorizeRecoveryRequest, requestPipelineRecovery } from "../../../../lib/recovery";
+import { apiRequestId, loggedErrorResponse } from "../../../../lib/observability";
 
 function unauthorized(): Response {
   return Response.json(
@@ -28,10 +29,43 @@ export async function GET(request: Request) {
 
   const response = await requestPipelineRecovery(
     `/internal/recovery/dead-letters?limit=${rawLimit}`,
+    undefined,
+    apiRequestId(request),
   );
   if (!response.ok) return unavailable();
-  const value = (await response.json().catch(() => undefined)) as { items?: unknown } | undefined;
-  if (!Array.isArray(value?.items)) return unavailable();
+  let value: { items?: unknown } | undefined;
+  try {
+    value = (await response.json()) as { items?: unknown };
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        category: "malformed-response",
+        code: "RECOVERY_RESPONSE_INVALID",
+        event: "integration.recovery_response_invalid",
+        integration: "relay-pipeline",
+        operation: "listDeadLetterItems",
+        statusCode: response.status,
+      },
+      unavailable(),
+    );
+  }
+  if (!Array.isArray(value.items)) {
+    return loggedErrorResponse(
+      request,
+      new Error("Recovery response did not contain an item list"),
+      {
+        category: "malformed-response",
+        code: "RECOVERY_RESPONSE_INVALID",
+        event: "integration.recovery_response_invalid",
+        integration: "relay-pipeline",
+        operation: "listDeadLetterItems",
+        statusCode: response.status,
+      },
+      unavailable(),
+    );
+  }
   const items = value.items.map((item) => deadLetterMetadataSchema.safeParse(item));
   if (items.some((item) => !item.success)) return unavailable();
   return Response.json({ items: items.map((item) => item.data) });
@@ -52,6 +86,7 @@ export async function POST(request: Request) {
   const response = await requestPipelineRecovery(
     `/internal/recovery/dead-letters/${replay.data.id}/replay`,
     { method: "POST", body: JSON.stringify({ requestId: replay.data.requestId }) },
+    apiRequestId(request),
   );
   if (response.status === 409) {
     return Response.json(

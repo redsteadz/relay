@@ -11,7 +11,9 @@ description: Implements one Relay GitHub issue from dependency check through PR.
 4. Implement only acceptance criteria. Do not absorb adjacent backlog.
 5. Add or update tests and canonical memory.
 6. Run formatting, lint, typecheck, test, and affected builds.
-7. Review diff for privacy, tenant isolation, retries, idempotency, and plaintext logging.
+7. Review diff for privacy, tenant isolation, retries, idempotency, and compliance with
+   `docs/memory/observability.md`: preserved causes, deterministic user messages, one terminal log,
+   redaction-safe metadata, request IDs, and observable async rejection.
 8. Open PR into `dev` with `Closes #<number>` and completed checklist.
 
 Never commit credentials, real messages, real phone numbers, or generated Graphify output.

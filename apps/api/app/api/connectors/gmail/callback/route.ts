@@ -1,12 +1,14 @@
 import {
   buildCallbackUrl,
   clearOAuthCookie,
+  DuplicateGmailConnectionError,
   exchangeCodeForTokens,
   fetchGmailAddress,
   loadGmailEnv,
   parseOAuthCookie,
   persistConnection,
 } from "../../../../../lib/gmail";
+import { loggedErrorResponse } from "../../../../../lib/observability";
 
 export async function GET(request: Request) {
   const env = loadGmailEnv();
@@ -25,12 +27,12 @@ export async function GET(request: Request) {
   // Google may redirect with an error (e.g. user denied consent).
   if (errorParam !== null) {
     return Response.json(
-      { error: { code: "gmail_oauth_denied", message: `Authorization denied: ${errorParam}` } },
+      { error: { code: "gmail_oauth_denied", message: "Gmail authorization was denied" } },
       { status: 400, headers: { "set-cookie": clearOAuthCookie() } },
     );
   }
 
-  if (code === null || stateParam === null) {
+  if (code === null || code.length === 0 || code.length > 4096 || stateParam === null) {
     return Response.json(
       { error: { code: "invalid_callback", message: "Missing authorization code or state" } },
       { status: 400, headers: { "set-cookie": clearOAuthCookie() } },
@@ -38,7 +40,7 @@ export async function GET(request: Request) {
   }
 
   // Validate state against cookie to prevent callback substitution.
-  const oauthSession = parseOAuthCookie(request);
+  const oauthSession = await parseOAuthCookie(request, env);
   if (oauthSession === null) {
     return Response.json(
       { error: { code: "invalid_state", message: "OAuth session expired or missing" } },
@@ -58,26 +60,60 @@ export async function GET(request: Request) {
   let tokens;
   try {
     tokens = await exchangeCodeForTokens(code, oauthSession.codeVerifier, redirectUri, env);
-  } catch {
-    return Response.json(
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
       {
-        error: { code: "token_exchange_failed", message: "Failed to exchange authorization code" },
+        code: "GMAIL_TOKEN_EXCHANGE_FAILED",
+        event: "connector.oauth_exchange_failed",
+        integration: "google-gmail",
+        operation: "exchangeCodeForTokens",
       },
-      { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+      Response.json(
+        {
+          error: {
+            code: "token_exchange_failed",
+            message: "Failed to exchange authorization code",
+          },
+        },
+        { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+      ),
+    );
+  }
+
+  const grantedScopes = tokens.scope.split(" ").filter((scope: string) => scope.length > 0);
+  if (!grantedScopes.includes("https://www.googleapis.com/auth/gmail.readonly")) {
+    return Response.json(
+      { error: { code: "gmail_scope_missing", message: "Required Gmail scope was not granted" } },
+      { status: 403, headers: { "set-cookie": clearOAuthCookie() } },
     );
   }
 
   let email;
   try {
     email = await fetchGmailAddress(tokens.accessToken);
-  } catch {
-    return Response.json(
-      { error: { code: "gmail_address_unavailable", message: "Could not retrieve Gmail address" } },
-      { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "GMAIL_PROFILE_FAILED",
+        event: "connector.profile_request_failed",
+        integration: "google-gmail",
+        operation: "fetchGmailAddress",
+      },
+      Response.json(
+        {
+          error: {
+            code: "gmail_address_unavailable",
+            message: "Could not retrieve Gmail address",
+          },
+        },
+        { status: 502, headers: { "set-cookie": clearOAuthCookie() } },
+      ),
     );
   }
-
-  const grantedScopes = tokens.scope.split(" ").filter((s: string) => s.length > 0);
 
   let connection;
   try {
@@ -89,12 +125,31 @@ export async function GET(request: Request) {
       env,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to store connection";
-    const isDuplicate = message === "Gmail account is already connected";
-    return Response.json(
-      { error: { code: isDuplicate ? "duplicate_connection" : "connection_failed", message } },
+    const isDuplicate = error instanceof DuplicateGmailConnectionError;
+    const response = Response.json(
+      {
+        error: {
+          code: isDuplicate ? "duplicate_connection" : "connection_failed",
+          message: isDuplicate
+            ? "Gmail account is already connected"
+            : "Failed to store connection",
+        },
+      },
       { status: isDuplicate ? 409 : 500, headers: { "set-cookie": clearOAuthCookie() } },
     );
+    return isDuplicate
+      ? response
+      : loggedErrorResponse(
+          request,
+          error,
+          {
+            code: "GMAIL_CONNECTION_FAILED",
+            event: "connector.connection_failed",
+            integration: "supabase",
+            operation: "persistGmailConnection",
+          },
+          response,
+        );
   }
 
   return Response.json(

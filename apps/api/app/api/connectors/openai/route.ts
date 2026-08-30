@@ -1,6 +1,7 @@
 import { openAiCredentialSubmitRequestSchema } from "@relay/contracts";
 
 import { authenticateRequest } from "../../../../lib/auth";
+import { loggedErrorResponse } from "../../../../lib/observability";
 import {
   CredentialConflictError,
   CredentialNotFoundError,
@@ -31,8 +32,22 @@ export async function GET(request: Request) {
   const auth = await authenticateRequest(request);
   if ("error" in auth) return auth.error;
 
-  const status = await getOpenAiCredentialStatus(auth.userId, env);
-  return Response.json(status, { status: 200 });
+  try {
+    const status = await getOpenAiCredentialStatus(auth.userId, env);
+    return Response.json(status, { status: 200 });
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "OPENAI_STATUS_FAILED",
+        event: "connector.openai_status_failed",
+        integration: "supabase",
+        operation: "getOpenAiCredentialStatus",
+      },
+      Response.json({ error: { code: "openai_credential_unavailable" } }, { status: 503 }),
+    );
+  }
 }
 
 export async function POST(request: Request) {
@@ -63,9 +78,29 @@ export async function POST(request: Request) {
       return Response.json({ error: { code: "openai_already_configured" } }, { status: 409 });
     }
     if (error instanceof CredentialValidationUnavailableError) {
-      return Response.json({ error: { code: "openai_validation_unavailable" } }, { status: 502 });
+      return loggedErrorResponse(
+        request,
+        error,
+        {
+          code: "OPENAI_VALIDATION_UNAVAILABLE",
+          event: "connector.openai_validation_failed",
+          integration: "openai",
+          operation: "validateOpenAiKey",
+        },
+        Response.json({ error: { code: "openai_validation_unavailable" } }, { status: 502 }),
+      );
     }
-    return Response.json({ error: { code: "openai_credential_unavailable" } }, { status: 503 });
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "OPENAI_CREDENTIAL_STORE_FAILED",
+        event: "connector.openai_credential_failed",
+        integration: "supabase",
+        operation: "submitOpenAiCredential",
+      },
+      Response.json({ error: { code: "openai_credential_unavailable" } }, { status: 503 }),
+    );
   }
 }
 
@@ -97,9 +132,29 @@ export async function PATCH(request: Request) {
       return Response.json({ error: { code: "openai_not_found" } }, { status: 404 });
     }
     if (error instanceof CredentialValidationUnavailableError) {
-      return Response.json({ error: { code: "openai_validation_unavailable" } }, { status: 502 });
+      return loggedErrorResponse(
+        request,
+        error,
+        {
+          code: "OPENAI_VALIDATION_UNAVAILABLE",
+          event: "connector.openai_validation_failed",
+          integration: "openai",
+          operation: "validateOpenAiKey",
+        },
+        Response.json({ error: { code: "openai_validation_unavailable" } }, { status: 502 }),
+      );
     }
-    return Response.json({ error: { code: "openai_credential_unavailable" } }, { status: 503 });
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "OPENAI_CREDENTIAL_ROTATE_FAILED",
+        event: "connector.openai_credential_failed",
+        integration: "supabase",
+        operation: "rotateOpenAiCredential",
+      },
+      Response.json({ error: { code: "openai_credential_unavailable" } }, { status: 503 }),
+    );
   }
 }
 
@@ -116,7 +171,17 @@ export async function DELETE(request: Request) {
       return Response.json({ error: { code: "openai_not_found" } }, { status: 404 });
     }
     return Response.json({ provider: "openai", configured: false }, { status: 200 });
-  } catch {
-    return Response.json({ error: { code: "openai_credential_unavailable" } }, { status: 503 });
+  } catch (error: unknown) {
+    return loggedErrorResponse(
+      request,
+      error,
+      {
+        code: "OPENAI_CREDENTIAL_REVOKE_FAILED",
+        event: "connector.openai_credential_failed",
+        integration: "supabase",
+        operation: "revokeOpenAiCredential",
+      },
+      Response.json({ error: { code: "openai_credential_unavailable" } }, { status: 503 }),
+    );
   }
 }
