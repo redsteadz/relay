@@ -3,6 +3,7 @@ import type { IngressQueueMessage as ContractIngressQueueMessage } from "@relay/
 export type IngressQueueMessage = ContractIngressQueueMessage;
 
 export interface Env {
+  DEBUG?: string;
   DEAD_LETTER_QUEUE: Queue<IngressQueueMessage>;
   INGRESS_QUEUE: Queue<IngressQueueMessage>;
   GOOGLE_CLIENT_ID?: string;

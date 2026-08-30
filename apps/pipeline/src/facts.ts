@@ -11,8 +11,9 @@ export class FactPersistenceError extends Error {
       | "fact_persistence_conflict"
       | "fact_persistence_response_invalid"
       | "fact_persistence_unavailable",
+    cause?: unknown,
   ) {
-    super("Fact persistence failed");
+    super("Fact persistence failed", cause === undefined ? undefined : { cause });
   }
 }
 
@@ -24,7 +25,12 @@ export async function parseFactPersistenceResponse(
       response.status === 409 ? "fact_persistence_conflict" : "fact_persistence_unavailable",
     );
   }
-  const result = await response.json<unknown>().catch(() => undefined);
+  let result: unknown;
+  try {
+    result = await response.json<unknown>();
+  } catch (error: unknown) {
+    throw new FactPersistenceError("fact_persistence_response_invalid", error);
+  }
   if (
     result === "stored" ||
     result === "duplicate" ||

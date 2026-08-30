@@ -24,6 +24,7 @@ import { base64ToPostgresBytea, sourceItemEncryptionContext } from "./encryption
 import type { Env, IngressQueueMessage } from "./env";
 import { FactPersistenceError, persistSourceFactSet } from "./facts";
 import { recordPipelineMetric } from "./metrics";
+import { logPipelineError } from "./observability";
 import {
   parseDecryptedIngressEnvelope,
   parseSourcePersistenceV3Response,
@@ -206,10 +207,17 @@ export async function processIngressMessage(
   message: IngressQueueMessage,
 ): Promise<Response> {
   const startedAt = performance.now();
+  const logStartedAt = Date.now();
   let configuration: PersistenceConfiguration;
   try {
     configuration = readPersistenceConfiguration(env);
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "ingress.configuration_failed", error, {
+      code: "INGRESS_CONFIGURATION_INVALID",
+      integration: "relay-pipeline",
+      operation: "readPersistenceConfiguration",
+      startedAt: logStartedAt,
+    });
     return failureResponse("configuration_invalid");
   }
   if (message.encryptionEnvironment !== configuration.environment) {
@@ -222,7 +230,13 @@ export async function processIngressMessage(
   let plaintext: string;
   try {
     plaintext = await decryptValue(message.encrypted, configuration.keyring, context);
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "ingress.decryption_failed", error, {
+      code: "INGRESS_CIPHERTEXT_INVALID",
+      integration: "relay-crypto",
+      operation: "decryptIngressEnvelope",
+      startedAt: logStartedAt,
+    });
     return failureResponse("ciphertext_invalid");
   }
   const envelope = parseDecryptedIngressEnvelope(plaintext, message);
@@ -242,7 +256,13 @@ export async function processIngressMessage(
   try {
     factSet = normalizeSourceFacts(envelope);
     factSetFingerprint = await sourceFactSetFingerprint(factSet);
-  } catch {
+  } catch (error: unknown) {
+    logPipelineError(env, "ingress.fact_normalization_failed", error, {
+      code: "INGRESS_FACT_NORMALIZATION_FAILED",
+      integration: "relay-domain",
+      operation: "normalizeSourceFacts",
+      startedAt: logStartedAt,
+    });
     return failureResponse("persistence_response_invalid");
   }
   const identityKey = `source:${identity}`;
@@ -277,6 +297,7 @@ export async function processIngressMessage(
       "source_item_duplicate",
       1,
       performance.now() - startedAt,
+      env.DEBUG,
     );
     return Response.json({ accepted: false, reason: "duplicate" });
   };
@@ -325,7 +346,13 @@ export async function processIngressMessage(
   if (context !== durableContext) {
     try {
       durableEncrypted = await encryptValue(plaintext, configuration.keyring, durableContext);
-    } catch {
+    } catch (error: unknown) {
+      logPipelineError(env, "ingress.reencryption_failed", error, {
+        code: "INGRESS_REENCRYPTION_FAILED",
+        integration: "relay-crypto",
+        operation: "reencryptIngressEnvelope",
+        startedAt: logStartedAt,
+      });
       return failureResponse("persistence_unavailable");
     }
   }
@@ -347,7 +374,14 @@ export async function processIngressMessage(
       "source_item_failed",
       1,
       performance.now() - startedAt,
+      env.DEBUG,
     );
+    logPipelineError(env, "ingress.persistence_failed", error, {
+      code: "INGRESS_PERSISTENCE_FAILED",
+      integration: "supabase",
+      operation: "persistSourceItem",
+      startedAt: logStartedAt,
+    });
     return failureResponse(
       error instanceof SourcePersistenceError ? error.reason : "persistence_unavailable",
     );
@@ -373,7 +407,14 @@ export async function processIngressMessage(
       "source_item_failed",
       1,
       performance.now() - startedAt,
+      env.DEBUG,
     );
+    logPipelineError(env, "ingress.fact_persistence_failed", error, {
+      code: "INGRESS_FACT_PERSISTENCE_FAILED",
+      integration: "supabase",
+      operation: "persistSourceFacts",
+      startedAt: logStartedAt,
+    });
     if (!(error instanceof FactPersistenceError)) return failureResponse("persistence_unavailable");
     return failureResponse(
       error.reason === "fact_persistence_conflict"
@@ -392,6 +433,7 @@ export async function processIngressMessage(
       "source_item_failed",
       1,
       performance.now() - startedAt,
+      env.DEBUG,
     );
     return failureResponse("fact_integrity_conflict");
   }
@@ -400,6 +442,7 @@ export async function processIngressMessage(
     persistence === "duplicate" ? "source_item_duplicate" : "source_item_persisted",
     1,
     performance.now() - startedAt,
+    env.DEBUG,
   );
   const records: Record<string, unknown> = {};
   if (persistence !== "duplicate" || factPersistence !== "source-missing") {

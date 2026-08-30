@@ -40,7 +40,11 @@ async function callRecoveryRpc(
   if (!response.ok) {
     throw new Error(`Dead-letter recovery ${rpc} failed with ${response.status.toString()}`);
   }
-  return response.json<unknown>().catch(() => undefined);
+  try {
+    return await response.json<unknown>();
+  } catch (error: unknown) {
+    throw new Error(`Dead-letter recovery ${rpc} returned invalid JSON`, { cause: error });
+  }
 }
 
 export async function recordDeadLetterItem(
@@ -150,8 +154,8 @@ function parseClaimedMessage(value: unknown, requestId: string): IngressQueueMes
       wrappedKey: postgresByteaToBase64(row.wrapped_data_key, 48),
       wrapNonce: postgresByteaToBase64(row.wrap_nonce, 12),
     };
-  } catch {
-    throw new Error("Dead-letter claim response is invalid");
+  } catch (error: unknown) {
+    throw new Error("Dead-letter claim response is invalid", { cause: error });
   }
   const parsed = ingressQueueMessageSchema.safeParse({
     schemaVersion: 1,
