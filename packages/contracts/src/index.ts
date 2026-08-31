@@ -272,7 +272,6 @@ export type IngressQueueMessage = z.infer<typeof ingressQueueMessageSchema>;
 
 export const factKindSchema = z.enum([
   "sender",
-  "subject",
   "date",
   "amount",
   "currency",
@@ -349,14 +348,6 @@ const factTextValueSchema = z
   .refine((value) => value === value.trim(), "Fact text must not have surrounding whitespace");
 
 export const senderFactValueSchema = factTextValueSchema;
-/**
- * The headline a capture carried.
- *
- * Bounded and trimmed like every other derived text value. It records what the source announced
- * rather than a copy of its body, so a fact stays a minimal derived value and content still leaves
- * with the encrypted raw payload at its retention deadline.
- */
-export const subjectFactValueSchema = factTextValueSchema;
 export const canonicalFactInstantSchema = z
   .string()
   .length(30)
@@ -406,14 +397,6 @@ export const senderFactSchema = z
   })
   .strict();
 
-export const subjectFactSchema = z
-  .object({
-    ...sourceFactIdentityShape,
-    kind: z.literal("subject"),
-    certainty: z.literal("certain"),
-    value: subjectFactValueSchema,
-  })
-  .strict();
 export const dateFactSchema = z
   .object({
     ...sourceFactIdentityShape,
@@ -475,7 +458,6 @@ export const uncertainFactSchema = z
 
 export const sourceFactSchema = z.union([
   senderFactSchema,
-  subjectFactSchema,
   dateFactSchema,
   amountFactSchema,
   currencyFactSchema,
