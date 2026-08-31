@@ -3,13 +3,20 @@ import type { EventKind, FactKind } from "@relay/contracts";
 /**
  * Inbox grouping.
  *
- * `needs-review` exists so uncertainty is surfaced rather than filtered. An item Relay could not
- * resolve confidently is the item a person most needs to see, so it is ranked above settled work
- * instead of being hidden or silently downgraded.
+ * `needs-review` is reserved for what Relay could not resolve: a contradictory date, or evidence it
+ * read as uncertain. It is deliberately not driven by an event's `requiresReview` flag, which means
+ * "not confident enough to automate" rather than "a person must look at this". Most captures sit
+ * below that automation threshold in the ordinary case, so promoting them would fill the inbox with
+ * warnings and bury the one item that matters.
  */
 export type InboxGroup = "actionable" | "needs-review" | "quiet";
 
-export type InboxOrigin = "event" | "fact";
+/** A fact that supports an event, shown as its evidence rather than as its own inbox row. */
+export type InboxEvidence = {
+  certain: boolean;
+  kind: FactKind;
+  label: string;
+};
 
 export type InboxEventInput = {
   confidence: number | null;
@@ -86,13 +93,15 @@ export type InboxContext = {
 };
 
 export type InboxItem = {
+  /** Human name of the capturing application, falling back to its package identifier. */
+  appLabel: string;
   category: InboxCategory | undefined;
   confidence: number | undefined;
+  evidence: readonly InboxEvidence[];
   group: InboxGroup;
   id: string;
   kind: string;
   occurredAt: string;
-  origin: InboxOrigin;
   processing: InboxProcessing;
   retention: InboxRetention;
   /** Why Relay is unsure. Never empty for a `needs-review` item, always empty otherwise. */
@@ -106,125 +115,157 @@ export type InboxItem = {
   title: string;
 };
 
+const REVIEW_REASON_TEXT: Record<string, string> = {
+  contradictory: "Relay read conflicting values for this.",
+  "inconsistent-range": "The start and end times disagree.",
+  invalid: "The value Relay read is not a valid one.",
+};
+
+/**
+ * Applications common enough to name.
+ *
+ * Only the capturing package is stored, so anything unlisted shows its package identifier rather
+ * than a guess. Naming the wrong application would be worse than showing an exact one.
+ */
+const APP_LABEL: Record<string, string> = {
+  "com.google.android.apps.messaging": "Messages",
+  "com.google.android.gm": "Gmail",
+  "com.instagram.android": "Instagram",
+  "com.whatsapp": "WhatsApp",
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  gmail: "Gmail",
+  notification: "Android notification",
+  sms: "SMS",
+  unknown: "Source no longer retained",
+};
+
+export function appLabelFor(source: InboxSource): string {
+  if (source.applicationId === undefined) return SOURCE_LABEL[source.kind] ?? source.kind;
+  return APP_LABEL[source.applicationId] ?? source.applicationId;
+}
+
+function reasonText(reason: string): string {
+  return REVIEW_REASON_TEXT[reason] ?? "Relay flagged this for review.";
+}
+
+/**
+ * Renders a fact value for display.
+ *
+ * Date facts carry a role and an instant rather than a bare string, so the instant is shown with the
+ * role that explains which moment it describes.
+ */
+export function evidenceLabel(kind: FactKind, value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const instant = record.instant;
+    const role = record.role;
+    if (typeof instant === "string") {
+      return typeof role === "string" ? `${role} ${instant}` : instant;
+    }
+    const amount = record.amount;
+    if (typeof amount === "string" || typeof amount === "number") return String(amount);
+  }
+  return kind;
+}
+
+export function inboxEvidence(fact: InboxFactInput): InboxEvidence {
+  return {
+    certain: fact.certainty === "certain",
+    kind: fact.kind,
+    label: evidenceLabel(fact.kind, fact.value),
+  };
+}
+
+function reviewReasons(
+  event: InboxEventInput,
+  evidence: readonly InboxEvidence[],
+  uncertainReasons: readonly string[],
+): string[] {
+  const reasons: string[] = [];
+  if (event.dateAmbiguity !== null) reasons.push(reasonText(event.dateAmbiguity));
+  for (const reason of uncertainReasons) reasons.push(reasonText(reason));
+  if (reasons.length === 0 && evidence.some((fact) => !fact.certain)) {
+    reasons.push("Relay read some supporting values as uncertain.");
+  }
+  return reasons;
+}
+
 /**
  * Builds the text search reads.
  *
- * Only derived fields and retained metadata are included, matching what the item itself already
- * shows. Searching cannot reach anything a person could not otherwise read on the screen.
+ * Only derived fields and retained metadata are included, matching what the item and its evidence
+ * already show. Searching cannot reach anything a person could not otherwise read on the screen,
+ * and evidence stays searchable even though it is not its own row.
  */
 function searchTextFor(
   title: string,
   summary: string | undefined,
   kind: string,
   context: InboxContext,
+  appLabel: string,
+  evidence: readonly InboxEvidence[],
 ): string {
   return [
     title,
     summary,
     kind,
+    appLabel,
     context.category?.name,
     context.source.applicationId,
     context.source.sender,
     context.source.subject,
+    ...evidence.map((fact) => `${fact.kind} ${fact.label}`),
   ]
     .filter((part): part is string => part !== undefined && part !== "")
     .join(" ")
     .toLowerCase();
 }
 
-const REVIEW_REASON_TEXT: Record<string, string> = {
-  contradictory: "Relay read conflicting values for this.",
-  "inconsistent-range": "The start and end times disagree.",
-  invalid: "The value Relay read is not a valid one.",
-  "low-confidence": "Relay is not confident in this reading.",
-};
-
-/**
- * Confidence below which an event is reviewed rather than acted on.
- *
- * Extraction reports confidence per event, and a low score means the wording was weak evidence, not
- * that the event is wrong. Reviewing is the conservative reading: the item still appears, ranked
- * where a person will look at it.
- */
-const REVIEW_CONFIDENCE = 0.5;
-
-function reasonText(reason: string): string {
-  return REVIEW_REASON_TEXT[reason] ?? "Relay flagged this for review.";
-}
-
-function eventReviewReasons(event: InboxEventInput): string[] {
-  const reasons: string[] = [];
-  if (event.dateAmbiguity !== null) reasons.push(reasonText(event.dateAmbiguity));
-  if (event.confidence !== null && event.confidence < REVIEW_CONFIDENCE) {
-    reasons.push(reasonText("low-confidence"));
-  }
-  // `requires_review` is the extractor's own verdict. Keep it last so a specific reason reads first,
-  // and only add it when nothing more precise already explains the flag.
-  if (event.requiresReview && reasons.length === 0) reasons.push(reasonText("unspecified"));
-  return reasons;
-}
-
-export function inboxItemForEvent(event: InboxEventInput, context: InboxContext): InboxItem {
-  const reviewReasons = eventReviewReasons(event);
+export function inboxItemForEvent(
+  event: InboxEventInput,
+  context: InboxContext,
+  facts: readonly InboxFactInput[] = [],
+): InboxItem {
+  const evidence = facts.map(inboxEvidence);
+  const uncertainReasons = facts
+    .filter((fact) => fact.certainty !== "certain" && fact.uncertaintyReason !== null)
+    .map((fact) => fact.uncertaintyReason as string);
+  const reasons = reviewReasons(event, evidence, uncertainReasons);
   const scheduledAt = event.startsAt ?? event.dueAt ?? undefined;
+  const appLabel = appLabelFor(context.source);
   return {
+    appLabel,
     category: context.category,
     confidence: event.confidence ?? undefined,
-    // A scheduled item is actionable only once Relay trusts when it happens; an ambiguous time makes
-    // it reviewable instead, because acting on the wrong date is worse than acting late.
-    group:
-      reviewReasons.length > 0
-        ? "needs-review"
-        : scheduledAt === undefined
-          ? "quiet"
-          : "actionable",
+    evidence,
+    // Unresolved first, then work with a time, then everything Relay simply recorded. An event
+    // Relay declined to automate is not itself a problem, so it files quietly unless something
+    // about it is genuinely unresolved.
+    group: reasons.length > 0 ? "needs-review" : scheduledAt === undefined ? "quiet" : "actionable",
     id: event.id,
     kind: event.kind,
     occurredAt: event.createdAt,
-    origin: "event",
     processing: context.processing,
     retention: context.retention,
-    reviewReasons,
+    reviewReasons: reasons,
     scheduledAt,
-    searchText: searchTextFor(event.title, event.summary ?? undefined, event.kind, context),
+    searchText: searchTextFor(
+      event.title,
+      event.summary ?? undefined,
+      event.kind,
+      context,
+      appLabel,
+      evidence,
+    ),
     source: context.source,
     sourceItemId: event.sourceItemId,
     summary: event.summary ?? undefined,
     title: event.title,
   };
-}
-
-export function inboxItemForFact(fact: InboxFactInput, context: InboxContext): InboxItem {
-  const uncertain = fact.certainty !== "certain";
-  const reviewReasons = uncertain ? [reasonText(fact.uncertaintyReason ?? "unspecified")] : [];
-  const title = factTitle(fact);
-  return {
-    category: context.category,
-    confidence: undefined,
-    // A fact carries no schedule, so it is never actionable on its own. It either needs a person to
-    // resolve it or belongs in the quiet record behind the events that cite it.
-    group: uncertain ? "needs-review" : "quiet",
-    id: fact.id,
-    kind: fact.kind,
-    occurredAt: fact.createdAt,
-    origin: "fact",
-    processing: context.processing,
-    retention: context.retention,
-    reviewReasons,
-    scheduledAt: undefined,
-    searchText: searchTextFor(title, undefined, fact.kind, context),
-    source: context.source,
-    sourceItemId: fact.sourceItemId,
-    summary: undefined,
-    title,
-  };
-}
-
-function factTitle(fact: InboxFactInput): string {
-  const value = fact.value;
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return fact.kind;
 }
 
 const GROUP_ORDER: readonly InboxGroup[] = ["needs-review", "actionable", "quiet"];
@@ -253,6 +294,30 @@ export function inboxSections(items: readonly InboxItem[]): readonly InboxSectio
       .filter((item) => item.group === group)
       .sort((left, right) => compareWithin(group, left, right)),
   }));
+}
+
+export type InboxAppGroup = { appLabel: string; items: readonly InboxItem[] };
+
+/**
+ * Collapses quiet items by capturing application.
+ *
+ * Quiet items are numerous by design, and a long list of near-identical rows is the noise this inbox
+ * exists to remove. Grouping by application keeps every item present and countable while asking for
+ * one line of attention per source instead of one per capture.
+ */
+export function groupByApp(items: readonly InboxItem[]): readonly InboxAppGroup[] {
+  const groups = new Map<string, InboxItem[]>();
+  for (const item of items) {
+    const existing = groups.get(item.appLabel);
+    if (existing === undefined) groups.set(item.appLabel, [item]);
+    else existing.push(item);
+  }
+  return [...groups.entries()]
+    .map(([appLabel, grouped]) => ({ appLabel, items: grouped }))
+    .sort(
+      (left, right) =>
+        right.items.length - left.items.length || left.appLabel.localeCompare(right.appLabel),
+    );
 }
 
 /**

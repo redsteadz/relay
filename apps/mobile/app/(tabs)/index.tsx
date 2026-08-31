@@ -14,7 +14,11 @@ import {
 } from "@/components/ui";
 import { InboxItemCard } from "@/features/inbox/components/InboxItemCard";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
-import type { InboxGroup } from "@/features/inbox/models/inboxPresentation";
+import {
+  groupByApp,
+  type InboxGroup,
+  type InboxItem,
+} from "@/features/inbox/models/inboxPresentation";
 import { useAuth } from "@/lib/auth-context";
 import { demoIngress, sendDemoIngress } from "@/lib/demo";
 import {
@@ -45,6 +49,7 @@ export default function InboxScreen() {
   const inbox = useInbox();
   const [status, setStatus] = useState("Ready for local simulation");
   const [sending, setSending] = useState(false);
+  const [quietExpanded, setQuietExpanded] = useState<string | undefined>();
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
@@ -147,6 +152,12 @@ export default function InboxScreen() {
                 <AppText tone="muted" variant="caption">
                   {inbox.query === "" ? GROUP_EMPTY[section.group] : "Nothing here matches."}
                 </AppText>
+              ) : section.group === "quiet" ? (
+                <QuietSection
+                  expanded={quietExpanded}
+                  items={section.items}
+                  onToggle={setQuietExpanded}
+                />
               ) : (
                 section.items.map((item) => <InboxItemCard item={item} key={item.id} />)
               )}
@@ -163,6 +174,40 @@ export default function InboxScreen() {
         />
       </EditorialSurface>
     </AppScreen>
+  );
+}
+
+/**
+ * Quiet items, collapsed by capturing application.
+ *
+ * Quiet items are numerous by design, so one line per source asks for far less attention than one
+ * line per capture while still counting everything and keeping it one tap away.
+ */
+function QuietSection({
+  expanded,
+  items,
+  onToggle,
+}: {
+  expanded: string | undefined;
+  items: readonly InboxItem[];
+  onToggle: (value: string | undefined) => void;
+}) {
+  return (
+    <>
+      {groupByApp(items).map((group) => (
+        <View key={group.appLabel}>
+          <AppButton
+            accessibilityHint="Shows the captures filed quietly for this application"
+            label={`${group.appLabel} · ${String(group.items.length)} captured`}
+            onPress={() => onToggle(expanded === group.appLabel ? undefined : group.appLabel)}
+            tone="secondary"
+          />
+          {expanded === group.appLabel
+            ? group.items.map((item) => <InboxItemCard item={item} key={item.id} />)
+            : null}
+        </View>
+      ))}
+    </>
   );
 }
 

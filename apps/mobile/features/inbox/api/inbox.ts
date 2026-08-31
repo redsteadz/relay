@@ -5,7 +5,6 @@ import { logMobileError } from "@/lib/observability";
 
 import {
   inboxItemForEvent,
-  inboxItemForFact,
   inboxRetention,
   type InboxCategory,
   type InboxContext,
@@ -219,6 +218,24 @@ export async function listInbox(client: SupabaseClient, now = new Date().toISOSt
       now,
     );
 
+  // Facts support the event extracted from the same source item. They are grouped here rather than
+  // listed, because a raw fact is evidence for an observation rather than an observation itself.
+  const factsByItem = new Map<string, InboxFactInput[]>();
+  for (const row of (facts.data ?? []) as FactRow[]) {
+    const fact: InboxFactInput = {
+      certainty: row.certainty,
+      createdAt: row.created_at,
+      id: row.id,
+      kind: row.kind,
+      sourceItemId: row.source_item_id,
+      uncertaintyReason: row.uncertainty_reason,
+      value: row.value,
+    };
+    const existing = factsByItem.get(row.source_item_id);
+    if (existing === undefined) factsByItem.set(row.source_item_id, [fact]);
+    else existing.push(fact);
+  }
+
   const inbox: InboxItem[] = [
     ...((events.data ?? []) as EventRow[]).map((row) =>
       inboxItemForEvent(
@@ -237,20 +254,7 @@ export async function listInbox(client: SupabaseClient, now = new Date().toISOSt
           title: row.title,
         },
         context(row.source_item_id, row.created_at),
-      ),
-    ),
-    ...((facts.data ?? []) as FactRow[]).map((row) =>
-      inboxItemForFact(
-        {
-          certainty: row.certainty,
-          createdAt: row.created_at,
-          id: row.id,
-          kind: row.kind,
-          sourceItemId: row.source_item_id,
-          uncertaintyReason: row.uncertainty_reason,
-          value: row.value,
-        },
-        context(row.source_item_id, row.created_at),
+        factsByItem.get(row.source_item_id) ?? [],
       ),
     ),
   ];
