@@ -2,25 +2,47 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import { useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
-import { Chip } from "react-native-paper";
 
 import { AppScreen } from "@/components/AppScreen";
-import { AppButton, AppText, EditorialSurface } from "@/components/ui";
+import {
+  AppButton,
+  AppText,
+  AppTextInput,
+  EditorialSurface,
+  FeedbackState,
+  LoadingState,
+} from "@/components/ui";
+import { InboxItemCard } from "@/features/inbox/components/InboxItemCard";
+import { useInbox } from "@/features/inbox/hooks/useInbox";
+import type { InboxGroup } from "@/features/inbox/models/inboxPresentation";
 import { useAuth } from "@/lib/auth-context";
+import { demoIngress, sendDemoIngress } from "@/lib/demo";
 import {
   localDevelopmentAccessEnabled,
   localDiagnosticsDisabled,
   notificationCaptureTenantId,
 } from "@/lib/development-access";
-import { demoIngress, sendDemoIngress } from "@/lib/demo";
 import { registerInstallation } from "@/lib/device";
 import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { useRelayTheme } from "@/theme";
 
+const GROUP_HEADING: Record<InboxGroup, string> = {
+  actionable: "Needs doing",
+  "needs-review": "Needs your review",
+  quiet: "Filed quietly",
+};
+
+const GROUP_EMPTY: Record<InboxGroup, string> = {
+  actionable: "Nothing is scheduled.",
+  "needs-review": "Nothing is waiting on you.",
+  quiet: "Nothing has been filed quietly yet.",
+};
+
 export default function InboxScreen() {
   const { session } = useAuth();
   const theme = useRelayTheme();
+  const inbox = useInbox();
   const [status, setStatus] = useState("Ready for local simulation");
   const [sending, setSending] = useState(false);
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
@@ -33,6 +55,8 @@ export default function InboxScreen() {
     localDevelopmentAccess,
     Platform.OS,
   );
+  const actionable =
+    inbox.sections.find((section) => section.group === "actionable")?.items.length ?? 0;
 
   async function simulate() {
     setSending(true);
@@ -55,6 +79,7 @@ export default function InboxScreen() {
       const device = await registerInstallation(session.user.id, session.access_token);
       const result = await sendDemoIngress(session.access_token, device.id);
       setStatus(result.accepted ? `Queued ${result.id.slice(0, 8)}` : "Not accepted");
+      inbox.refetch();
     } catch (error) {
       logMobileError("ui.demo_ingress_failed", error, {
         code: "DEMO_INGRESS_FAILED",
@@ -75,7 +100,7 @@ export default function InboxScreen() {
       action={
         <View style={[styles.score, { paddingTop: theme.relay.spacing.xs }]}>
           <AppText tone="accent" variant="hero">
-            3
+            {String(actionable)}
           </AppText>
           <AppText tone="muted" variant="eyebrow">
             ACTIONABLE
@@ -83,29 +108,51 @@ export default function InboxScreen() {
         </View>
       }
     >
-      <EditorialSurface
-        icon="credit-card-check-outline"
-        title="Card purchase approved"
-        meta="Now · Transaction"
-        variant="accent"
-      >
-        <AppText variant="heading">$14.20 at North Station</AppText>
-        <AppText tone="muted">
-          Possible transit expense · awaiting Google Tasks action approval
-        </AppText>
-        <View style={[styles.tags, { gap: theme.relay.spacing.sm }]}>
-          {["Example Bank", "92% confidence"].map((tag) => (
-            <Chip
-              compact
-              key={tag}
-              style={{ backgroundColor: theme.relay.colors.accent }}
-              textStyle={[theme.relay.typography.caption, { color: theme.relay.colors.onAccent }]}
-            >
-              {tag}
-            </Chip>
-          ))}
-        </View>
-      </EditorialSurface>
+      <AppTextInput
+        accessibilityLabel="Search the inbox"
+        autoCapitalize="none"
+        autoCorrect={false}
+        label="Search"
+        onChangeText={inbox.setQuery}
+        placeholder="Search titles, senders, apps, and categories"
+        value={inbox.query}
+      />
+
+      {inbox.loading ? <LoadingState label="Reading your inbox" /> : null}
+
+      {!inbox.loading && inbox.unavailable ? (
+        <FeedbackState
+          action={<AppButton label="Retry" onPress={inbox.refetch} tone="secondary" />}
+          detail="Relay could not reach your inbox. It will still be here when the connection returns."
+          kind="offline"
+          title="Inbox unavailable"
+        />
+      ) : null}
+
+      {!inbox.loading && !inbox.unavailable && inbox.total === 0 ? (
+        <FeedbackState
+          detail="Once a connected source is captured, what matters appears here and the rest stays quietly searchable."
+          kind="empty"
+          title="Nothing captured yet"
+        />
+      ) : null}
+
+      {!inbox.loading && !inbox.unavailable && inbox.total > 0
+        ? inbox.sections.map((section) => (
+            <View key={section.group} style={[styles.section, { gap: theme.relay.spacing.sm }]}>
+              <AppText accessibilityRole="header" variant="eyebrow">
+                {GROUP_HEADING[section.group]}
+              </AppText>
+              {section.items.length === 0 ? (
+                <AppText tone="muted" variant="caption">
+                  {inbox.query === "" ? GROUP_EMPTY[section.group] : "Nothing here matches."}
+                </AppText>
+              ) : (
+                section.items.map((item) => <InboxItemCard item={item} key={item.id} />)
+              )}
+            </View>
+          ))
+        : null}
 
       <EditorialSurface icon="flask-outline" title="Local walking skeleton" meta="Development">
         <AppText tone="muted">{status}</AppText>
@@ -115,16 +162,11 @@ export default function InboxScreen() {
           onPress={() => void simulate()}
         />
       </EditorialSurface>
-
-      <AppText style={styles.quiet} tone="muted" variant="caption">
-        18 low-value notifications filed quietly today
-      </AppText>
     </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  quiet: { textAlign: "center" },
   score: { alignItems: "flex-end" },
-  tags: { flexDirection: "row", flexWrap: "wrap" },
+  section: { width: "100%" },
 });
