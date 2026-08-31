@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appLabelFor,
+  evidenceLabel,
   filterInbox,
+  groupByApp,
   inboxItemForEvent,
-  inboxItemForFact,
   inboxRetention,
   inboxSections,
   type InboxContext,
@@ -20,8 +22,8 @@ function context(overrides: Partial<InboxContext> = {}): InboxContext {
       applicationId: "com.google.android.gm",
       kind: "notification",
       occurredAt: "2026-08-30T20:59:00.000Z",
-      sender: "billing@example.test",
-      subject: "Statement ready",
+      sender: undefined,
+      subject: undefined,
     },
     ...overrides,
   };
@@ -29,18 +31,18 @@ function context(overrides: Partial<InboxContext> = {}): InboxContext {
 
 function event(overrides: Partial<InboxEventInput> = {}): InboxEventInput {
   return {
-    confidence: 0.9,
+    confidence: 0.75,
     createdAt: "2026-08-30T21:00:00.000Z",
     dateAmbiguity: null,
     dueAt: null,
     id: "11111111-1111-4111-8111-111111111111",
-    kind: "task",
-    requiresReview: false,
+    kind: "fact",
+    requiresReview: true,
     sourceItemId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    startsAt: "2026-09-01T09:00:00.000Z",
-    summary: "Summary",
-    temporalStatus: "resolved",
-    title: "Review the statement",
+    startsAt: null,
+    summary: "Structured source facts available.",
+    temporalStatus: "none",
+    title: "Source fact",
     ...overrides,
   };
 }
@@ -58,93 +60,115 @@ function fact(overrides: Partial<InboxFactInput> = {}): InboxFactInput {
   };
 }
 
-const eventItem = (o: Partial<InboxEventInput> = {}, c = context()) =>
-  inboxItemForEvent(event(o), c);
-const factItem = (o: Partial<InboxFactInput> = {}, c = context()) => inboxItemForFact(fact(o), c);
+const item = (
+  o: Partial<InboxEventInput> = {},
+  c = context(),
+  facts: InboxFactInput[] = [fact()],
+) => inboxItemForEvent(event(o), c, facts);
 
 describe("inbox grouping", () => {
-  it("treats a confidently scheduled event as actionable", () => {
-    const item = eventItem();
-    expect(item.group).toBe("actionable");
-    expect(item.scheduledAt).toBe("2026-09-01T09:00:00.000Z");
-    expect(item.reviewReasons).toEqual([]);
+  it("files an unautomatable but unambiguous event quietly", () => {
+    // `requiresReview` means "below the automation threshold", which most captures are. Promoting
+    // those would bury the few items that genuinely need attention.
+    const quiet = item();
+    expect(quiet.group).toBe("quiet");
+    expect(quiet.reviewReasons).toEqual([]);
+    expect(quiet.confidence).toBe(0.75);
   });
 
-  it("keeps an ambiguous date reviewable rather than actionable", () => {
-    const item = eventItem({ dateAmbiguity: "contradictory", temporalStatus: "ambiguous" });
-    expect(item.group).toBe("needs-review");
-    expect(item.reviewReasons).toEqual(["Relay read conflicting values for this."]);
+  it("treats a scheduled event as actionable", () => {
+    const scheduled = item({ kind: "task", startsAt: "2026-09-01T09:00:00.000Z" });
+    expect(scheduled.group).toBe("actionable");
+    expect(scheduled.scheduledAt).toBe("2026-09-01T09:00:00.000Z");
   });
 
-  it("reviews a low-confidence event instead of acting on it", () => {
-    const item = eventItem({ confidence: 0.2 });
-    expect(item.group).toBe("needs-review");
-    expect(item.reviewReasons).toEqual(["Relay is not confident in this reading."]);
+  it("reviews a contradictory date even when a schedule exists", () => {
+    const ambiguous = item({
+      dateAmbiguity: "contradictory",
+      startsAt: "2026-09-01T09:00:00.000Z",
+      temporalStatus: "ambiguous",
+    });
+    expect(ambiguous.group).toBe("needs-review");
+    expect(ambiguous.reviewReasons).toEqual(["Relay read conflicting values for this."]);
   });
 
-  it("explains an extractor review flag when nothing more specific applies", () => {
-    expect(eventItem({ requiresReview: true }).reviewReasons).toEqual([
-      "Relay flagged this for review.",
+  it("reviews an event whose supporting evidence is uncertain", () => {
+    const uncertain = item({}, context(), [
+      fact({ certainty: "uncertain", uncertaintyReason: "invalid" }),
     ]);
-  });
-
-  it("prefers the specific reason over the generic review flag", () => {
-    expect(eventItem({ dateAmbiguity: "invalid", requiresReview: true }).reviewReasons).toEqual([
-      "The value Relay read is not a valid one.",
-    ]);
-  });
-
-  it("quiets an event that carries no schedule", () => {
-    const item = eventItem({ dueAt: null, startsAt: null });
-    expect(item.group).toBe("quiet");
-    expect(item.scheduledAt).toBeUndefined();
+    expect(uncertain.group).toBe("needs-review");
+    expect(uncertain.reviewReasons).toEqual(["The value Relay read is not a valid one."]);
   });
 
   it("falls back to the due date when an event has no start", () => {
-    expect(eventItem({ dueAt: "2026-09-02T10:00:00.000Z", startsAt: null }).scheduledAt).toBe(
+    expect(item({ dueAt: "2026-09-02T10:00:00.000Z" }).scheduledAt).toBe(
       "2026-09-02T10:00:00.000Z",
     );
   });
 });
 
-describe("fact grouping", () => {
-  it("keeps a certain fact quiet and readable", () => {
-    const item = factItem();
-    expect(item.group).toBe("quiet");
-    expect(item.title).toBe("42.50");
+describe("evidence", () => {
+  it("carries supporting facts onto the event rather than listing them separately", () => {
+    const withEvidence = item({}, context(), [fact(), fact({ kind: "currency", value: "USD" })]);
+    expect(withEvidence.evidence).toEqual([
+      { certain: true, kind: "amount", label: "42.50" },
+      { certain: true, kind: "currency", label: "USD" },
+    ]);
   });
 
-  it("surfaces an uncertain fact for review with its reason", () => {
-    const item = factItem({ certainty: "uncertain", uncertaintyReason: "contradictory" });
-    expect(item.group).toBe("needs-review");
-    expect(item.reviewReasons).toEqual(["Relay read conflicting values for this."]);
+  it("renders a date fact as its instant and role rather than its kind", () => {
+    expect(evidenceLabel("date", { instant: "2026-08-31T07:59:23.966Z", role: "occurred" })).toBe(
+      "occurred 2026-08-31T07:59:23.966Z",
+    );
   });
 
-  it("names the fact kind when its value is not displayable text", () => {
-    expect(factItem({ value: { raw: 1 } }).title).toBe("amount");
+  it("renders a bare string value directly", () => {
+    expect(evidenceLabel("sender", "Example Bank")).toBe("Example Bank");
+  });
+
+  it("names the kind when a value has no displayable form", () => {
+    expect(evidenceLabel("reference", { nested: { deep: true } })).toBe("reference");
   });
 });
 
-describe("item context", () => {
-  it("carries source, category, retention, and processing onto the item", () => {
-    const item = eventItem();
-    expect(item.source.kind).toBe("notification");
-    expect(item.source.applicationId).toBe("com.google.android.gm");
-    expect(item.category?.method).toBe("deterministic");
-    expect(item.category?.name).toBe("Finance");
-    expect(item.retention.rawExpired).toBe(false);
-    expect(item.processing).toBe("processed");
+describe("application labels", () => {
+  it("names a known capturing application", () => {
+    expect(appLabelFor(context().source)).toBe("Gmail");
+    expect(appLabelFor({ ...context().source, applicationId: "com.whatsapp" })).toBe("WhatsApp");
   });
 
-  it("reports an unfinished capture as pending rather than failed", () => {
-    expect(eventItem({}, context({ processing: "pending" })).processing).toBe("pending");
+  it("shows an exact package rather than guessing at an unknown application", () => {
+    expect(appLabelFor({ ...context().source, applicationId: "com.example.bank" })).toBe(
+      "com.example.bank",
+    );
   });
 
-  it("marks an item whose raw payload has expired", () => {
-    const expired = context({
-      retention: { rawExpired: true, rawExpiresAt: "2026-08-01T00:00:00.000Z" },
-    });
-    expect(eventItem({}, expired).retention.rawExpired).toBe(true);
+  it("falls back to the source kind when no application was recorded", () => {
+    expect(appLabelFor({ ...context().source, applicationId: undefined })).toBe(
+      "Android notification",
+    );
+  });
+});
+
+describe("quiet grouping", () => {
+  it("collapses quiet items by application, busiest first", () => {
+    const gmail = context();
+    const whatsapp = context({ source: { ...context().source, applicationId: "com.whatsapp" } });
+    const groups = groupByApp([
+      item({ id: "a" }, gmail),
+      item({ id: "b" }, whatsapp),
+      item({ id: "c" }, gmail),
+    ]);
+
+    expect(groups.map((group) => [group.appLabel, group.items.length])).toEqual([
+      ["Gmail", 2],
+      ["WhatsApp", 1],
+    ]);
+  });
+
+  it("keeps every item present so nothing is hidden by collapsing", () => {
+    const groups = groupByApp([item({ id: "a" }), item({ id: "b" })]);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(2);
   });
 });
 
@@ -171,40 +195,38 @@ describe("raw retention", () => {
 
 describe("inbox search", () => {
   it("returns everything for a blank query", () => {
-    expect(filterInbox([eventItem(), factItem()], "   ")).toHaveLength(2);
+    expect(filterInbox([item(), item({ id: "b" })], "   ")).toHaveLength(2);
   });
 
-  it("matches derived title text", () => {
-    // Both items share a source subject, so search on the event title itself rather than on
-    // metadata the fact also carries.
-    expect(filterInbox([eventItem(), factItem()], "review the")).toHaveLength(1);
+  it("matches the capturing application by name and by package", () => {
+    expect(filterInbox([item()], "gmail")).toHaveLength(1);
+    expect(filterInbox([item()], "com.google.android.gm")).toHaveLength(1);
   });
 
-  it("matches retained source metadata", () => {
-    expect(filterInbox([eventItem()], "android.gm")).toHaveLength(1);
-    expect(filterInbox([eventItem()], "billing@example.test")).toHaveLength(1);
+  it("reaches evidence so a fact stays findable without being its own row", () => {
+    expect(filterInbox([item()], "42.50")).toHaveLength(1);
   });
 
   it("matches the category a filter decision assigned", () => {
-    expect(filterInbox([eventItem()], "finance")).toHaveLength(1);
+    expect(filterInbox([item()], "finance")).toHaveLength(1);
   });
 
   it("narrows rather than widens as terms are added", () => {
-    expect(filterInbox([eventItem()], "statement finance")).toHaveLength(1);
-    expect(filterInbox([eventItem()], "statement unrelated")).toHaveLength(0);
+    expect(filterInbox([item()], "source finance")).toHaveLength(1);
+    expect(filterInbox([item()], "source unrelated")).toHaveLength(0);
   });
 
   it("ignores case", () => {
-    expect(filterInbox([eventItem()], "REVIEW THE STATEMENT")).toHaveLength(1);
+    expect(filterInbox([item()], "SOURCE FACT")).toHaveLength(1);
   });
 });
 
 describe("inbox sections", () => {
   it("ranks review above actionable above quiet and hides nothing", () => {
     const items = [
-      factItem({ id: "quiet-fact" }),
-      eventItem({ id: "actionable" }),
-      eventItem({ dateAmbiguity: "invalid", id: "review" }),
+      item({ id: "quiet" }),
+      item({ id: "actionable", startsAt: "2026-09-01T09:00:00.000Z" }),
+      item({ dateAmbiguity: "invalid", id: "review" }),
     ];
 
     const sections = inboxSections(items);
@@ -214,26 +236,26 @@ describe("inbox sections", () => {
       "actionable",
       "quiet",
     ]);
-    expect(sections.flatMap((section) => section.items).length).toBe(items.length);
+    expect(sections.flatMap((section) => section.items)).toHaveLength(items.length);
     expect(sections[0]?.items[0]?.id).toBe("review");
   });
 
   it("reads actionable work forwards in time", () => {
     const sections = inboxSections([
-      eventItem({ id: "later", startsAt: "2026-09-05T09:00:00.000Z" }),
-      eventItem({ id: "sooner", startsAt: "2026-09-01T09:00:00.000Z" }),
+      item({ id: "later", startsAt: "2026-09-05T09:00:00.000Z" }),
+      item({ id: "sooner", startsAt: "2026-09-01T09:00:00.000Z" }),
     ]);
 
-    expect(sections[1]?.items.map((item) => item.id)).toEqual(["sooner", "later"]);
+    expect(sections[1]?.items.map((entry) => entry.id)).toEqual(["sooner", "later"]);
   });
 
-  it("reads unresolved and quiet items newest first", () => {
+  it("reads quiet items newest first", () => {
     const sections = inboxSections([
-      factItem({ createdAt: "2026-08-01T00:00:00.000Z", id: "older" }),
-      factItem({ createdAt: "2026-08-30T00:00:00.000Z", id: "newer" }),
+      item({ createdAt: "2026-08-01T00:00:00.000Z", id: "older" }),
+      item({ createdAt: "2026-08-30T00:00:00.000Z", id: "newer" }),
     ]);
 
-    expect(sections[2]?.items.map((item) => item.id)).toEqual(["newer", "older"]);
+    expect(sections[2]?.items.map((entry) => entry.id)).toEqual(["newer", "older"]);
   });
 
   it("returns empty sections so a screen can say a group is genuinely clear", () => {

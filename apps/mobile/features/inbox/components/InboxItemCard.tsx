@@ -5,13 +5,6 @@ import { useRelayTheme } from "@/theme";
 
 import type { InboxItem } from "../models/inboxPresentation";
 
-const SOURCE_LABEL: Record<string, string> = {
-  gmail: "Gmail",
-  notification: "Android notification",
-  sms: "SMS",
-  unknown: "Source no longer retained",
-};
-
 const ICON: Record<string, string> = {
   actionable: "calendar-check",
   "needs-review": "alert-decagram-outline",
@@ -20,12 +13,6 @@ const ICON: Record<string, string> = {
 
 function percent(value: number | undefined): string | undefined {
   return value === undefined ? undefined : `${Math.round(value * 100)}% confidence`;
-}
-
-function meta(item: InboxItem): string {
-  return [SOURCE_LABEL[item.source.kind] ?? item.source.kind, item.category?.name, item.kind]
-    .filter((part): part is string => part !== undefined && part !== "")
-    .join(" · ");
 }
 
 /**
@@ -40,7 +27,7 @@ export function InboxItemCard({ item }: { item: InboxItem }) {
   return (
     <EditorialSurface
       icon={ICON[item.group] ?? "tray-full"}
-      meta={meta(item)}
+      meta={[item.appLabel, item.category?.name].filter(Boolean).join(" · ")}
       title={item.title}
       variant={item.group === "actionable" ? "accent" : "raised"}
     >
@@ -63,9 +50,9 @@ export function InboxItemCard({ item }: { item: InboxItem }) {
             {confidence}
           </AppText>
         )}
-        {item.source.sender === undefined ? null : (
+        {item.evidence.length === 0 ? null : (
           <AppText tone="muted" variant="caption">
-            From {item.source.sender}
+            Evidence: {item.evidence.map((entry) => `${entry.kind} ${entry.label}`).join(" · ")}
           </AppText>
         )}
         {item.category === undefined ? null : (
