@@ -177,11 +177,15 @@ export default function InboxScreen() {
   );
 }
 
+/** How many recent captures each quiet source shows before the rest are folded away. */
+const QUIET_PREVIEW_COUNT = 3;
+
 /**
- * Quiet items, collapsed by capturing application.
+ * Quiet items, grouped by capturing application.
  *
- * Quiet items are numerous by design, so one line per source asks for far less attention than one
- * line per capture while still counting everything and keeping it one tap away.
+ * The newest few from each source stay on screen. Folding the group away entirely was worse than the
+ * noise it removed: extraction derives little from an ordinary notification, so almost everything is
+ * quiet, and hiding all of it left the inbox looking unchanged no matter what arrived.
  */
 function QuietSection({
   expanded,
@@ -192,21 +196,32 @@ function QuietSection({
   items: readonly InboxItem[];
   onToggle: (value: string | undefined) => void;
 }) {
+  const theme = useRelayTheme();
   return (
     <>
-      {groupByApp(items).map((group) => (
-        <View key={group.appLabel}>
-          <AppButton
-            accessibilityHint="Shows the captures filed quietly for this application"
-            label={`${group.appLabel} · ${String(group.items.length)} captured`}
-            onPress={() => onToggle(expanded === group.appLabel ? undefined : group.appLabel)}
-            tone="secondary"
-          />
-          {expanded === group.appLabel
-            ? group.items.map((item) => <InboxItemCard item={item} key={item.id} />)
-            : null}
-        </View>
-      ))}
+      {groupByApp(items).map((group) => {
+        const showingAll = expanded === group.appLabel;
+        const visible = showingAll ? group.items : group.items.slice(0, QUIET_PREVIEW_COUNT);
+        const remaining = group.items.length - visible.length;
+        return (
+          <View key={group.appLabel} style={[styles.section, { gap: theme.relay.spacing.sm }]}>
+            <AppText accessibilityRole="header" tone="muted" variant="caption">
+              {group.appLabel} · {String(group.items.length)} captured
+            </AppText>
+            {visible.map((item) => (
+              <InboxItemCard item={item} key={item.id} />
+            ))}
+            {remaining > 0 || showingAll ? (
+              <AppButton
+                accessibilityHint={`Shows every capture filed quietly from ${group.appLabel}`}
+                label={showingAll ? "Show fewer" : `Show ${String(remaining)} more`}
+                onPress={() => onToggle(showingAll ? undefined : group.appLabel)}
+                tone="secondary"
+              />
+            ) : null}
+          </View>
+        );
+      })}
     </>
   );
 }
