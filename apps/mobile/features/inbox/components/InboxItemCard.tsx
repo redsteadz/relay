@@ -3,16 +3,22 @@ import { View } from "react-native";
 import { AppText, ContextualNotice, EditorialSurface, StatusMessage } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
-import type { InboxItem } from "../models/inboxPresentation";
+import {
+  appIconFor,
+  formatCaptureTime,
+  type InboxEvidence,
+  type InboxItem,
+} from "../models/inboxPresentation";
 
-const ICON: Record<string, string> = {
-  actionable: "calendar-check",
-  "needs-review": "alert-decagram-outline",
-  quiet: "tray-full",
-};
-
-function percent(value: number | undefined): string | undefined {
-  return value === undefined ? undefined : `${Math.round(value * 100)}% confidence`;
+/**
+ * Evidence worth reading beside an item.
+ *
+ * A capture records when it was captured and when it occurred, which the item already states as its
+ * time. Repeating those as evidence says nothing, so only facts describing what the capture carried
+ * appear here.
+ */
+function readableEvidence(evidence: readonly InboxEvidence[]): readonly InboxEvidence[] {
+  return evidence.filter((fact) => fact.kind !== "date");
 }
 
 /**
@@ -23,15 +29,19 @@ function percent(value: number | undefined): string | undefined {
  */
 export function InboxItemCard({ item }: { item: InboxItem }) {
   const theme = useRelayTheme();
-  const confidence = percent(item.confidence);
+  const evidence = readableEvidence(item.evidence);
+  const occurred = formatCaptureTime(item.source.occurredAt);
+  const scheduled =
+    item.scheduledAt === undefined ? undefined : formatCaptureTime(item.scheduledAt);
+
   return (
     <EditorialSurface
-      icon={ICON[item.group] ?? "tray-full"}
-      meta={[item.appLabel, item.category?.name].filter(Boolean).join(" · ")}
+      icon={appIconFor(item.source)}
+      meta={[occurred, item.category?.name].filter(Boolean).join(" · ")}
       title={item.title}
       variant={item.group === "actionable" ? "accent" : "raised"}
     >
-      {item.summary === undefined ? null : <AppText tone="muted">{item.summary}</AppText>}
+      {item.summary === undefined ? null : <AppText>{item.summary}</AppText>}
 
       {item.reviewReasons.map((reason) => (
         <StatusMessage key={reason} tone="warning">
@@ -40,19 +50,14 @@ export function InboxItemCard({ item }: { item: InboxItem }) {
       ))}
 
       <View style={{ gap: theme.relay.spacing.xxs }}>
-        {item.scheduledAt === undefined ? null : (
+        {scheduled === undefined ? null : (
           <AppText tone="muted" variant="caption">
-            Scheduled {item.scheduledAt}
+            Due {scheduled}
           </AppText>
         )}
-        {confidence === undefined ? null : (
+        {evidence.length === 0 ? null : (
           <AppText tone="muted" variant="caption">
-            {confidence}
-          </AppText>
-        )}
-        {item.evidence.length === 0 ? null : (
-          <AppText tone="muted" variant="caption">
-            Evidence: {item.evidence.map((entry) => `${entry.kind} ${entry.label}`).join(" · ")}
+            {evidence.map((entry) => `${entry.kind}: ${entry.label}`).join(" · ")}
           </AppText>
         )}
         {item.category === undefined ? null : (

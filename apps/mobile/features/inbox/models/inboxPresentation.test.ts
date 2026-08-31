@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appIconFor,
   appLabelFor,
+  formatCaptureTime,
   evidenceLabel,
   filterInbox,
   groupByApp,
@@ -201,6 +203,56 @@ describe("application labels", () => {
   it("falls back to the source kind when no application was recorded", () => {
     expect(appLabelFor({ ...context().source, applicationId: undefined })).toBe(
       "Android notification",
+    );
+  });
+});
+
+describe("capture times", () => {
+  // Built from local components so the expectations hold in any zone the suite runs in.
+  const at = (y: number, m: number, d: number, hh: number, mm: number) => new Date(y, m, d, hh, mm);
+
+  it("shows only the clock for a capture from today", () => {
+    const now = at(2026, 7, 31, 18, 5);
+    expect(formatCaptureTime(at(2026, 7, 31, 9, 7).toISOString(), now)).toBe("09:07");
+  });
+
+  it("adds the day for an older capture in the same year", () => {
+    const now = at(2026, 7, 31, 18, 5);
+    expect(formatCaptureTime(at(2026, 7, 24, 14, 30).toISOString(), now)).toBe("24 Aug, 14:30");
+  });
+
+  it("adds the year for a capture from another year", () => {
+    const now = at(2026, 0, 2, 9, 0);
+    expect(formatCaptureTime(at(2025, 11, 31, 23, 45).toISOString(), now)).toBe(
+      "31 Dec 2025, 23:45",
+    );
+  });
+
+  it("distinguishes the same clock time on a different day", () => {
+    const now = at(2026, 7, 31, 18, 5);
+    expect(formatCaptureTime(at(2026, 7, 30, 18, 5).toISOString(), now)).not.toBe("18:05");
+  });
+
+  it("returns nothing readable for an unparseable time rather than inventing one", () => {
+    expect(formatCaptureTime("not-a-time")).toBe("");
+  });
+});
+
+describe("application icons", () => {
+  it("names an icon for a known application", () => {
+    expect(appIconFor(context().source)).toBe("gmail");
+    expect(appIconFor({ ...context().source, applicationId: "com.whatsapp" })).toBe("whatsapp");
+  });
+
+  it("falls back to the source icon for an unknown application", () => {
+    expect(appIconFor({ ...context().source, applicationId: "com.example.bank" })).toBe(
+      "bell-outline",
+    );
+  });
+
+  it("marks a source that is no longer retained", () => {
+    expect(appIconFor({ ...context().source, applicationId: undefined, kind: "unknown" })).toBe(
+      "help-circle-outline",
     );
   });
 });

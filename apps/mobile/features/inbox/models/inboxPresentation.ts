@@ -157,12 +157,80 @@ const APP_LABEL: Record<string, string> = {
   "com.whatsapp": "WhatsApp",
 };
 
+/**
+ * Icons for the applications and sources a capture can come from.
+ *
+ * An unlisted application gets the generic capture icon rather than a guess, matching how its label
+ * falls back to the exact package rather than inventing a name.
+ */
+const APP_ICON: Record<string, string> = {
+  "com.google.android.apps.messaging": "message-text",
+  "com.google.android.gm": "gmail",
+  "com.instagram.android": "instagram",
+  "com.whatsapp": "whatsapp",
+};
+
+const SOURCE_ICON: Record<string, string> = {
+  gmail: "gmail",
+  notification: "bell-outline",
+  sms: "message-text",
+  unknown: "help-circle-outline",
+};
+
 const SOURCE_LABEL: Record<string, string> = {
   gmail: "Gmail",
   notification: "Android notification",
   sms: "SMS",
   unknown: "Source no longer retained",
 };
+
+export function appIconFor(source: InboxSource): string {
+  if (source.applicationId !== undefined) {
+    const icon = APP_ICON[source.applicationId];
+    if (icon !== undefined) return icon;
+  }
+  return SOURCE_ICON[source.kind] ?? "bell-outline";
+}
+
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+function clockTime(value: Date): string {
+  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Formats a capture time for reading rather than for precision.
+ *
+ * Today shows the clock alone, because the date is the one thing a reader already knows. An older
+ * capture adds the day, and one from another year adds the year, so a timestamp never implies a
+ * recency it does not have. Times render in the reader's own zone; the stored value stays UTC.
+ */
+export function formatCaptureTime(iso: string, now: Date = new Date()): string {
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return "";
+  const sameDay =
+    value.getFullYear() === now.getFullYear() &&
+    value.getMonth() === now.getMonth() &&
+    value.getDate() === now.getDate();
+  if (sameDay) return clockTime(value);
+  const day = `${String(value.getDate())} ${MONTHS[value.getMonth()] ?? ""}`;
+  return value.getFullYear() === now.getFullYear()
+    ? `${day}, ${clockTime(value)}`
+    : `${day} ${String(value.getFullYear())}, ${clockTime(value)}`;
+}
 
 export function appLabelFor(source: InboxSource): string {
   if (source.applicationId === undefined) return SOURCE_LABEL[source.kind] ?? source.kind;

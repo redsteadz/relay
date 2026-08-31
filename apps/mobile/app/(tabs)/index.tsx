@@ -4,7 +4,10 @@ import { useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 
 import { AppScreen } from "@/components/AppScreen";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
+
 import {
+  ActionRow,
   AppButton,
   AppText,
   AppTextInput,
@@ -15,6 +18,7 @@ import {
 import { InboxItemCard } from "@/features/inbox/components/InboxItemCard";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
 import {
+  appIconFor,
   groupByApp,
   type InboxGroup,
   type InboxItem,
@@ -203,18 +207,28 @@ function QuietSection({
         const showingAll = expanded === group.appLabel;
         const visible = showingAll ? group.items : group.items.slice(0, QUIET_PREVIEW_COUNT);
         const remaining = group.items.length - visible.length;
+        const first = group.items[0];
         return (
           <View key={group.appLabel} style={[styles.section, { gap: theme.relay.spacing.sm }]}>
-            <AppText accessibilityRole="header" tone="muted" variant="caption">
-              {group.appLabel} · {String(group.items.length)} captured
-            </AppText>
+            <ActionRow compact wrap={false}>
+              {first === undefined ? null : (
+                <MaterialCommunityIcons
+                  color={theme.relay.colors.textMuted}
+                  name={appIconFor(first.source) as never}
+                  size={theme.relay.sizes.icon.sm}
+                />
+              )}
+              <AppText accessibilityRole="header" tone="muted" variant="caption">
+                {group.appLabel} · {String(group.items.length)} captured
+              </AppText>
+            </ActionRow>
             {visible.map((item) => (
               <InboxItemCard item={item} key={item.id} />
             ))}
             {remaining > 0 || showingAll ? (
               <AppButton
                 accessibilityHint={`Shows every capture filed quietly from ${group.appLabel}`}
-                label={showingAll ? "Show fewer" : `Show ${String(remaining)} more`}
+                label={showingAll ? "Show fewer" : `Show all ${String(group.items.length)}`}
                 onPress={() => onToggle(showingAll ? undefined : group.appLabel)}
                 tone="secondary"
               />
