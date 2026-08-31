@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Env, IngressQueueMessage } from "../src/env";
 import { completeDeadLetterReplay, recordDeadLetterItem } from "../src/recovery";
@@ -45,9 +45,21 @@ function message(body: IngressQueueMessage, attempts = 1) {
 
 describe("processIngressQueue", () => {
   beforeEach(() => {
+    // The fixture pins a real retention window -- accepted 24 August, raw payload expiring 31
+    // August -- and `processIngressQueue` compares that expiry against the clock to decide whether
+    // to park ciphertext or drop it. Read against the wall clock those dates stopped being a
+    // retention window and became the past, so the suite silently started exercising the expired
+    // branch while still asserting the unexpired one. Freezing the clock inside the window is what
+    // makes the fixture deterministic; only `Date` is faked, so nothing else in the file changes.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-28T10:00:00.000Z"));
     vi.clearAllMocks();
     vi.mocked(completeDeadLetterReplay).mockResolvedValue();
     vi.mocked(recordDeadLetterItem).mockResolvedValue();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("routes uppercase Queue user IDs canonically without changing authenticated wire data", async () => {
