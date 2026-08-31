@@ -13,13 +13,23 @@ vi.mock("../src/recovery", () => ({
   recordDeadLetterItem: vi.fn(() => Promise.resolve()),
 }));
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Acceptance is relative to the run, not a fixed date.
+ *
+ * A raw payload expires seven days after acceptance, and the dead-letter branch reads that expiry
+ * against the current clock. Fixed dates made the suite pass until the day the hardcoded expiry
+ * arrived, then fail for a reason unrelated to any change.
+ */
 function queueMessage(envelopeId: string): IngressQueueMessage {
+  const acceptedAt = new Date(Date.now() - DAY_MS).toISOString();
   return {
     schemaVersion: 1,
     userId: "638ce145-a77d-4c32-b798-cb398e881fc9",
     envelopeId,
-    acceptedAt: "2026-08-24T10:00:00.000Z",
-    rawExpiresAt: "2026-08-31T10:00:00.000Z",
+    acceptedAt,
+    rawExpiresAt: new Date(Date.parse(acceptedAt) + 7 * DAY_MS).toISOString(),
     encryptionEnvironment: "production",
     recoveryId: envelopeId,
     encrypted: {
