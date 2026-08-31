@@ -1,3 +1,4 @@
+import type { OpenAiCredentialSubmitRequest } from "@relay/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -7,6 +8,8 @@ import {
   getPrivacyOverview,
   purgeRawPayloads,
   revokeOpenAiKey,
+  rotateOpenAiKey,
+  submitOpenAiKey,
 } from "../api/privacy";
 
 export const privacyQueryKeys = {
@@ -36,6 +39,21 @@ export function usePrivacySettings(userId: string | undefined, accessToken: stri
     mutationFn: () => revokeOpenAiKey(accessToken as string),
     onSuccess: (status) => queryClient.setQueryData(privacyQueryKeys.openAi(userId), status),
   });
+  // Adding and replacing are one mutation because the panel already knows which applies, and
+  // choosing by stored state keeps the 409 an unreachable race rather than the normal path.
+  const saveKey = useMutation({
+    mutationFn: ({
+      configured,
+      request,
+    }: {
+      configured: boolean;
+      request: OpenAiCredentialSubmitRequest;
+    }) =>
+      configured
+        ? rotateOpenAiKey(accessToken as string, request)
+        : submitOpenAiKey(accessToken as string, request),
+    onSuccess: (status) => queryClient.setQueryData(privacyQueryKeys.openAi(userId), status),
+  });
   const deletion = useMutation({ mutationFn: () => deleteRelayAccount(accessToken as string) });
 
   return {
@@ -47,6 +65,8 @@ export function usePrivacySettings(userId: string | undefined, accessToken: stri
     purgeRawPayloads: purge.mutateAsync,
     revoke,
     revokeOpenAiKey: revoke.mutateAsync,
+    saveKey,
+    saveOpenAiKey: saveKey.mutateAsync,
   };
 }
 

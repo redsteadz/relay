@@ -9,6 +9,7 @@ import {
 } from "@/components/ui";
 
 import { usePrivacySettings } from "../hooks/usePrivacySettings";
+import { openAiSubmitRequest } from "../models/openAiPresentation";
 import { AccountDeletionPanel } from "./AccountDeletionPanel";
 import { OpenAiPrivacyPanel } from "./OpenAiPrivacyPanel";
 import { RetentionPanel } from "./RetentionPanel";
@@ -87,7 +88,15 @@ export function PrivacySettings({
         loading={privacy.openAi.isPending}
         onRevoke={privacy.revokeOpenAiKey}
         onRetry={privacy.openAi.refetch}
+        onSave={(values) =>
+          privacy.saveOpenAiKey({
+            configured: privacy.openAi.data?.configured === true,
+            request: openAiSubmitRequest(values),
+          })
+        }
         revoking={privacy.revoke.isPending}
+        saveError={privacy.saveKey.error}
+        saving={privacy.saveKey.isPending}
         status={privacy.openAi.data}
       />
       <AccountDeletionPanel

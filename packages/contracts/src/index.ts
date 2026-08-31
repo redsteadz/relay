@@ -1452,6 +1452,7 @@ export type SemanticEndpointOverride = z.infer<typeof semanticEndpointOverrideSc
 export const openAiCredentialSubmitRequestSchema = z
   .object({ apiKey: openAiApiKeySchema, endpoint: semanticEndpointOverrideSchema.optional() })
   .strict();
+export type OpenAiCredentialSubmitRequest = z.infer<typeof openAiCredentialSubmitRequestSchema>;
 
 export const openAiCredentialStatusSchema = z
   .object({
