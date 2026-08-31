@@ -68,9 +68,10 @@ describe("listInbox", () => {
       "source_facts",
       "source_items",
     ]);
-    expect(items.map((item) => item.origin).sort()).toEqual(["event", "fact"]);
-    expect(items.find((item) => item.origin === "event")?.group).toBe("actionable");
-    expect(items.find((item) => item.origin === "fact")?.group).toBe("needs-review");
+    // Facts are evidence for the event from the same source item, not rows of their own.
+    expect(items).toHaveLength(1);
+    expect(items[0]?.evidence).toEqual([{ certain: false, kind: "amount", label: "42.50" }]);
+    expect(items[0]?.group).toBe("needs-review");
   });
 
   it("explains where an item came from and which decision placed it", async () => {
@@ -119,6 +120,7 @@ describe("listInbox", () => {
     });
     expect(item?.processing).toBe("processed");
     expect(item?.retention.rawExpired).toBe(false);
+    expect(item?.appLabel).toBe("Gmail");
   });
 
   it("marks a raw payload that has already expired", async () => {
