@@ -6,11 +6,23 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 internal const val CAPTURE_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+
+/**
+ * How long the device keeps its own copy of what a capture said.
+ *
+ * The server retains derived facts until the tenant deletes them but destroys the encrypted original
+ * after seven days, so an item that still exists server-side would otherwise become unreadable. This
+ * copy never leaves the device and stays under the same per-tenant Keystore key as the queue, so it
+ * is bounded by storage rather than by the server's retention deadline.
+ */
+internal const val CAPTURE_CONTENT_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000
+internal const val CAPTURE_CONTENT_MAX_ITEMS = 2000
+internal const val CAPTURE_CONTENT_MAX_BYTES = 4 * 1024 * 1024
 internal const val CAPTURE_MAX_BYTES = 2 * 1024 * 1024
 internal const val CAPTURE_MAX_ITEMS = 500
 
 internal class CaptureQueueStore(context: Context) :
-  SQLiteOpenHelper(context, "relay-capture.db", null, 2) {
+  SQLiteOpenHelper(context, "relay-capture.db", null, 3) {
   private val crypto = CaptureQueueCrypto()
 
   override fun onCreate(db: SQLiteDatabase) {
@@ -30,12 +42,119 @@ internal class CaptureQueueStore(context: Context) :
       )
     """.trimIndent())
     db.execSQL("CREATE INDEX capture_ready ON capture_queue(tenant_id, state, captured_at)")
+    createContentTable(db)
+  }
+
+  private fun createContentTable(db: SQLiteDatabase) {
+    db.execSQL("""
+      CREATE TABLE IF NOT EXISTS capture_content (
+        tenant_id TEXT NOT NULL,
+        envelope_id TEXT NOT NULL,
+        captured_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        byte_count INTEGER NOT NULL,
+        nonce BLOB NOT NULL,
+        ciphertext BLOB NOT NULL,
+        PRIMARY KEY (tenant_id, envelope_id)
+      )
+    """.trimIndent())
   }
 
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
     if (oldVersion < 2) {
       // Every v1 row was produced by the notification adapter.
       db.execSQL("ALTER TABLE capture_queue ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'notification'")
+    }
+    if (oldVersion < 3) createContentTable(db)
+  }
+
+  /**
+   * Keeps what a capture said, encrypted under the same per-tenant Keystore key as the queue.
+   *
+   * Stored separately from the queue so uploading and forgetting stay independent: acknowledging a
+   * capture removes it from the outbox without removing the tenant's ability to read it. Content is
+   * bounded before storage and oldest rows are dropped first once the cap is reached, so retention
+   * degrades by age rather than by refusing to record anything further.
+   */
+  fun retainContent(tenantId: String, envelopeId: String, capturedAt: Long, contentJson: String) {
+    val plaintext = contentJson.toByteArray(Charsets.UTF_8)
+    if (plaintext.size > CAPTURE_CONTENT_MAX_BYTES) return
+    val encrypted = crypto.encrypt(tenantId, envelopeId, plaintext)
+    val now = System.currentTimeMillis()
+    writableDatabase.beginTransaction()
+    try {
+      expireContent(writableDatabase, now)
+      trimContent(writableDatabase, tenantId, plaintext.size)
+      val values = ContentValues().apply {
+        put("tenant_id", tenantId); put("envelope_id", envelopeId)
+        put("captured_at", capturedAt)
+        put("expires_at", minOf(capturedAt + CAPTURE_CONTENT_MAX_AGE_MS, now + CAPTURE_CONTENT_MAX_AGE_MS))
+        put("byte_count", plaintext.size)
+        put("nonce", encrypted.nonce); put("ciphertext", encrypted.ciphertext)
+      }
+      writableDatabase.insertWithOnConflict(
+        "capture_content", null, values, SQLiteDatabase.CONFLICT_REPLACE
+      )
+      writableDatabase.setTransactionSuccessful()
+    } finally {
+      writableDatabase.endTransaction()
+    }
+  }
+
+  /** Reads retained content for the given envelopes. Unreadable rows are dropped, never guessed. */
+  fun readContent(tenantId: String, envelopeIds: List<String>): Map<String, String> {
+    if (envelopeIds.isEmpty()) return emptyMap()
+    expireContent(writableDatabase, System.currentTimeMillis())
+    val bounded = envelopeIds.take(CAPTURE_CONTENT_MAX_ITEMS)
+    val placeholders = bounded.joinToString(",") { "?" }
+    val result = mutableMapOf<String, String>()
+    writableDatabase.query(
+      "capture_content", arrayOf("envelope_id", "nonce", "ciphertext"),
+      "tenant_id=? AND envelope_id IN ($placeholders)",
+      (listOf(tenantId) + bounded).toTypedArray(),
+      null, null, null
+    ).use { cursor ->
+      while (cursor.moveToNext()) {
+        val id = cursor.getString(0)
+        try {
+          val plaintext = crypto.decrypt(
+            tenantId, id, EncryptedCapture(cursor.getBlob(2), cursor.getBlob(1))
+          )
+          result[id] = plaintext.toString(Charsets.UTF_8)
+        } catch (_: Exception) {
+          writableDatabase.delete(
+            "capture_content", "tenant_id=? AND envelope_id=?", arrayOf(tenantId, id)
+          )
+        }
+      }
+    }
+    return result
+  }
+
+  private fun expireContent(db: SQLiteDatabase, now: Long) {
+    db.delete("capture_content", "expires_at<=?", arrayOf(now.toString()))
+  }
+
+  private fun trimContent(db: SQLiteDatabase, tenantId: String, incoming: Int) {
+    val counts = db.rawQuery(
+      "SELECT COUNT(*), COALESCE(SUM(byte_count),0) FROM capture_content WHERE tenant_id=?",
+      arrayOf(tenantId)
+    ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) to cursor.getInt(1) }
+    var items = counts.first
+    var bytes = counts.second
+    while (items >= CAPTURE_CONTENT_MAX_ITEMS || bytes + incoming > CAPTURE_CONTENT_MAX_BYTES) {
+      val removed = db.delete(
+        "capture_content",
+        "rowid IN (SELECT rowid FROM capture_content WHERE tenant_id=? ORDER BY captured_at ASC LIMIT 32)",
+        arrayOf(tenantId)
+      )
+      if (removed == 0) return
+      val next = db.rawQuery(
+        "SELECT COUNT(*), COALESCE(SUM(byte_count),0) FROM capture_content WHERE tenant_id=?",
+        arrayOf(tenantId)
+      ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) to cursor.getInt(1) }
+      items = next.first
+      bytes = next.second
     }
   }
 
@@ -167,5 +286,6 @@ internal class CaptureQueueStore(context: Context) :
     // Delete key first: a crash between operations leaves ciphertext permanently undecryptable.
     crypto.deleteKey(tenantId)
     writableDatabase.delete("capture_queue", "tenant_id=?", arrayOf(tenantId))
+    writableDatabase.delete("capture_content", "tenant_id=?", arrayOf(tenantId))
   }
 }

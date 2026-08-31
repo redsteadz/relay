@@ -238,6 +238,21 @@ class RelayDeviceIngressModule : Module() {
       }
     }
 
+    /**
+     * Reads what the device kept of its own captures.
+     *
+     * The tenant is prepared and the rows are decrypted with that tenant's Keystore key, so this
+     * returns content only to the runtime that captured it. Nothing here reaches the network: the
+     * server holds derived facts, and this holds what those facts were derived from.
+     */
+    AsyncFunction("getRetainedCaptureContent") {
+      tenantId: String, envelopeIds: List<String>, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.readContent(tenantId, envelopeIds)
+      }
+    }
+
     AsyncFunction("getNotificationCapturePreviews") {
       tenantId: String, now: Double, generation: Double ->
       synchronized(NotificationCaptureStateLock) {
