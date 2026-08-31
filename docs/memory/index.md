@@ -49,6 +49,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0009: Local Android capture diagnostics](../decisions/0009-local-android-capture-diagnostics.md)
 - [ADR-0010: Fact-only event extraction](../decisions/0010-fact-only-event-extraction.md)
 - [ADR-0011: Notification capture identity](../decisions/0011-notification-capture-identity.md)
+- [ADR-0012: OpenAI-compatible semantic endpoint](../decisions/0012-openai-compatible-semantic-endpoint.md)
 
 ## Delivery
 

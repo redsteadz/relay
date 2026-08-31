@@ -1094,6 +1094,197 @@ export const filterCompileResponseSchema = z
   .strict();
 export type FilterCompileResponse = z.infer<typeof filterCompileResponseSchema>;
 
+/**
+ * Semantic clause evaluation.
+ *
+ * A plan whose deterministic expression passes but that carries a semantic clause is `undecided`
+ * until the clause is resolved through the user's own OpenAI key. Everything below describes that
+ * exchange: what may leave Relay, what shape the model must answer in, and what is recorded.
+ *
+ * Source content is never an instruction. The question comes from compiled user intent; the item
+ * fields travel as delimited data. See `docs/architecture/filter-model.md`.
+ */
+
+/** Classes of value stripped from a disclosed field. Only the class and a count are ever recorded. */
+export const semanticRedactionKindSchema = z.enum([
+  "api-key",
+  "email-address",
+  "long-digit-sequence",
+  "payment-card",
+  "phone-number",
+  "url",
+]);
+export type SemanticRedactionKind = z.infer<typeof semanticRedactionKindSchema>;
+
+/**
+ * One redaction class applied to one field, with how many times it fired.
+ *
+ * Deliberately carries no value and no offset: a disclosure record explains what class of thing was
+ * removed, never what was removed. The database enforces the same shape so the rule cannot drift.
+ */
+export const semanticRedactionSchema = z
+  .object({
+    field: filterFieldSchema,
+    kind: semanticRedactionKindSchema,
+    count: z.int().min(1).max(10_000),
+  })
+  .strict();
+export type SemanticRedaction = z.infer<typeof semanticRedactionSchema>;
+
+/** Largest disclosed value per field. Bounds one clause's disclosure regardless of body size. */
+export const MAX_SEMANTIC_FIELD_CHARACTERS = 2000;
+/** Largest total disclosure across every allowlisted field in one evaluation. */
+export const MAX_SEMANTIC_DISCLOSURE_CHARACTERS = 6000;
+
+export const semanticDisclosedFieldSchema = z
+  .object({
+    field: filterFieldSchema,
+    value: z.string().min(1).max(MAX_SEMANTIC_FIELD_CHARACTERS),
+    truncated: z.boolean(),
+  })
+  .strict();
+export type SemanticDisclosedField = z.infer<typeof semanticDisclosedFieldSchema>;
+
+/**
+ * The minimized payload for one semantic clause, plus the metadata that describes it.
+ *
+ * `fields` holds values and never leaves the runtime that built it. `disclosedFields` and
+ * `redactions` are the metadata-only projection that is persisted and shown to the user.
+ */
+export const semanticDisclosureSchema = z
+  .object({
+    fields: z.array(semanticDisclosedFieldSchema).max(filterFieldSchema.options.length),
+    disclosedFields: z.array(filterFieldSchema).max(filterFieldSchema.options.length),
+    redactions: z.array(semanticRedactionSchema).max(64),
+  })
+  .strict();
+export type SemanticDisclosure = z.infer<typeof semanticDisclosureSchema>;
+
+/**
+ * The only answer shape Relay accepts from the model.
+ *
+ * `.strict()` is load-bearing: a response that also names a provider, endpoint, credential,
+ * operation, or action is rejected outright rather than having the extra keys quietly dropped. The
+ * model reports a judgement about content; it never selects an effect.
+ */
+export const semanticEvaluationSchema = z
+  .object({
+    decision: z.enum(["match", "no-match"]),
+    confidence: z.number().min(0).max(1),
+    rationale: z.string().min(1).max(500),
+  })
+  .strict();
+export type SemanticEvaluation = z.infer<typeof semanticEvaluationSchema>;
+
+/**
+ * Why an evaluation produced no usable answer. Every reason resolves to `undecided`, so none of
+ * them can trigger an automatic effect.
+ */
+export const semanticFailureReasonSchema = z.enum([
+  "credential-missing",
+  "credential-revoked",
+  "endpoint-invalid",
+  "invalid-response",
+  "no-disclosable-fields",
+  "quota-exhausted",
+  "rate-limited",
+  "response-too-large",
+  "timed-out",
+  "unavailable",
+]);
+export type SemanticFailureReason = z.infer<typeof semanticFailureReasonSchema>;
+
+/** Fixed purpose recorded on every semantic-clause disclosure. */
+export const SEMANTIC_DISCLOSURE_PURPOSE = "filter-semantic-clause";
+
+/**
+ * Model identifier for a semantic clause.
+ *
+ * Bounded and restricted to the characters real identifiers use, which covers a bare OpenAI name
+ * (`gpt-4.1-mini`, `o3`) and the namespaced form gateways use (`anthropic/claude-sonnet-4`,
+ * `meta-llama/Llama-3.3-70B-Instruct-Turbo`). It is recorded verbatim on every disclosure, so it has
+ * to be something a person can read back later.
+ */
+export const semanticModelSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u, "Model identifier contains unsupported characters");
+
+/** Default model when neither the tenant nor the operator names one. */
+export const DEFAULT_SEMANTIC_MODEL = "gpt-4.1-mini";
+
+/**
+ * How much of the answer shape the provider itself is asked to enforce.
+ *
+ * Relay always validates the answer against `semanticEvaluationSchema`, which is `.strict()`, so the
+ * guarantee that a reply carries exactly `decision`, `confidence`, and `rationale` never depends on
+ * the provider. This setting only chooses how much the provider is asked to enforce on its side:
+ *
+ * - `json-schema` sends OpenAI structured outputs with `strict` set, so a non-conforming answer is
+ *   refused before it is billed or returned. The default, and what api.openai.com supports.
+ * - `json-object` asks only for valid JSON. Gateways and local servers that implement the older
+ *   `json_object` mode use this.
+ * - `none` sends no response-format hint at all, for endpoints that reject the field outright. The
+ *   instruction block still states the exact answer shape.
+ *
+ * Relaxing this never relaxes what Relay accepts; it only changes how often a bad answer costs a
+ * round trip instead of being refused at the provider.
+ */
+export const semanticResponseFormatSchema = z.enum(["json-schema", "json-object", "none"]);
+export type SemanticResponseFormat = z.infer<typeof semanticResponseFormatSchema>;
+
+/**
+ * Host that a semantic request was sent to, recorded on the disclosure.
+ *
+ * Once the endpoint is configurable, "OpenAI received this" stops being true by construction, so the
+ * disclosure history has to say where the data actually went. Only the host is kept: no path, no
+ * query, no credential.
+ */
+export const semanticEndpointHostSchema = z.string().min(1).max(255);
+
+/**
+ * The outcome of resolving one semantic clause, whether or not the provider answered.
+ *
+ * `decision` is Relay's, not the model's: an answer below the clause's minimum confidence is
+ * `undecided` even when the model reported certainty. `disclosed` records whether the request
+ * actually reached OpenAI, which is what makes the difference between a disclosure that happened
+ * and one that was never attempted.
+ */
+export const semanticOutcomeSchema = z
+  .object({
+    decision: z.enum(["match", "no-match", "undecided"]),
+    provider: z.literal("openai"),
+    model: semanticModelSchema,
+    endpointHost: semanticEndpointHostSchema.optional(),
+    purpose: z.literal(SEMANTIC_DISCLOSURE_PURPOSE),
+    disclosedFields: z.array(filterFieldSchema).max(filterFieldSchema.options.length),
+    redactions: z.array(semanticRedactionSchema).max(64),
+    disclosed: z.boolean(),
+    confidence: z.number().min(0).max(1).optional(),
+    rationale: z.string().min(1).max(500).optional(),
+    failureReason: semanticFailureReasonSchema.optional(),
+  })
+  .strict()
+  .refine((outcome) => outcome.failureReason === undefined || outcome.decision === "undecided", {
+    message: "A failed semantic evaluation cannot decide a filter",
+  })
+  .refine((outcome) => outcome.failureReason === undefined || outcome.confidence === undefined, {
+    message: "A failed semantic evaluation has no confidence",
+  })
+  .refine(
+    (outcome) =>
+      outcome.disclosed ||
+      (outcome.disclosedFields.length === 0 && outcome.redactions.length === 0),
+    { message: "An undisclosed evaluation cannot report disclosed fields or redactions" },
+  )
+  // Present exactly when something was sent. An evaluation that reached an endpoint must say which
+  // one; an evaluation that never left must not name a host it did not contact.
+  .refine((outcome) => (outcome.endpointHost !== undefined) === outcome.disclosed, {
+    message: "An endpoint host is recorded exactly when a request left the runtime",
+  });
+export type SemanticOutcome = z.infer<typeof semanticOutcomeSchema>;
+
 export const actionProviderSchema = z.enum(["google-tasks", "nextcloud-budget", "webhook"]);
 export const actionIntentSchema = z.object({
   id: canonicalUuidSchema,
@@ -1228,14 +1419,37 @@ export const actionWorkflowClaimSchema = z
   .strict();
 export type ActionWorkflowClaim = z.infer<typeof actionWorkflowClaimSchema>;
 
+/**
+ * A bearer key for the configured semantic endpoint.
+ *
+ * Length is provider-defined now that the endpoint is configurable -- an OpenAI key is long, a
+ * gateway key may be shorter, and a local server often accepts any non-empty placeholder -- so no
+ * floor beyond non-empty is meaningful. The rule that matters is the absence of whitespace: the key
+ * is interpolated into an `authorization` header, and a newline in it would be header injection.
+ */
 export const openAiApiKeySchema = z
   .string()
-  .min(20)
-  .max(256)
-  .regex(/^\S+$/, "Key must not contain whitespace");
+  .min(1)
+  .max(512)
+  .regex(/^\S+$/u, "Key must not contain whitespace");
+
+/**
+ * Where a tenant's key should be used.
+ *
+ * Stored beside the credential because a key issued by a gateway is only valid at that gateway. All
+ * three are optional; an absent field falls back to the operator default and then to OpenAI.
+ */
+export const semanticEndpointOverrideSchema = z
+  .object({
+    baseUrl: z.string().min(1).max(2048).optional(),
+    model: semanticModelSchema.optional(),
+    responseFormat: semanticResponseFormatSchema.optional(),
+  })
+  .strict();
+export type SemanticEndpointOverride = z.infer<typeof semanticEndpointOverrideSchema>;
 
 export const openAiCredentialSubmitRequestSchema = z
-  .object({ apiKey: openAiApiKeySchema })
+  .object({ apiKey: openAiApiKeySchema, endpoint: semanticEndpointOverrideSchema.optional() })
   .strict();
 
 export const openAiCredentialStatusSchema = z
@@ -1243,6 +1457,16 @@ export const openAiCredentialStatusSchema = z
     provider: z.literal("openai"),
     configured: z.boolean(),
     lastValidatedAt: z.iso.datetime({ offset: true }).optional(),
+    /**
+     * The endpoint this key is for, when it is not the default. Never includes the key itself, and
+     * the base URL is the normalized form, which cannot carry a query string.
+     */
+    endpoint: semanticEndpointOverrideSchema.optional(),
+    /**
+     * False when the endpoint accepted the key but exposes no way to check it, so the key was
+     * stored without confirmation rather than silently treated as verified.
+     */
+    validated: z.boolean().optional(),
   })
   .strict();
 export type OpenAiCredentialStatus = z.infer<typeof openAiCredentialStatusSchema>;

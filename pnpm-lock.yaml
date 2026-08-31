@@ -47,6 +47,9 @@ importers:
       '@relay/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@relay/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@relay/observability':
         specifier: workspace:*
         version: link:../../packages/observability

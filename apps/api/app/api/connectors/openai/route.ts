@@ -4,6 +4,7 @@ import { authenticateRequest } from "../../../../lib/auth";
 import { loggedErrorResponse } from "../../../../lib/observability";
 import {
   CredentialConflictError,
+  CredentialEndpointInvalidError,
   CredentialNotFoundError,
   CredentialRejectedError,
   CredentialValidationUnavailableError,
@@ -68,11 +69,19 @@ export async function POST(request: Request) {
     return Response.json({ error: { code: "invalid_openai_key" } }, { status: 400 });
 
   try {
-    const status = await submitOpenAiCredential(auth.userId, parsed.data.apiKey, env);
+    const status = await submitOpenAiCredential(
+      auth.userId,
+      parsed.data.apiKey,
+      env,
+      parsed.data.endpoint,
+    );
     return Response.json(status, { status: 200 });
   } catch (error) {
     if (error instanceof CredentialRejectedError) {
       return Response.json({ error: { code: "openai_key_rejected" } }, { status: 400 });
+    }
+    if (error instanceof CredentialEndpointInvalidError) {
+      return Response.json({ error: { code: "openai_endpoint_invalid" } }, { status: 400 });
     }
     if (error instanceof CredentialConflictError) {
       return Response.json({ error: { code: "openai_already_configured" } }, { status: 409 });
@@ -122,11 +131,19 @@ export async function PATCH(request: Request) {
     return Response.json({ error: { code: "invalid_openai_key" } }, { status: 400 });
 
   try {
-    const status = await rotateOpenAiCredential(auth.userId, parsed.data.apiKey, env);
+    const status = await rotateOpenAiCredential(
+      auth.userId,
+      parsed.data.apiKey,
+      env,
+      parsed.data.endpoint,
+    );
     return Response.json(status, { status: 200 });
   } catch (error) {
     if (error instanceof CredentialRejectedError) {
       return Response.json({ error: { code: "openai_key_rejected" } }, { status: 400 });
+    }
+    if (error instanceof CredentialEndpointInvalidError) {
+      return Response.json({ error: { code: "openai_endpoint_invalid" } }, { status: 400 });
     }
     if (error instanceof CredentialNotFoundError) {
       return Response.json({ error: { code: "openai_not_found" } }, { status: 404 });

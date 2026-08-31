@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { authenticateRequest } from "../../../../lib/auth";
 import {
   CredentialConflictError,
+  CredentialEndpointInvalidError,
   CredentialNotFoundError,
   CredentialRejectedError,
   CredentialValidationUnavailableError,
@@ -17,6 +18,7 @@ import { DELETE, GET, PATCH, POST } from "./route";
 vi.mock("../../../../lib/auth", () => ({ authenticateRequest: vi.fn() }));
 vi.mock("../../../../lib/openai-credentials", () => ({
   CredentialConflictError: class extends Error {},
+  CredentialEndpointInvalidError: class extends Error {},
   CredentialNotFoundError: class extends Error {},
   CredentialRejectedError: class extends Error {},
   CredentialValidationUnavailableError: class extends Error {},
@@ -97,7 +99,67 @@ describe("/api/connectors/openai", () => {
       "638ce145-a77d-4c32-b798-cb398e881fc9",
       "sk-synthetic-0123456789",
       env,
+      undefined,
     );
+  });
+
+  it("POST forwards a submitted endpoint so the key is stored for the right provider", async () => {
+    vi.mocked(submitOpenAiCredential).mockResolvedValue({
+      provider: "openai",
+      configured: true,
+      endpoint: { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+      validated: true,
+    });
+
+    const response = await POST(
+      new Request("https://relay.test/api/connectors/openai", {
+        method: "POST",
+        body: JSON.stringify({
+          apiKey: "sk-deepseek-synthetic",
+          endpoint: { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(submitOpenAiCredential).toHaveBeenCalledWith(
+      "638ce145-a77d-4c32-b798-cb398e881fc9",
+      "sk-deepseek-synthetic",
+      env,
+      { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+    );
+  });
+
+  it("POST rejects an unknown field in the endpoint rather than storing it", async () => {
+    const response = await POST(
+      new Request("https://relay.test/api/connectors/openai", {
+        method: "POST",
+        body: JSON.stringify({
+          apiKey: "sk-synthetic-0123456789",
+          endpoint: { baseUrl: "https://api.deepseek.com/v1", apiKey: "leaked" },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(submitOpenAiCredential).not.toHaveBeenCalled();
+  });
+
+  it("POST maps a refused endpoint to a deterministic 400", async () => {
+    vi.mocked(submitOpenAiCredential).mockRejectedValue(new CredentialEndpointInvalidError());
+
+    const response = await POST(
+      new Request("https://relay.test/api/connectors/openai", {
+        method: "POST",
+        body: JSON.stringify({
+          apiKey: "sk-synthetic-0123456789",
+          endpoint: { baseUrl: "https://169.254.169.254/v1" },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: { code: "openai_endpoint_invalid" } });
   });
 
   it("POST maps a provider rejection to 400 without leaking the reason body", async () => {

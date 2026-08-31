@@ -1,5 +1,7 @@
 import type { FilterExpression, FilterPlan, FilterPredicate } from "@relay/contracts";
 
+import { readFilterField } from "./field-access.js";
+
 export type FilterDecision = "match" | "no-match" | "undecided";
 
 export type MatchedPredicate = {
@@ -37,13 +39,6 @@ function normalizeText(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
 }
 
-function readField(item: Record<string, unknown>, path: string): unknown {
-  return path.split(".").reduce<unknown>((current, segment) => {
-    if (typeof current !== "object" || current === null || !(segment in current)) return undefined;
-    return (current as Record<string, unknown>)[segment];
-  }, item);
-}
-
 /**
  * Reads and normalizes a field at most once per evaluation.
  *
@@ -65,7 +60,7 @@ function fieldReader(item: Record<string, unknown>) {
     },
     raw(field: string): unknown {
       if (raw.has(field)) return raw.get(field);
-      const value = readField(item, field);
+      const value = readFilterField(item, field);
       raw.set(field, value);
       return value;
     },

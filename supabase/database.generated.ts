@@ -174,37 +174,55 @@ export type Database = {
       };
       ai_disclosures: {
         Row: {
+          confidence: number | null;
           created_at: string;
+          decision: string;
+          disclosed: boolean;
           disclosed_fields: string[];
+          endpoint_host: string | null;
+          failure_reason: string | null;
           filter_rule_id: string | null;
           id: string;
           model: string;
           provider: string;
           purpose: string;
+          rationale: string | null;
           redactions: Json;
           source_item_id: string;
           user_id: string;
         };
         Insert: {
+          confidence?: number | null;
           created_at?: string;
+          decision?: string;
+          disclosed?: boolean;
           disclosed_fields: string[];
+          endpoint_host?: string | null;
+          failure_reason?: string | null;
           filter_rule_id?: string | null;
           id?: string;
           model: string;
           provider?: string;
           purpose: string;
+          rationale?: string | null;
           redactions?: Json;
           source_item_id: string;
           user_id: string;
         };
         Update: {
+          confidence?: number | null;
           created_at?: string;
+          decision?: string;
+          disclosed?: boolean;
           disclosed_fields?: string[];
+          endpoint_host?: string | null;
+          failure_reason?: string | null;
           filter_rule_id?: string | null;
           id?: string;
           model?: string;
           provider?: string;
           purpose?: string;
+          rationale?: string | null;
           redactions?: Json;
           source_item_id?: string;
           user_id?: string;
@@ -974,6 +992,10 @@ export type Database = {
         };
         Returns: boolean;
       };
+      ai_disclosure_redactions_are_metadata: {
+        Args: { p_value: Json };
+        Returns: boolean;
+      };
       assert_gmail_mailbox_migration_ready_v1: {
         Args: never;
         Returns: undefined;
@@ -1468,6 +1490,24 @@ export type Database = {
           p_user_id: string;
         };
         Returns: boolean;
+      };
+      record_semantic_disclosure_v1: {
+        Args: {
+          p_confidence?: number;
+          p_decision: string;
+          p_disclosed: boolean;
+          p_disclosed_fields: string[];
+          p_endpoint_host: string;
+          p_failure_reason?: string;
+          p_filter_rule_id: string;
+          p_model: string;
+          p_purpose: string;
+          p_rationale?: string;
+          p_redactions: Json;
+          p_source_item_id: string;
+          p_user_id: string;
+        };
+        Returns: string;
       };
       register_device: {
         Args: { p_device_id: string; p_platform: string };

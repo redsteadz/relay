@@ -145,20 +145,22 @@ insert into public.action_runs (
     'google-tasks', 'awaiting-approval', '{}'
   );
 
+-- A disclosure records the host it reached; `disclosed` defaults to true, and a row that claims
+-- something was sent has to name where.
 insert into public.ai_disclosures (
-  id, user_id, source_item_id, model, disclosed_fields, purpose
+  id, user_id, source_item_id, model, disclosed_fields, purpose, endpoint_host
 ) values
   (
     '16000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000001',
     '11100000-0000-0000-0000-000000000001',
-    'synthetic-model', array['subject'], 'test isolation'
+    'synthetic-model', array['subject'], 'test isolation', 'api.openai.com'
   ),
   (
     '27000000-0000-0000-0000-000000000002',
     '20000000-0000-0000-0000-000000000002',
     '22200000-0000-0000-0000-000000000002',
-    'synthetic-model', array['subject'], 'test isolation'
+    'synthetic-model', array['subject'], 'test isolation', 'api.openai.com'
   );
 
 insert into public.audit_log (user_id, actor_type, action, target_type) values
