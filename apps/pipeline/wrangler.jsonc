@@ -41,7 +41,12 @@
         "queue": "relay-ingress-dead-letter-production",
         "max_batch_size": 10,
         "max_batch_timeout": 5,
-        "max_retries": 100,
+        // Parking a dead letter is a short sequence of writes, so a hundred attempts described a
+        // failure no number of retries would fix while letting one message spend a hundred queue
+        // operations and as many database round trips. Ten spans over an hour and a half at the
+        // delay below, which outlasts an ordinary outage without turning a permanent failure into
+        // sustained load.
+        "max_retries": 10,
         "retry_delay": 600,
       },
     ],
