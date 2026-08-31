@@ -16,6 +16,7 @@ import {
 function context(overrides: Partial<InboxContext> = {}): InboxContext {
   return {
     category: { confidence: 0.8, method: "deterministic", name: "Finance", rationale: "Rule 3" },
+    content: undefined,
     processing: "processed",
     retention: { rawExpired: false, rawExpiresAt: "2026-09-06T21:00:00.000Z" },
     source: {
@@ -104,6 +105,30 @@ describe("inbox grouping", () => {
     expect(item({ dueAt: "2026-09-02T10:00:00.000Z" }).scheduledAt).toBe(
       "2026-09-02T10:00:00.000Z",
     );
+  });
+});
+
+describe("retained device content", () => {
+  const said = context({ content: { body: "Your statement is ready", subject: "Example Bank" } });
+
+  it("shows what the capture said instead of the extractor's fallback label", () => {
+    const withContent = item({}, said);
+    expect(withContent.title).toBe("Example Bank");
+    expect(withContent.summary).toBe("Your statement is ready");
+  });
+
+  it("keeps a real extraction's own title ahead of the captured headline", () => {
+    const extracted = item({ kind: "task", title: "USD 14.20 transaction" }, said);
+    expect(extracted.title).toBe("USD 14.20 transaction");
+  });
+
+  it("reads the server-derived item unchanged when no content was retained", () => {
+    expect(item().title).toBe("Source fact");
+  });
+
+  it("searches what the capture said", () => {
+    expect(filterInbox([item({}, said)], "statement is ready")).toHaveLength(1);
+    expect(filterInbox([item({}, said)], "example bank")).toHaveLength(1);
   });
 });
 

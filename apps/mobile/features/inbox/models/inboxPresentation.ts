@@ -87,14 +87,27 @@ export type InboxProcessing = "pending" | "processed";
 
 export type InboxContext = {
   category: InboxCategory | undefined;
+  content: InboxContent | undefined;
   processing: InboxProcessing;
   retention: InboxRetention;
   source: InboxSource;
 };
 
+/**
+ * What the capture actually said, read from the device's own encrypted copy.
+ *
+ * Absent when the capturing device is not this one, or when local retention has already dropped it.
+ * The server never holds this, so its absence is normal rather than an error.
+ */
+export type InboxContent = {
+  body: string | undefined;
+  subject: string | undefined;
+};
+
 export type InboxItem = {
   /** Human name of the capturing application, falling back to its package identifier. */
   appLabel: string;
+  content: InboxContent | undefined;
   category: InboxCategory | undefined;
   confidence: number | undefined;
   evidence: readonly InboxEvidence[];
@@ -212,6 +225,8 @@ function searchTextFor(
   return [
     title,
     summary,
+    context.content?.subject,
+    context.content?.body,
     kind,
     appLabel,
     context.category?.name,
@@ -239,6 +254,7 @@ export function inboxItemForEvent(
   const appLabel = appLabelFor(context.source);
   return {
     appLabel,
+    content: context.content,
     category: context.category,
     confidence: event.confidence ?? undefined,
     evidence,
@@ -263,8 +279,13 @@ export function inboxItemForEvent(
     ),
     source: context.source,
     sourceItemId: event.sourceItemId,
-    summary: event.summary ?? undefined,
-    title: event.title,
+    summary: context.content?.body ?? event.summary ?? undefined,
+    // A capture that said something reads better under what it said than under the extractor's
+    // fallback label. The extracted title still wins when extraction actually found something.
+    title:
+      event.kind === "fact" && context.content?.subject !== undefined
+        ? context.content.subject
+        : event.title,
   };
 }
 

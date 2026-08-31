@@ -30,7 +30,7 @@ export function useInbox(): InboxState {
 
   const inbox = useQuery({
     enabled: client !== undefined && userId !== undefined,
-    queryFn: () => listInbox(client as NonNullable<typeof client>),
+    queryFn: () => listInbox(client as NonNullable<typeof client>, userId as string),
     queryKey: inboxQueryKeys.all(userId),
   });
 
