@@ -108,6 +108,35 @@ describe("inbox grouping", () => {
   });
 });
 
+describe("display text", () => {
+  it("never shows the extractor's placeholder title", () => {
+    expect(item().title).not.toBe("Source fact");
+  });
+
+  it("never shows the extractor's placeholder summary", () => {
+    expect(item().summary).toBeUndefined();
+  });
+
+  it("names the sender when the capture said nothing readable", () => {
+    const withSender = item({}, context(), [fact({ kind: "sender", value: "Alex" })]);
+    expect(withSender.title).toBe("Alex");
+  });
+
+  it("falls back to the application when there is no sender either", () => {
+    expect(item({}, context(), []).title).toBe("Gmail");
+  });
+
+  it("keeps a real extraction's own title and summary", () => {
+    const extracted = item(
+      { kind: "task", summary: "Amount: USD 14.20.", title: "USD 14.20 transaction" },
+      context(),
+      [],
+    );
+    expect(extracted.title).toBe("USD 14.20 transaction");
+    expect(extracted.summary).toBe("Amount: USD 14.20.");
+  });
+});
+
 describe("retained device content", () => {
   const said = context({ content: { body: "Your statement is ready", subject: "Example Bank" } });
 
@@ -122,8 +151,9 @@ describe("retained device content", () => {
     expect(extracted.title).toBe("USD 14.20 transaction");
   });
 
-  it("reads the server-derived item unchanged when no content was retained", () => {
-    expect(item().title).toBe("Source fact");
+  it("prefers what the capture said over the sender", () => {
+    const withBoth = inboxItemForEvent(event(), said, [fact({ kind: "sender", value: "Alex" })]);
+    expect(withBoth.title).toBe("Example Bank");
   });
 
   it("searches what the capture said", () => {

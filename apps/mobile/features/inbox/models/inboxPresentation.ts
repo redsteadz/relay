@@ -128,6 +128,16 @@ export type InboxItem = {
   title: string;
 };
 
+/**
+ * Titles and summaries the extractor emits when it found nothing specific.
+ *
+ * They describe the extractor's own state rather than the capture, so they are never shown. An item
+ * that reaches this list is displayed from what it actually carried instead: what it said, who sent
+ * it, or failing both, which application it came from.
+ */
+const PLACEHOLDER_TITLES = new Set(["Source fact"]);
+const PLACEHOLDER_SUMMARIES = new Set(["Structured source facts available.", "Sender available."]);
+
 const REVIEW_REASON_TEXT: Record<string, string> = {
   contradictory: "Relay read conflicting values for this.",
   "inconsistent-range": "The start and end times disagree.",
@@ -240,6 +250,35 @@ function searchTextFor(
     .toLowerCase();
 }
 
+/**
+ * What to call this item.
+ *
+ * A real extraction leads, because "USD 14.20 transaction" is what Relay understood rather than
+ * merely what arrived. Where extraction found nothing it emits a placeholder, and the item is named
+ * by what it said, then by who sent it, and only then by the application it came from. A person
+ * never sees the placeholder.
+ */
+function displayTitle(
+  event: InboxEventInput,
+  context: InboxContext,
+  evidence: readonly InboxEvidence[],
+  appLabel: string,
+): string {
+  if (!PLACEHOLDER_TITLES.has(event.title)) return event.title;
+  const said = context.content?.subject;
+  if (said !== undefined && said.length > 0) return said;
+  const sender = evidence.find((fact) => fact.kind === "sender")?.label;
+  if (sender !== undefined && sender.length > 0) return sender;
+  return appLabel;
+}
+
+function displaySummary(event: InboxEventInput, context: InboxContext): string | undefined {
+  const said = context.content?.body;
+  if (said !== undefined && said.length > 0) return said;
+  const summary = event.summary ?? undefined;
+  return summary === undefined || PLACEHOLDER_SUMMARIES.has(summary) ? undefined : summary;
+}
+
 export function inboxItemForEvent(
   event: InboxEventInput,
   context: InboxContext,
@@ -279,13 +318,8 @@ export function inboxItemForEvent(
     ),
     source: context.source,
     sourceItemId: event.sourceItemId,
-    summary: context.content?.body ?? event.summary ?? undefined,
-    // A capture that said something reads better under what it said than under the extractor's
-    // fallback label. The extracted title still wins when extraction actually found something.
-    title:
-      event.kind === "fact" && context.content?.subject !== undefined
-        ? context.content.subject
-        : event.title,
+    summary: displaySummary(event, context),
+    title: displayTitle(event, context, evidence, appLabel),
   };
 }
 

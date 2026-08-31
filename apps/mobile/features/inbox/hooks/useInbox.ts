@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AppState } from "react-native";
 
 import { useAuth } from "@/lib/auth-context";
 
@@ -33,6 +34,16 @@ export function useInbox(): InboxState {
     queryFn: () => listInbox(client as NonNullable<typeof client>, userId as string),
     queryKey: inboxQueryKeys.all(userId),
   });
+
+  // Captures arrive while the app is backgrounded and sync on resume, so a list fetched once goes
+  // stale the moment a notification lands. Refetching on resume is what makes an arrival visible
+  // without asking a person to know they should reopen the screen.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void inbox.refetch();
+    });
+    return () => subscription.remove();
+  }, [inbox]);
 
   const items = useMemo(() => inbox.data ?? [], [inbox.data]);
   const sections = useMemo(() => inboxSections(filterInbox(items, query)), [items, query]);
