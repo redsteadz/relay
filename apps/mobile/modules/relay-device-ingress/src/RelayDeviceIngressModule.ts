@@ -96,6 +96,11 @@ type RelayDeviceIngressNativeModule = {
     generation: number,
   ): Promise<void>;
   clearCaptureQueue(tenantId: string, generation: number): Promise<void>;
+  getRetainedCaptureContent(
+    tenantId: string,
+    envelopeIds: string[],
+    generation: number,
+  ): Promise<Record<string, string>>;
 };
 
 export default requireOptionalNativeModule<RelayDeviceIngressNativeModule>("RelayDeviceIngress");

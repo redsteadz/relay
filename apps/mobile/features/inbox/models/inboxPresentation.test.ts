@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appIconFor,
   appLabelFor,
+  formatCaptureTime,
   evidenceLabel,
   filterInbox,
   groupByApp,
@@ -16,6 +18,7 @@ import {
 function context(overrides: Partial<InboxContext> = {}): InboxContext {
   return {
     category: { confidence: 0.8, method: "deterministic", name: "Finance", rationale: "Rule 3" },
+    content: undefined,
     processing: "processed",
     retention: { rawExpired: false, rawExpiresAt: "2026-09-06T21:00:00.000Z" },
     source: {
@@ -107,6 +110,60 @@ describe("inbox grouping", () => {
   });
 });
 
+describe("display text", () => {
+  it("never shows the extractor's placeholder title", () => {
+    expect(item().title).not.toBe("Source fact");
+  });
+
+  it("never shows the extractor's placeholder summary", () => {
+    expect(item().summary).toBeUndefined();
+  });
+
+  it("names the sender when the capture said nothing readable", () => {
+    const withSender = item({}, context(), [fact({ kind: "sender", value: "Alex" })]);
+    expect(withSender.title).toBe("Alex");
+  });
+
+  it("falls back to the application when there is no sender either", () => {
+    expect(item({}, context(), []).title).toBe("Gmail");
+  });
+
+  it("keeps a real extraction's own title and summary", () => {
+    const extracted = item(
+      { kind: "task", summary: "Amount: USD 14.20.", title: "USD 14.20 transaction" },
+      context(),
+      [],
+    );
+    expect(extracted.title).toBe("USD 14.20 transaction");
+    expect(extracted.summary).toBe("Amount: USD 14.20.");
+  });
+});
+
+describe("retained device content", () => {
+  const said = context({ content: { body: "Your statement is ready", subject: "Example Bank" } });
+
+  it("shows what the capture said instead of the extractor's fallback label", () => {
+    const withContent = item({}, said);
+    expect(withContent.title).toBe("Example Bank");
+    expect(withContent.summary).toBe("Your statement is ready");
+  });
+
+  it("keeps a real extraction's own title ahead of the captured headline", () => {
+    const extracted = item({ kind: "task", title: "USD 14.20 transaction" }, said);
+    expect(extracted.title).toBe("USD 14.20 transaction");
+  });
+
+  it("prefers what the capture said over the sender", () => {
+    const withBoth = inboxItemForEvent(event(), said, [fact({ kind: "sender", value: "Alex" })]);
+    expect(withBoth.title).toBe("Example Bank");
+  });
+
+  it("searches what the capture said", () => {
+    expect(filterInbox([item({}, said)], "statement is ready")).toHaveLength(1);
+    expect(filterInbox([item({}, said)], "example bank")).toHaveLength(1);
+  });
+});
+
 describe("evidence", () => {
   it("carries supporting facts onto the event rather than listing them separately", () => {
     const withEvidence = item({}, context(), [fact(), fact({ kind: "currency", value: "USD" })]);
@@ -146,6 +203,56 @@ describe("application labels", () => {
   it("falls back to the source kind when no application was recorded", () => {
     expect(appLabelFor({ ...context().source, applicationId: undefined })).toBe(
       "Android notification",
+    );
+  });
+});
+
+describe("capture times", () => {
+  // Built from local components so the expectations hold in any zone the suite runs in.
+  const at = (y: number, m: number, d: number, hh: number, mm: number) => new Date(y, m, d, hh, mm);
+
+  it("shows only the clock for a capture from today", () => {
+    const now = at(2026, 7, 31, 18, 5);
+    expect(formatCaptureTime(at(2026, 7, 31, 9, 7).toISOString(), now)).toBe("09:07");
+  });
+
+  it("adds the day for an older capture in the same year", () => {
+    const now = at(2026, 7, 31, 18, 5);
+    expect(formatCaptureTime(at(2026, 7, 24, 14, 30).toISOString(), now)).toBe("24 Aug, 14:30");
+  });
+
+  it("adds the year for a capture from another year", () => {
+    const now = at(2026, 0, 2, 9, 0);
+    expect(formatCaptureTime(at(2025, 11, 31, 23, 45).toISOString(), now)).toBe(
+      "31 Dec 2025, 23:45",
+    );
+  });
+
+  it("distinguishes the same clock time on a different day", () => {
+    const now = at(2026, 7, 31, 18, 5);
+    expect(formatCaptureTime(at(2026, 7, 30, 18, 5).toISOString(), now)).not.toBe("18:05");
+  });
+
+  it("returns nothing readable for an unparseable time rather than inventing one", () => {
+    expect(formatCaptureTime("not-a-time")).toBe("");
+  });
+});
+
+describe("application icons", () => {
+  it("names an icon for a known application", () => {
+    expect(appIconFor(context().source)).toBe("gmail");
+    expect(appIconFor({ ...context().source, applicationId: "com.whatsapp" })).toBe("whatsapp");
+  });
+
+  it("falls back to the source icon for an unknown application", () => {
+    expect(appIconFor({ ...context().source, applicationId: "com.example.bank" })).toBe(
+      "bell-outline",
+    );
+  });
+
+  it("marks a source that is no longer retained", () => {
+    expect(appIconFor({ ...context().source, applicationId: undefined, kind: "unknown" })).toBe(
+      "help-circle-outline",
     );
   });
 });

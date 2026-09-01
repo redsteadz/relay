@@ -3,11 +3,14 @@ import { AppError } from "@relay/observability";
 
 import { logMobileError } from "@/lib/observability";
 
+import RelayDeviceIngress from "@/modules/relay-device-ingress";
+
 import {
   inboxItemForEvent,
   inboxRetention,
   type InboxCategory,
   type InboxContext,
+  type InboxContent,
   type InboxEventInput,
   type InboxFactInput,
   type InboxItem,
@@ -105,9 +108,10 @@ type CategoryRow = { id: string; name: string };
  * A derived item can outlive the source row that produced it, and dropping the item would hide work
  * rather than explain it. The unknown source is stated instead of guessed.
  */
-function unknownContext(occurredAt: string): InboxContext {
+function unknownContext(occurredAt: string, content: InboxContent | undefined): InboxContext {
   return {
     category: undefined,
+    content,
     processing: "pending",
     retention: { rawExpired: false, rawExpiresAt: undefined },
     source: {
@@ -127,9 +131,10 @@ function buildContext(
   classifications: Map<string, ClassificationRow>,
   categoryNames: Map<string, string>,
   now: string,
+  content: InboxContent | undefined,
 ): InboxContext {
   const item = sourceItems.get(sourceItemId);
-  if (item === undefined) return unknownContext(fallbackOccurredAt);
+  if (item === undefined) return unknownContext(fallbackOccurredAt, content);
 
   const classification = classifications.get(sourceItemId);
   const category: InboxCategory | undefined =
@@ -147,6 +152,7 @@ function buildContext(
 
   return {
     category,
+    content,
     processing: item.processed_at === null ? "pending" : "processed",
     retention: inboxRetention(item.raw_expires_at, now),
     source: {
@@ -168,7 +174,40 @@ function buildContext(
  * or duplicate facts across the events that do. Source items, classifications, and category names
  * are read alongside so each item can explain where it came from and which decision placed it.
  */
-export async function listInbox(client: SupabaseClient, now = new Date().toISOString()) {
+/**
+ * Reads the device's own copy of what these captures said.
+ *
+ * A failure here is not a failed inbox read: the server-derived item is still complete without it,
+ * so the content is simply omitted rather than turned into an error the whole screen reports.
+ */
+async function readRetainedContent(
+  tenantId: string,
+  sourceItemIds: readonly string[],
+): Promise<Map<string, InboxContent>> {
+  const unique = [...new Set(sourceItemIds)];
+  if (unique.length === 0) return new Map();
+  try {
+    const rows = await RelayDeviceIngress.getRetainedCaptureContent(tenantId, unique);
+    return new Map(
+      Object.entries(rows).map(
+        ([id, value]) => [id, { body: value.body, subject: value.subject }] as const,
+      ),
+    );
+  } catch (error: unknown) {
+    logMobileError("database.retained_content_unavailable", error, {
+      code: "RETAINED_CONTENT_UNAVAILABLE",
+      integration: "relay-device-ingress",
+      operation: "getRetainedCaptureContent",
+    });
+    return new Map();
+  }
+}
+
+export async function listInbox(
+  client: SupabaseClient,
+  tenantId: string,
+  now = new Date().toISOString(),
+) {
   const [events, facts, items, classifications, categories] = await Promise.all([
     client
       .from("relay_events")
@@ -208,6 +247,15 @@ export async function listInbox(client: SupabaseClient, now = new Date().toISOSt
     ((categories.data ?? []) as CategoryRow[]).map((row) => [row.id, row.name] as const),
   );
 
+  // What the capture said is read from this device's own encrypted copy, keyed by the same envelope
+  // ID the server knows as `source_item_id`. It is absent when another device captured the item or
+  // when local retention has dropped it, which is ordinary rather than an error.
+  const eventRows = (events.data ?? []) as EventRow[];
+  const retained = await readRetainedContent(
+    tenantId,
+    eventRows.map((row) => row.source_item_id),
+  );
+
   const context = (sourceItemId: string, fallbackOccurredAt: string): InboxContext =>
     buildContext(
       sourceItemId,
@@ -216,6 +264,7 @@ export async function listInbox(client: SupabaseClient, now = new Date().toISOSt
       classificationsByItem,
       categoryNames,
       now,
+      retained.get(sourceItemId),
     );
 
   // Facts support the event extracted from the same source item. They are grouped here rather than
@@ -237,7 +286,7 @@ export async function listInbox(client: SupabaseClient, now = new Date().toISOSt
   }
 
   const inbox: InboxItem[] = [
-    ...((events.data ?? []) as EventRow[]).map((row) =>
+    ...eventRows.map((row) =>
       inboxItemForEvent(
         {
           confidence: row.confidence,

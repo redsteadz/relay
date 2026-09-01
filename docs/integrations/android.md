@@ -33,6 +33,23 @@ existing envelope ID carrying different facts, which deduplication rejects as
 edit its own observation. Post time is excluded so retrying one unchanged notification cannot mint a
 second identity, and two notifications sharing a key and visible content deduplicate to one capture.
 
+Extraction reads `sender` and the structured `attributes` map. It does not read `subject` or `body`,
+and [ADR-0010](../decisions/0010-fact-only-event-extraction.md) records why: those are free text no
+adapter has interpreted, and deriving facts from them would make extraction less private and less
+deterministic. The notification adapter therefore reports `attributes.sender` only when Android has
+structurally identified one through `MessagingStyle`, and reports nothing when a notification carries
+nothing structured. The notification title is never reported as a sender; it is the headline every
+notification has, not a party the posting application named.
+
+What a capture said therefore stays on the device that captured it. Beside the upload queue, and
+under the same per-tenant Keystore key, the adapter keeps a minimized copy of the visible title and
+text. It is stored separately from the queue so acknowledging an upload does not also remove the
+tenant's ability to read what was captured, and it is bounded by storage rather than by the server's
+raw-payload deadline: thirty days, 2000 items, and 4 MiB per tenant, oldest dropped first. The
+inbox reads it through `getRetainedCaptureContent` for a prepared tenant, decrypting on demand, and
+never writes it to logs, JavaScript storage, or the network. A row that fails to decrypt is deleted
+rather than guessed at.
+
 The native capture queue stores only AES-256-GCM ciphertext in SQLite. Its per-tenant key is
 non-exportable Android Keystore material, and tenant/envelope identity is authenticated as associated
 data. Capture adapters assign the envelope UUID once before enqueueing. The queue retains that UUID

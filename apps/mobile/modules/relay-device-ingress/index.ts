@@ -27,6 +27,32 @@ const buildVariant: RelayBuildVariant =
     ? buildVariants.sideload
     : buildVariants.development;
 
+export type RetainedCaptureContent = { body?: string; subject?: string };
+
+const RETAINED_TEXT_MAX_LENGTH = 4096;
+
+function boundedText(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= RETAINED_TEXT_MAX_LENGTH
+    ? value
+    : undefined;
+}
+
+/** Content the device kept for itself. Parsed defensively; a malformed row is dropped, not shown. */
+function parseRetainedContent(raw: string): RetainedCaptureContent | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const body = boundedText(record.body);
+  const subject = boundedText(record.subject);
+  if (body === undefined && subject === undefined) return undefined;
+  return { ...(body === undefined ? {} : { body }), ...(subject === undefined ? {} : { subject }) };
+}
+
 let preparedCaptureGeneration: number | undefined;
 
 function currentCaptureGeneration(): number {
@@ -85,6 +111,36 @@ const RelayDeviceIngress = {
       paused,
       currentCaptureGeneration(),
     );
+  },
+  /**
+   * Reads the device's own copy of what the given captures said.
+   *
+   * The server keeps derived facts and destroys the encrypted original after seven days, so this is
+   * what lets an item still show its content afterwards. Values are decrypted from Keystore-backed
+   * storage on demand and are never written to JavaScript storage or sent anywhere.
+   */
+  async getRetainedCaptureContent(
+    tenantId: string,
+    envelopeIds: readonly string[],
+  ): Promise<Record<string, RetainedCaptureContent>> {
+    if (
+      Platform.OS !== "android" ||
+      NativeRelayDeviceIngress === null ||
+      envelopeIds.length === 0
+    ) {
+      return {};
+    }
+    const rows = await NativeRelayDeviceIngress.getRetainedCaptureContent(
+      tenantId,
+      [...envelopeIds],
+      currentCaptureGeneration(),
+    );
+    const content: Record<string, RetainedCaptureContent> = {};
+    for (const [envelopeId, raw] of Object.entries(rows)) {
+      const parsed = parseRetainedContent(raw);
+      if (parsed !== undefined) content[envelopeId] = parsed;
+    }
+    return content;
   },
   async prepareNotificationCaptureState(
     tenantId: string | undefined,

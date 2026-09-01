@@ -73,6 +73,14 @@ internal object SmsInboxSynchronizer {
                   capture.capturedAt,
                   capture.json
                 )
+                // Kept beside the outbox so an acknowledged upload does not also remove the
+                // tenant's own record of what the message said.
+                queue.retainContent(
+                  tenantId,
+                  capture.envelopeId,
+                  capture.capturedAt,
+                  capture.content
+                )
                 captured += 1
               } catch (error: IllegalArgumentException) {
                 if (error.message == "capture_queue_limit") {

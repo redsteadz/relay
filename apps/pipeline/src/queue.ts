@@ -14,6 +14,22 @@ import { completeDeadLetterReplay, recordDeadLetterItem } from "./recovery";
 const REPLAY_REQUEST_FIELD_BYTES = 57;
 const FAILURE_CODE_FIELD_BYTES = 56;
 const MAX_PROCESSING_ATTEMPTS = 5;
+
+/**
+ * Backoff between processing attempts, indexed by attempts already made.
+ *
+ * A retry without a delay reruns immediately, so a message that fails the same way every time —
+ * a rejected identity, an unavailable dependency — burns its whole attempt budget in seconds and
+ * spends a queue operation and a database round trip on each one. Spacing the attempts costs
+ * nothing when a failure is transient, because the first retry still runs within seconds, and it
+ * stops a deterministic failure from becoming a burst against the queue and Supabase.
+ */
+const PROCESSING_RETRY_DELAY_SECONDS = [5, 30, 120, 600] as const;
+
+function processingRetryDelay(attempts: number): number {
+  const index = Math.max(0, Math.min(attempts - 1, PROCESSING_RETRY_DELAY_SECONDS.length - 1));
+  return PROCESSING_RETRY_DELAY_SECONDS[index] ?? 600;
+}
 const DEAD_LETTER_RETRY_DELAY_SECONDS = 300;
 const DEAD_LETTER_FALLBACK_RETRY_DELAY_SECONDS = 600;
 
@@ -36,7 +52,7 @@ async function routeFailedMessage(
 ): Promise<void> {
   const maxAttempts = env.RELAY_E2E_MODE === "true" ? 1 : MAX_PROCESSING_ATTEMPTS;
   if (message.attempts < maxAttempts) {
-    message.retry();
+    message.retry({ delaySeconds: processingRetryDelay(message.attempts) });
     return;
   }
   await env.DEAD_LETTER_QUEUE.send({ ...value, failureCode });
@@ -181,7 +197,7 @@ export async function processIngressQueue(
           integration: "cloudflare-queue",
           operation: "routeFailedMessage",
         });
-        message.retry();
+        message.retry({ delaySeconds: processingRetryDelay(message.attempts) });
       }
     }
   }

@@ -396,6 +396,7 @@ export const senderFactSchema = z
     value: senderFactValueSchema,
   })
   .strict();
+
 export const dateFactSchema = z
   .object({
     ...sourceFactIdentityShape,

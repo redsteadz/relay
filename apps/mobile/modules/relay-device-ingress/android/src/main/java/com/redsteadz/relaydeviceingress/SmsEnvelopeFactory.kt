@@ -37,7 +37,10 @@ internal object SmsEnvelopeFactory {
       .put("attributes", JSONObject())
     if (message.sender.isNotBlank()) envelope.put("sender", message.sender.take(1024))
     if (message.body.isNotBlank()) envelope.put("body", message.body.take(MAX_BODY_LENGTH))
-    return CapturedNotification(id, capturedAt, envelope.toString())
+    // SMS already names its sender structurally, so the device copy keeps the message text only.
+    val content = JSONObject()
+    if (message.body.isNotBlank()) content.put("body", message.body.take(MAX_BODY_LENGTH))
+    return CapturedNotification(id, capturedAt, envelope.toString(), content.toString())
   }
 }
 

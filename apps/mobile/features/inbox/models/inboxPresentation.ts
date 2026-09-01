@@ -87,14 +87,27 @@ export type InboxProcessing = "pending" | "processed";
 
 export type InboxContext = {
   category: InboxCategory | undefined;
+  content: InboxContent | undefined;
   processing: InboxProcessing;
   retention: InboxRetention;
   source: InboxSource;
 };
 
+/**
+ * What the capture actually said, read from the device's own encrypted copy.
+ *
+ * Absent when the capturing device is not this one, or when local retention has already dropped it.
+ * The server never holds this, so its absence is normal rather than an error.
+ */
+export type InboxContent = {
+  body: string | undefined;
+  subject: string | undefined;
+};
+
 export type InboxItem = {
   /** Human name of the capturing application, falling back to its package identifier. */
   appLabel: string;
+  content: InboxContent | undefined;
   category: InboxCategory | undefined;
   confidence: number | undefined;
   evidence: readonly InboxEvidence[];
@@ -115,6 +128,16 @@ export type InboxItem = {
   title: string;
 };
 
+/**
+ * Titles and summaries the extractor emits when it found nothing specific.
+ *
+ * They describe the extractor's own state rather than the capture, so they are never shown. An item
+ * that reaches this list is displayed from what it actually carried instead: what it said, who sent
+ * it, or failing both, which application it came from.
+ */
+const PLACEHOLDER_TITLES = new Set(["Source fact"]);
+const PLACEHOLDER_SUMMARIES = new Set(["Structured source facts available.", "Sender available."]);
+
 const REVIEW_REASON_TEXT: Record<string, string> = {
   contradictory: "Relay read conflicting values for this.",
   "inconsistent-range": "The start and end times disagree.",
@@ -134,12 +157,80 @@ const APP_LABEL: Record<string, string> = {
   "com.whatsapp": "WhatsApp",
 };
 
+/**
+ * Icons for the applications and sources a capture can come from.
+ *
+ * An unlisted application gets the generic capture icon rather than a guess, matching how its label
+ * falls back to the exact package rather than inventing a name.
+ */
+const APP_ICON: Record<string, string> = {
+  "com.google.android.apps.messaging": "message-text",
+  "com.google.android.gm": "gmail",
+  "com.instagram.android": "instagram",
+  "com.whatsapp": "whatsapp",
+};
+
+const SOURCE_ICON: Record<string, string> = {
+  gmail: "gmail",
+  notification: "bell-outline",
+  sms: "message-text",
+  unknown: "help-circle-outline",
+};
+
 const SOURCE_LABEL: Record<string, string> = {
   gmail: "Gmail",
   notification: "Android notification",
   sms: "SMS",
   unknown: "Source no longer retained",
 };
+
+export function appIconFor(source: InboxSource): string {
+  if (source.applicationId !== undefined) {
+    const icon = APP_ICON[source.applicationId];
+    if (icon !== undefined) return icon;
+  }
+  return SOURCE_ICON[source.kind] ?? "bell-outline";
+}
+
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+function clockTime(value: Date): string {
+  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Formats a capture time for reading rather than for precision.
+ *
+ * Today shows the clock alone, because the date is the one thing a reader already knows. An older
+ * capture adds the day, and one from another year adds the year, so a timestamp never implies a
+ * recency it does not have. Times render in the reader's own zone; the stored value stays UTC.
+ */
+export function formatCaptureTime(iso: string, now: Date = new Date()): string {
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return "";
+  const sameDay =
+    value.getFullYear() === now.getFullYear() &&
+    value.getMonth() === now.getMonth() &&
+    value.getDate() === now.getDate();
+  if (sameDay) return clockTime(value);
+  const day = `${String(value.getDate())} ${MONTHS[value.getMonth()] ?? ""}`;
+  return value.getFullYear() === now.getFullYear()
+    ? `${day}, ${clockTime(value)}`
+    : `${day} ${String(value.getFullYear())}, ${clockTime(value)}`;
+}
 
 export function appLabelFor(source: InboxSource): string {
   if (source.applicationId === undefined) return SOURCE_LABEL[source.kind] ?? source.kind;
@@ -212,6 +303,8 @@ function searchTextFor(
   return [
     title,
     summary,
+    context.content?.subject,
+    context.content?.body,
     kind,
     appLabel,
     context.category?.name,
@@ -223,6 +316,35 @@ function searchTextFor(
     .filter((part): part is string => part !== undefined && part !== "")
     .join(" ")
     .toLowerCase();
+}
+
+/**
+ * What to call this item.
+ *
+ * A real extraction leads, because "USD 14.20 transaction" is what Relay understood rather than
+ * merely what arrived. Where extraction found nothing it emits a placeholder, and the item is named
+ * by what it said, then by who sent it, and only then by the application it came from. A person
+ * never sees the placeholder.
+ */
+function displayTitle(
+  event: InboxEventInput,
+  context: InboxContext,
+  evidence: readonly InboxEvidence[],
+  appLabel: string,
+): string {
+  if (!PLACEHOLDER_TITLES.has(event.title)) return event.title;
+  const said = context.content?.subject;
+  if (said !== undefined && said.length > 0) return said;
+  const sender = evidence.find((fact) => fact.kind === "sender")?.label;
+  if (sender !== undefined && sender.length > 0) return sender;
+  return appLabel;
+}
+
+function displaySummary(event: InboxEventInput, context: InboxContext): string | undefined {
+  const said = context.content?.body;
+  if (said !== undefined && said.length > 0) return said;
+  const summary = event.summary ?? undefined;
+  return summary === undefined || PLACEHOLDER_SUMMARIES.has(summary) ? undefined : summary;
 }
 
 export function inboxItemForEvent(
@@ -239,6 +361,7 @@ export function inboxItemForEvent(
   const appLabel = appLabelFor(context.source);
   return {
     appLabel,
+    content: context.content,
     category: context.category,
     confidence: event.confidence ?? undefined,
     evidence,
@@ -263,8 +386,8 @@ export function inboxItemForEvent(
     ),
     source: context.source,
     sourceItemId: event.sourceItemId,
-    summary: event.summary ?? undefined,
-    title: event.title,
+    summary: displaySummary(event, context),
+    title: displayTitle(event, context, evidence, appLabel),
   };
 }
 

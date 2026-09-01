@@ -2,6 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/observability", () => ({ logMobileError: vi.fn() }));
 
+const retained = vi.hoisted(() => ({
+  getRetainedCaptureContent: vi.fn(() => Promise.resolve({})),
+}));
+vi.mock("@/modules/relay-device-ingress", () => ({ default: retained }));
+
+const TENANT = "208455fe-e5ae-4dc3-b416-40c7186ac6b2";
+
 import { listInbox } from "./inbox";
 
 type Result = { data: unknown[] | null; error: unknown };
@@ -59,7 +66,7 @@ describe("listInbox", () => {
       source_facts: { data: [factRow], error: null },
     });
 
-    const items = await listInbox(supabase as never);
+    const items = await listInbox(supabase as never, TENANT);
 
     expect(calls.sort()).toEqual([
       "categories",
@@ -108,7 +115,7 @@ describe("listInbox", () => {
       },
     });
 
-    const [item] = await listInbox(supabase as never, "2026-08-31T00:00:00.000Z");
+    const [item] = await listInbox(supabase as never, TENANT, "2026-08-31T00:00:00.000Z");
 
     expect(item?.source.kind).toBe("notification");
     expect(item?.source.applicationId).toBe("com.google.android.gm");
@@ -144,7 +151,7 @@ describe("listInbox", () => {
       },
     });
 
-    const [item] = await listInbox(supabase as never, "2026-08-31T00:00:00.000Z");
+    const [item] = await listInbox(supabase as never, TENANT, "2026-08-31T00:00:00.000Z");
 
     expect(item?.retention.rawExpired).toBe(true);
     expect(item?.processing).toBe("pending");
@@ -157,7 +164,7 @@ describe("listInbox", () => {
       source_items: { data: [], error: null },
     });
 
-    const [item] = await listInbox(supabase as never);
+    const [item] = await listInbox(supabase as never, TENANT);
 
     expect(item?.source.kind).toBe("unknown");
     expect(item?.category).toBeUndefined();
@@ -169,7 +176,7 @@ describe("listInbox", () => {
       source_facts: { data: [], error: null },
     });
 
-    await expect(listInbox(supabase as never)).rejects.toMatchObject({
+    await expect(listInbox(supabase as never, TENANT)).rejects.toMatchObject({
       code: "INBOX_READ_FAILED",
       name: "InboxError",
       operation: "listRelayEvents",
@@ -183,7 +190,7 @@ describe("listInbox", () => {
       source_facts: { data: null, error: { code: "PGRST301" } },
     });
 
-    await expect(listInbox(supabase as never)).rejects.toMatchObject({
+    await expect(listInbox(supabase as never, TENANT)).rejects.toMatchObject({
       operation: "listSourceFacts",
     });
   });
@@ -194,6 +201,6 @@ describe("listInbox", () => {
       source_facts: { data: [], error: null },
     });
 
-    await expect(listInbox(supabase as never)).resolves.toEqual([]);
+    await expect(listInbox(supabase as never, TENANT)).resolves.toEqual([]);
   });
 });

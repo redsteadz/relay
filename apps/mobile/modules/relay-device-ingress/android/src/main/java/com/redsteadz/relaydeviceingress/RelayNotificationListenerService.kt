@@ -54,6 +54,14 @@ class RelayNotificationListenerService : NotificationListenerService() {
             capture.capturedAt,
             capture.json
           )
+          // Kept separately from the outbox so acknowledging an upload does not also remove the
+          // tenant's own ability to read what was captured.
+          queue.retainContent(
+            configuration.tenantId,
+            capture.envelopeId,
+            capture.capturedAt,
+            capture.content
+          )
         }
         NotificationDebugDiagnostics.event("capture enqueued")
       } catch (error: RuntimeException) {

@@ -25,6 +25,24 @@ class NotificationIdentityTest {
   }
 
   @Test
+  fun `a reported sender changes the identity it is reported under`() {
+    // Everything the adapter reports has to be part of the identity. When the sender was not, one
+    // envelope ID carried two different fact sets across a redelivery, which deduplication refuses.
+    assertNotEquals(
+      NotificationEnvelopeFactory.envelopeId(gmail, key, "Inbox", "One new message", null),
+      NotificationEnvelopeFactory.envelopeId(gmail, key, "Inbox", "One new message", "Alex"),
+    )
+  }
+
+  @Test
+  fun `the same reported sender keeps one identity`() {
+    assertEquals(
+      NotificationEnvelopeFactory.envelopeId(gmail, key, "Inbox", "One new message", "Alex"),
+      NotificationEnvelopeFactory.envelopeId(gmail, key, "Inbox", "One new message", "Alex"),
+    )
+  }
+
+  @Test
   fun `equal notification keys from different apps stay distinct`() {
     assertNotEquals(
       NotificationEnvelopeFactory.envelopeId(gmail, key, "Inbox", "One new message"),
