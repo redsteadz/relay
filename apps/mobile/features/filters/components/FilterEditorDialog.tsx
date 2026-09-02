@@ -1,0 +1,145 @@
+import { useEffect, useState } from "react";
+import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
+import { Dialog, Portal } from "react-native-paper";
+
+import { AppButton, AppSwitch, AppText, AppTextInput, StatusMessage } from "@/components/ui";
+import { useRelayTheme } from "@/theme";
+import type { FilterCategoryDescriptor } from "@relay/domain";
+
+import {
+  filterIntentError,
+  filterNameError,
+  previewFilterCompilation,
+  syntheticPreviewItems,
+  type FilterDraft,
+  type PreviewItem,
+} from "../models/filterPresentation";
+import { FilterPlanSummary } from "./FilterPlanSummary";
+import { FilterPreviewPanel } from "./FilterPreviewPanel";
+
+type FilterEditorDialogProps = {
+  categories: readonly FilterCategoryDescriptor[];
+  defaults: FilterDraft;
+  errorMessage?: string | undefined;
+  onDismiss: () => void;
+  onSave: (draft: FilterDraft) => Promise<void>;
+  previewItems?: readonly PreviewItem[] | undefined;
+  saving: boolean;
+  visible: boolean;
+};
+
+export function FilterEditorDialog({
+  categories,
+  defaults,
+  errorMessage,
+  onDismiss,
+  onSave,
+  previewItems,
+  saving,
+  visible,
+}: FilterEditorDialogProps) {
+  const theme = useRelayTheme();
+  const [draft, setDraft] = useState<FilterDraft>(defaults);
+  const [attempted, setAttempted] = useState(false);
+  const editing = defaults.series !== undefined;
+
+  useEffect(() => {
+    if (visible) {
+      setDraft(defaults);
+      setAttempted(false);
+    }
+  }, [defaults, visible]);
+
+  // Compiled on every keystroke because it is a pure, synchronous function over a bounded intent.
+  // The plan on screen is therefore always the plan for the text on screen.
+  const preview = previewFilterCompilation(draft.intent.trim(), categories);
+  const nameError = attempted ? filterNameError(draft.name) : undefined;
+  const intentError = attempted ? filterIntentError(draft.intent) : undefined;
+  const items = previewItems ?? syntheticPreviewItems;
+
+  async function submit() {
+    setAttempted(true);
+    if (
+      filterNameError(draft.name) !== undefined ||
+      filterIntentError(draft.intent) !== undefined
+    ) {
+      return;
+    }
+    await onSave(draft);
+  }
+
+  return (
+    <Portal>
+      <Dialog dismissable={!saving} onDismiss={onDismiss} visible={visible}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <Dialog.Title>{editing ? "Edit rule" : "New rule"}</Dialog.Title>
+          <Dialog.ScrollArea>
+            <ScrollView contentContainerStyle={{ paddingVertical: theme.relay.spacing.md }}>
+              <View style={{ gap: theme.relay.spacing.md }}>
+                <AppText tone="muted">
+                  Describe the rule in plain language. Relay compiles it as you type and shows the
+                  exact behaviour below before anything is saved.
+                </AppText>
+
+                <AppTextInput
+                  errorMessage={nameError}
+                  label="Name"
+                  maxLength={80}
+                  onChangeText={(name) => setDraft({ ...draft, name })}
+                  value={draft.name}
+                />
+
+                <AppTextInput
+                  errorMessage={intentError}
+                  label="What should this match?"
+                  maxLength={4000}
+                  multiline
+                  onChangeText={(intent) => setDraft({ ...draft, intent })}
+                  placeholder="Receipts from my bank over 50 USD"
+                  value={draft.intent}
+                />
+
+                <AppSwitch
+                  detail="A disabled rule keeps its history and stops deciding anything."
+                  label="Enabled"
+                  onValueChange={(enabled) => setDraft({ ...draft, enabled })}
+                  value={draft.enabled}
+                />
+
+                {preview.status === "incomplete" ? (
+                  <AppText tone="muted" variant="caption">
+                    {preview.message}
+                  </AppText>
+                ) : (
+                  <>
+                    <FilterPlanSummary compilation={preview.compilation} />
+                    <AppText variant="label">Preview</AppText>
+                    <FilterPreviewPanel items={items} plan={preview.compilation.plan} />
+                  </>
+                )}
+
+                {editing ? (
+                  <AppText tone="muted" variant="caption">
+                    Saving adds a new version. The current one is kept and stays inspectable.
+                  </AppText>
+                ) : null}
+
+                {errorMessage === undefined ? null : (
+                  <StatusMessage tone="error">{errorMessage}</StatusMessage>
+                )}
+              </View>
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions>
+            <AppButton disabled={saving} label="Cancel" onPress={onDismiss} tone="secondary" />
+            <AppButton
+              label={editing ? "Save version" : "Create rule"}
+              loading={saving}
+              onPress={() => void submit()}
+            />
+          </Dialog.Actions>
+        </KeyboardAvoidingView>
+      </Dialog>
+    </Portal>
+  );
+}

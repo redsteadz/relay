@@ -27,6 +27,7 @@
     "@hookform/resolvers": "5.9.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@relay/contracts": "workspace:*",
+    "@relay/domain": "workspace:*",
     "@relay/observability": "workspace:*",
     "@supabase/supabase-js": "2.112.3",
     "@tanstack/react-query": "5.102.8",
