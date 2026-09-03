@@ -8,6 +8,7 @@ export * from "./filter-compiler.js";
 export * from "./filter-evaluator.js";
 export * from "./semantic-disclosure.js";
 export * from "./semantic-endpoint.js";
+export * from "./text-facts.js";
 
 // Shared by contentFingerprint and normalizeCategoryName. The filter evaluator keeps its own copy
 // so the two can be versioned independently: this one feeds persisted fingerprints and category

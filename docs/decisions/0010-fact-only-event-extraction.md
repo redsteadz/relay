@@ -39,5 +39,10 @@ under a new extractor version and updated decision.
 Legacy event rows remain distinguishable because they have no extractor metadata. Exact retries of
 legacy fact-only Durable Object bindings may backfill current events before upgrading markers.
 
+This decision governs the event extractor, not the fact normalizer.
+[ADR-0013](0013-text-derived-facts.md) later made subject and body evidence for _facts_, one stage
+earlier. The constraint stated here is unchanged: extraction still consumes only a validated
+`SourceFactSet`, and subject, body, provider kind, and category still cannot select event behavior.
+
 Related: [data flow](../architecture/data-flow.md),
 [privacy lifecycle](../security/privacy.md).

@@ -9,6 +9,7 @@ import {
 } from "@relay/contracts";
 import { decryptValue, encryptValue } from "@relay/crypto";
 import {
+  SOURCE_FACT_NORMALIZER_VERSION,
   contentFingerprint,
   extractSourceEvents,
   normalizeSourceFacts,
@@ -159,7 +160,7 @@ export async function handleE2EResultRequest(
  * Content fingerprint canonicalization, algorithm version 1.
  *
  * The wire format persisted to `source_items.content_fingerprint` is a bare lowercase hex SHA-256
- * digest (`^[0-9a-f]{64}$`, enforced by `persist_encrypted_source_item_v3`), so the algorithm
+ * digest (`^[0-9a-f]{64}$`, enforced by `persist_encrypted_source_item_v5`), so the algorithm
  * version cannot be embedded in the string itself. This constant is the canonical record of which
  * canonicalization rule produced fingerprints written under that constraint. See
  * `contentFingerprint` in `packages/domain/src/index.ts` for the exact field selection, separator,
@@ -191,8 +192,8 @@ async function persist(
     throw new SourcePersistenceError("tenant_id_conflict");
   }
   const rpc = gmailConnectionId?.success
-    ? "persist_encrypted_source_item_v4"
-    : "persist_encrypted_source_item_v3";
+    ? "persist_encrypted_source_item_v6"
+    : "persist_encrypted_source_item_v5";
 
   const response = await fetch(`${configuration.supabase.url}/rest/v1/rpc/${rpc}`, {
     method: "POST",
@@ -206,6 +207,7 @@ async function persist(
       p_encryption_environment: configuration.environment,
       p_external_id: envelope.source.externalId,
       p_fact_set_fingerprint: factSetFingerprint,
+      p_fact_set_normalizer_version: SOURCE_FACT_NORMALIZER_VERSION,
       p_id: envelope.id,
       p_key_version: encrypted.keyVersion,
       p_occurred_at: envelope.occurredAt,
