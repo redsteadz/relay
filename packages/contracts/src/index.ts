@@ -321,7 +321,7 @@ export const factProvenanceFieldSchema = z
   .min(1)
   .max(160)
   .regex(
-    /^(?:sender|occurredAt|capturedAt|attributes\.(?:sender|dates|amount|currency|merchant|location|reference)(?:\[\d+\])?)$/u,
+    /^(?:sender|subject|body|occurredAt|capturedAt|attributes\.(?:sender|dates|amount|currency|merchant|location|reference)(?:\[\d+\])?)$/u,
     "Unsupported fact provenance field",
   );
 

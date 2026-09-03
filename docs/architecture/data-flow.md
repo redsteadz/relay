@@ -168,16 +168,24 @@ Every fact carries source item ID, normalizer version, deterministic ordinal, ce
 more field paths. Provenance stores paths and optional offsets only, never source snippets. Root
 `sender`, `occurredAt`, and `capturedAt` plus allowlisted `attributes.sender`, `attributes.dates`,
 `attributes.amount`, `attributes.currency`, `attributes.merchant`, `attributes.location`, and
-`attributes.reference` are eligible. Body and subject are not copied into facts. Invalid candidates
-become `uncertain/invalid`; conflicting scalar candidates become `uncertain/contradictory`. Uncertain
-facts omit candidate values, so normalization neither guesses nor persists rejected plaintext.
+`attributes.reference` are eligible, and from normalizer version 2 so are root `subject` and `body`
+under [ADR-0013](../decisions/0013-text-derived-facts.md). Text supplies dates, amounts with their
+currency, and references, and only where attributes declared nothing for that kind -- for dates, for
+that role -- so a declared value is never re-litigated against prose. Provenance for a text fact adds
+the character span it was read from; it still records paths and offsets, never a snippet. Invalid
+candidates become `uncertain/invalid`; conflicting scalar candidates become
+`uncertain/contradictory`. Uncertain facts omit candidate values, so normalization neither guesses
+nor persists rejected plaintext.
 
 Normalizer output receives a distinct SHA-256 `fact_set_fingerprint` over the complete
 runtime-validated `SourceFactSet` JSON in contract key order. This digest is separate from legacy
 content dedupe because dates and fact attributes are intentionally absent from `content_fingerprint`.
-`persist_encrypted_source_item_v3` atomically inserts encrypted source and fact digest. Same-ID retries
-require exact source identity, content fingerprint, and fact digest; changed bindings or NULL
-pre-migration digests fail as `fact-integrity-conflict` before facts can attach. Source-identity/content
+`persist_encrypted_source_item_v5` atomically inserts encrypted source, fact digest, and the
+normalizer version that produced it. Same-ID retries require exact source identity, content
+fingerprint, and fact digest; changed bindings or NULL pre-migration digests fail as
+`fact-integrity-conflict` before facts can attach. Digests compare only within one normalizer
+version, so a version bump leaves the stored row standing and reports the retry as a duplicate
+instead of failing a routine redelivery as corruption. Source-identity/content
 duplicates under another ID remain normal duplicates, and cross-tenant IDs return fixed
 `tenant-conflict` metadata.
 

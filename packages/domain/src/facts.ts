@@ -17,9 +17,18 @@ import {
   type SourceFactSet,
 } from "@relay/contracts";
 
-export const SOURCE_FACT_NORMALIZER_VERSION = 1 as const;
+import { textAmountCandidates, textDateCandidates, textReferenceCandidates } from "./text-facts.js";
 
-type Candidate = { field: string; value: unknown };
+/**
+ * Version 2 reads the envelope's own subject and body as fact evidence. Version 1 read only
+ * `attributes`, which left every provider that carries no structured metadata with a sender fact
+ * and nothing more. Text is consulted only where attributes supplied nothing for that kind or date
+ * role, so a capture that already carries structured detail normalizes exactly as it did under
+ * version 1.
+ */
+export const SOURCE_FACT_NORMALIZER_VERSION = 2 as const;
+
+type Candidate = { field: string; value: unknown; start?: number; end?: number };
 type FactDraft = SourceFact extends infer Fact
   ? Fact extends SourceFact
     ? Omit<Fact, "ordinal">
@@ -43,8 +52,25 @@ function candidates(value: unknown, field: string): Candidate[] {
   }));
 }
 
+/**
+ * Attributes win. Text is read only where the envelope declared nothing for that kind, so a source
+ * that already states its own amount never has that value re-litigated against its prose.
+ */
+function orText(attributeEntries: Candidate[], textEntries: Candidate[]): Candidate[] {
+  return attributeEntries.length > 0 ? attributeEntries : textEntries;
+}
+
 function provenance(entries: Candidate[]): FactProvenance[] {
-  return [...new Set(entries.map((entry) => entry.field))].map((field) => ({ field }));
+  const unique = new Map<string, FactProvenance>();
+  for (const entry of entries) {
+    const record: FactProvenance =
+      entry.start !== undefined && entry.end !== undefined
+        ? { field: entry.field, start: entry.start, end: entry.end }
+        : { field: entry.field };
+    unique.set(`${record.field}:${record.start ?? ""}:${record.end ?? ""}`, record);
+  }
+  // The contract bounds provenance at 16 entries; a noisier field is still evidence for the value.
+  return [...unique.values()].slice(0, 16);
 }
 
 function uncertain(
@@ -148,6 +174,19 @@ function dateFacts(sourceItemId: string, envelope: IngressEnvelope): FactDraft[]
     else invalid.push(entry);
   }
 
+  // Text fills a role the envelope did not state. Gap-filling per role rather than per kind keeps
+  // a stated due date authoritative while still reading a start date the attributes omitted, and
+  // stops a date read from prose from contradicting one the source declared.
+  //
+  // The declared roles are captured before any text is added, so two conflicting dates read from
+  // the same text still reach the contradiction check below instead of the first one winning.
+  const declaredRoles = new Set(grouped.keys());
+  for (const entry of textDateCandidates(envelope)) {
+    const parsed = normalizationDateCandidateSchema.safeParse(entry.value);
+    if (!parsed.success || declaredRoles.has(parsed.data.role)) continue;
+    add(parsed.data.role, { ...entry, value: parsed.data.instant });
+  }
+
   const facts: FactDraft[] = [];
   for (const role of DATE_ROLES) {
     const entries = grouped.get(role);
@@ -219,18 +258,19 @@ export function normalizeSourceFacts(envelope: IngressEnvelope): SourceFactSet {
     ...(envelope.sender === undefined ? [] : [{ field: "sender", value: envelope.sender }]),
     ...candidates(envelope.attributes.sender, "attributes.sender"),
   ];
+  const text = textAmountCandidates(envelope);
   const drafts: FactDraft[] = [
     ...scalarFact(envelope.id, "sender", senderEntries),
     ...dateFacts(envelope.id, envelope),
     ...scalarFact(
       envelope.id,
       "amount",
-      candidates(envelope.attributes.amount, "attributes.amount"),
+      orText(candidates(envelope.attributes.amount, "attributes.amount"), text.amounts),
     ),
     ...scalarFact(
       envelope.id,
       "currency",
-      candidates(envelope.attributes.currency, "attributes.currency"),
+      orText(candidates(envelope.attributes.currency, "attributes.currency"), text.currencies),
     ),
     ...scalarFact(
       envelope.id,
@@ -245,7 +285,10 @@ export function normalizeSourceFacts(envelope: IngressEnvelope): SourceFactSet {
     ...pluralFacts(
       envelope.id,
       "reference",
-      candidates(envelope.attributes.reference, "attributes.reference"),
+      orText(
+        candidates(envelope.attributes.reference, "attributes.reference"),
+        textReferenceCandidates(envelope),
+      ),
     ),
   ];
 

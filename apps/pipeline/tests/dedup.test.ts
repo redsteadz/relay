@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ingressQueueMessageSchema, type IngressEnvelope } from "@relay/contracts";
+import { SOURCE_EVENT_EXTRACTOR_VERSION, SOURCE_FACT_NORMALIZER_VERSION } from "@relay/domain";
+
+// Durable Object keys carry the normalizer and extractor versions, so these are read from the
+// constants rather than written literally; a version bump then updates the expectation with the
+// behavior instead of failing as a stale string.
+const N = `n${SOURCE_FACT_NORMALIZER_VERSION}`;
+const FACTS_V = `v${SOURCE_FACT_NORMALIZER_VERSION}`;
+const EVENTS_V = `${N}:v${SOURCE_EVENT_EXTRACTOR_VERSION}`;
 import {
   decryptValue,
   encryptValue,
@@ -196,19 +204,22 @@ describe("processIngressMessage — local development durability", () => {
 
     const first = await processIngressMessage(storage, env, message);
     expect(await first.json()).toMatchObject({ accepted: true, reason: "persisted" });
-    const factSet = await storage.get(`source-facts:${message.envelopeId}:v1`);
-    const eventSet = await storage.get(`source-events:${message.envelopeId}:n1:v1`);
+    const factSet = await storage.get(`source-facts:${message.envelopeId}:${FACTS_V}`);
+    const eventSet = await storage.get(`source-events:${message.envelopeId}:${EVENTS_V}`);
     const factSetFingerprint = await storage.get(`fact-set-fingerprint:${message.envelopeId}`);
     const eventSetFingerprint = await storage.get(
-      `event-set-fingerprint:${message.envelopeId}:n1:v1`,
+      `event-set-fingerprint:${message.envelopeId}:${EVENTS_V}`,
     );
     expect(JSON.stringify(factSet)).not.toContain("synthetic-body");
     expect(JSON.stringify(eventSet)).not.toContain("synthetic-body");
     expect(JSON.stringify(eventSet)).not.toContain("synthetic-subject");
-    expect(factSet).toMatchObject({ sourceItemId: message.envelopeId, normalizerVersion: 1 });
+    expect(factSet).toMatchObject({
+      sourceItemId: message.envelopeId,
+      normalizerVersion: SOURCE_FACT_NORMALIZER_VERSION,
+    });
     expect(eventSet).toMatchObject({
       sourceItemId: message.envelopeId,
-      normalizerVersion: 1,
+      normalizerVersion: SOURCE_FACT_NORMALIZER_VERSION,
       extractorVersion: 1,
     });
     expect(factSetFingerprint).toMatch(/^[0-9a-f]{64}$/u);
@@ -218,10 +229,10 @@ describe("processIngressMessage — local development durability", () => {
     expect(Object.keys(localRecords)).toEqual(
       expect.arrayContaining([
         `source-item:${message.envelopeId}`,
-        `source-facts:${message.envelopeId}:v1`,
-        `source-events:${message.envelopeId}:n1:v1`,
+        `source-facts:${message.envelopeId}:${FACTS_V}`,
+        `source-events:${message.envelopeId}:${EVENTS_V}`,
         `fact-set-fingerprint:${message.envelopeId}`,
-        `event-set-fingerprint:${message.envelopeId}:n1:v1`,
+        `event-set-fingerprint:${message.envelopeId}:${EVENTS_V}`,
         `source-binding:${message.envelopeId}`,
       ]),
     );
@@ -262,12 +273,12 @@ describe("processIngressMessage — local development durability", () => {
       `source-item:${lowercaseId}`,
     );
     expect(storedSource).toBeDefined();
-    expect(await storage.get(`source-facts:${lowercaseId}:v1`)).toMatchObject({
+    expect(await storage.get(`source-facts:${lowercaseId}:${FACTS_V}`)).toMatchObject({
       sourceItemId: lowercaseId,
     });
     expect(await storage.get(`source-binding:${uppercaseId}`)).toBeUndefined();
     expect(await storage.get(`source-item:${uppercaseId}`)).toBeUndefined();
-    expect(await storage.get(`source-facts:${uppercaseId}:v1`)).toBeUndefined();
+    expect(await storage.get(`source-facts:${uppercaseId}:${FACTS_V}`)).toBeUndefined();
     if (storedSource === undefined) throw new TypeError("Expected canonical encrypted source");
     const rawContext = sourceItemEncryptionContext(uppercaseUserId, uppercaseId);
     const canonicalContext = sourceItemEncryptionContext(userId, lowercaseId);
@@ -387,22 +398,22 @@ describe("processIngressMessage — local development durability", () => {
       },
     });
     await storage.delete([
-      `event-set-fingerprint:${message.envelopeId}:n1:v1`,
-      `source-events:${message.envelopeId}:n1:v1`,
+      `event-set-fingerprint:${message.envelopeId}:${EVENTS_V}`,
+      `source-events:${message.envelopeId}:${EVENTS_V}`,
     ]);
     mocks.put.mockClear();
 
     const response = await processIngressMessage(storage, env, message);
 
     expect(await response.json()).toEqual({ accepted: true, reason: "persisted" });
-    expect(await storage.get(`source-events:${message.envelopeId}:n1:v1`)).toMatchObject({
+    expect(await storage.get(`source-events:${message.envelopeId}:${EVENTS_V}`)).toMatchObject({
       extractorVersion: 1,
       sourceItemId: message.envelopeId,
     });
     const upgradedBinding = await storage.get<Record<string, unknown>>(sourceBindingKey);
     expect(upgradedBinding).toMatchObject({
       extractorVersion: 1,
-      normalizerVersion: 1,
+      normalizerVersion: SOURCE_FACT_NORMALIZER_VERSION,
     });
     expect(upgradedBinding?.eventSetFingerprint).toMatch(/^[0-9a-f]{64}$/u);
   });
@@ -421,7 +432,7 @@ describe("processIngressMessage — local development durability", () => {
       eventSetFingerprint: "0".repeat(64),
       extractorVersion: 2,
       factSetFingerprint: binding.factSetFingerprint,
-      normalizerVersion: 1,
+      normalizerVersion: SOURCE_FACT_NORMALIZER_VERSION,
       sourceItemId: binding.sourceItemId,
     };
     const identityKey = Object.keys(firstRecords).find((key) => key.startsWith("source:["));
@@ -445,8 +456,8 @@ describe("processIngressMessage — local development durability", () => {
     expect(mocks.put).not.toHaveBeenCalled();
 
     await storage.delete([
-      `event-set-fingerprint:${message.envelopeId}:n1:v1`,
-      `source-events:${message.envelopeId}:n1:v1`,
+      `event-set-fingerprint:${message.envelopeId}:${EVENTS_V}`,
+      `source-events:${message.envelopeId}:${EVENTS_V}`,
     ]);
     mocks.put.mockClear();
 
@@ -455,7 +466,7 @@ describe("processIngressMessage — local development durability", () => {
     expect(await response.json()).toEqual({ accepted: true, reason: "persisted" });
     expect(await storage.get(sourceBindingKey)).toMatchObject({
       extractorVersion: 1,
-      normalizerVersion: 1,
+      normalizerVersion: SOURCE_FACT_NORMALIZER_VERSION,
     });
   });
 });
@@ -488,7 +499,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     expect(await response.json()).toEqual({ accepted: true, reason: "persisted" });
     expect(message).toMatchObject({ envelopeId: uppercaseId, userId: uppercaseUserId });
     const sourceCall = fetchMock.mock.calls.find(([input]) =>
-      requestUrl(input).endsWith("persist_encrypted_source_item_v3"),
+      requestUrl(input).endsWith("persist_encrypted_source_item_v5"),
     );
     const factCall = fetchMock.mock.calls.find(([input]) =>
       requestUrl(input).endsWith("persist_source_facts"),
@@ -533,7 +544,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     ).rejects.toThrow();
   });
 
-  it("uses connection-bound v4 persistence only for validated Gmail account UUID", async () => {
+  it("uses connection-bound v6 persistence only for validated Gmail account UUID", async () => {
     const { keyring, serialized } = keyMaterial();
     const connectionId = "06f96f7d-3e1a-4a66-b98e-58be9766b96e";
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => {
@@ -554,9 +565,9 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     expect(response.ok).toBe(true);
     const sourceCall = fetchMock.mock.calls.find(([input]) =>
-      requestUrl(input).endsWith("persist_encrypted_source_item_v4"),
+      requestUrl(input).endsWith("persist_encrypted_source_item_v6"),
     );
-    if (typeof sourceCall?.[1]?.body !== "string") throw new TypeError("Expected v4 JSON request");
+    if (typeof sourceCall?.[1]?.body !== "string") throw new TypeError("Expected v6 JSON request");
     expect(JSON.parse(sourceCall[1].body)).toMatchObject({
       p_connection_id: connectionId,
       p_source: "gmail",
@@ -600,7 +611,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     let factCalls = 0;
     let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      if (requestUrl(input).endsWith("persist_encrypted_source_item_v3")) {
+      if (requestUrl(input).endsWith("persist_encrypted_source_item_v5")) {
         sourceCalls += 1;
         return Promise.resolve(Response.json(sourceCalls === 1 ? "stored" : "duplicate"));
       }
@@ -667,7 +678,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     let factCalls = 0;
     let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      if (requestUrl(input).endsWith("persist_encrypted_source_item_v3")) {
+      if (requestUrl(input).endsWith("persist_encrypted_source_item_v5")) {
         sourceCalls += 1;
         return Promise.resolve(Response.json(sourceCalls === 1 ? "stored" : "duplicate"));
       }
@@ -708,7 +719,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     let factCalls = 0;
     let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      if (requestUrl(input).endsWith("persist_encrypted_source_item_v3")) {
+      if (requestUrl(input).endsWith("persist_encrypted_source_item_v5")) {
         sourceCalls += 1;
         return Promise.resolve(Response.json(sourceCalls === 1 ? "stored" : "duplicate"));
       }
@@ -748,7 +759,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     let factCalls = 0;
     let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      if (requestUrl(input).endsWith("persist_encrypted_source_item_v3")) {
+      if (requestUrl(input).endsWith("persist_encrypted_source_item_v5")) {
         sourceCalls += 1;
         return Promise.resolve(
           Response.json(sourceCalls === 1 ? "stored" : "fact-integrity-conflict"),
