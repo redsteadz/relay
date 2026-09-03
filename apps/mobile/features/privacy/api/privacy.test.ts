@@ -5,6 +5,8 @@ import {
   getDisclosureHistory,
   getPrivacyOverview,
   purgeRawPayloads,
+  rotateOpenAiKey,
+  submitOpenAiKey,
 } from "./privacy";
 
 describe("privacy API boundary", () => {
@@ -85,6 +87,67 @@ describe("privacy API boundary", () => {
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
       body: JSON.stringify({ confirm: "delete my account" }),
       method: "DELETE",
+    });
+  });
+
+  describe("semantic credential", () => {
+    const request = {
+      apiKey: "sk-synthetic",
+      endpoint: { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+    };
+
+    it("adds a key with POST and replaces one with PATCH", async () => {
+      const stored = Response.json({
+        configured: true,
+        endpoint: { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+        provider: "openai",
+        validated: true,
+      });
+      const fetchMock = vi.fn().mockResolvedValueOnce(stored).mockResolvedValueOnce(stored.clone());
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(submitOpenAiKey("token", request)).resolves.toMatchObject({ configured: true });
+      await rotateOpenAiKey("token", request);
+
+      expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.relay.test/api/connectors/openai");
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+        body: JSON.stringify(request),
+        method: "POST",
+      });
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "PATCH" });
+    });
+
+    it("carries the API error code so the form can say which part was refused", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            Response.json({ error: { code: "openai_key_rejected" } }, { status: 400 }),
+          ),
+      );
+      await expect(submitOpenAiKey("token", request)).rejects.toMatchObject({
+        apiCode: "openai_key_rejected",
+        reason: "validation",
+      });
+    });
+
+    it("refuses a status payload carrying key material", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          Response.json({
+            apiKey: "sk-synthetic",
+            configured: true,
+            provider: "openai",
+          }),
+        ),
+      );
+      // The status contract is strict, so a deployment that ever echoed a key back would fail the
+      // boundary rather than reach a screen.
+      await expect(submitOpenAiKey("token", request)).rejects.toMatchObject({
+        reason: "malformed-response",
+      });
     });
   });
 });

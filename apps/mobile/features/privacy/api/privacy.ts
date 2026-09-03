@@ -6,6 +6,7 @@ import {
   privacyPurgeResponseSchema,
   type AccountDeletionResponse,
   type OpenAiCredentialStatus,
+  type OpenAiCredentialSubmitRequest,
   type PrivacyDisclosure,
   type PrivacyOverviewResponse,
   type PrivacyPurgeResponse,
@@ -68,6 +69,42 @@ export async function getOpenAiStatus(accessToken: string): Promise<OpenAiCreden
     openAiCredentialStatusSchema,
     await requestRelayApi(accessToken, "/api/connectors/openai"),
     "getOpenAiStatus",
+  );
+}
+
+/**
+ * Stores a first key for this account.
+ *
+ * The request body is the only place key material appears. It is never read back: the status
+ * response carries the endpoint and validation metadata, and Relay has no route that returns a
+ * stored key.
+ */
+export async function submitOpenAiKey(
+  accessToken: string,
+  request: OpenAiCredentialSubmitRequest,
+): Promise<OpenAiCredentialStatus> {
+  return parseResponse(
+    openAiCredentialStatusSchema,
+    await requestRelayApi(accessToken, "/api/connectors/openai", {
+      body: request,
+      method: "POST",
+    }),
+    "submitOpenAiKey",
+  );
+}
+
+/** Replaces the stored key, and the endpoint with it when the request names one. */
+export async function rotateOpenAiKey(
+  accessToken: string,
+  request: OpenAiCredentialSubmitRequest,
+): Promise<OpenAiCredentialStatus> {
+  return parseResponse(
+    openAiCredentialStatusSchema,
+    await requestRelayApi(accessToken, "/api/connectors/openai", {
+      body: request,
+      method: "PATCH",
+    }),
+    "rotateOpenAiKey",
   );
 }
 

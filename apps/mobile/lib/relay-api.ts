@@ -32,9 +32,21 @@ const categoryForFailure: Record<RelayApiFailure, ErrorCategory> = {
 };
 
 export class RelayApiError extends AppError {
+  /**
+   * The `error.code` the Relay API returned, when it sent one.
+   *
+   * `reason` is deliberately coarse: every 4xx without a recognised status collapses to
+   * `validation`, which is the right granularity for retry and logging but too blunt for a form that
+   * has to say whether a key was refused, an endpoint was rejected, or a credential already exists.
+   * The API's codes are a fixed enum from Relay's own routes -- never provider or source text -- so
+   * carrying one to the UI introduces no untrusted content.
+   */
+  readonly apiCode: string | undefined;
+
   constructor(
     readonly reason: RelayApiFailure,
     options: {
+      apiCode?: string | undefined;
       cause?: unknown;
       operation?: string;
       requestId?: string;
@@ -50,6 +62,7 @@ export class RelayApiError extends AppError {
       statusCode: options.statusCode,
     });
     this.name = "RelayApiError";
+    this.apiCode = options.apiCode;
   }
 }
 
@@ -96,7 +109,7 @@ function configuredBaseUrl(): string {
 export async function requestRelayApi(
   accessToken: string,
   path: string,
-  init: { body?: unknown; method?: "DELETE" | "GET" } = {},
+  init: { body?: unknown; method?: "DELETE" | "GET" | "PATCH" | "POST" } = {},
 ): Promise<unknown> {
   const operation = `${init.method ?? "GET"} ${path.split("?", 1)[0] ?? path}`;
   const operationRequestId = mobileRequestId();
@@ -184,7 +197,9 @@ export async function requestRelayApi(
     throw normalized;
   }
   if (!response.ok) {
-    const normalized = new RelayApiError(failureFor(response.status, errorCode(value)), {
+    const apiCode = errorCode(value);
+    const normalized = new RelayApiError(failureFor(response.status, apiCode), {
+      apiCode,
       cause: new Error("Relay API returned a failure status"),
       operation,
       requestId: operationRequestId,
