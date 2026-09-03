@@ -117,7 +117,7 @@ function AuthenticatedStack() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Protected guard={appAccessAllowed}>
           <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="inbox" />
+          <Stack.Screen name="inbox/[id]" />
           <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />
