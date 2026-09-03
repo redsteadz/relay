@@ -735,6 +735,32 @@ export type Database = {
         };
         Relationships: [];
       };
+      hidden_inbox_events: {
+        Row: {
+          event_id: string;
+          hidden_at: string;
+          user_id: string;
+        };
+        Insert: {
+          event_id: string;
+          hidden_at?: string;
+          user_id: string;
+        };
+        Update: {
+          event_id?: string;
+          hidden_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "hidden_inbox_events_user_id_event_id_fkey";
+            columns: ["user_id", "event_id"];
+            isOneToOne: true;
+            referencedRelation: "relay_events";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
       profiles: {
         Row: {
           created_at: string;

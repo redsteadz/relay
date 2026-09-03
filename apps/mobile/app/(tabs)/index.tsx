@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -20,6 +21,7 @@ import { useInbox } from "@/features/inbox/hooks/useInbox";
 import {
   appIconFor,
   groupByApp,
+  groupByThread,
   type InboxGroup,
   type InboxItem,
 } from "@/features/inbox/models/inboxPresentation";
@@ -49,6 +51,7 @@ const GROUP_EMPTY: Record<InboxGroup, string> = {
 
 export default function InboxScreen() {
   const { session } = useAuth();
+  const router = useRouter();
   const theme = useRelayTheme();
   const inbox = useInbox();
   const [status, setStatus] = useState("Ready for local simulation");
@@ -163,7 +166,14 @@ export default function InboxScreen() {
                   onToggle={setQuietExpanded}
                 />
               ) : (
-                section.items.map((item) => <InboxItemCard item={item} key={item.id} />)
+                groupByThread(section.items).map((thread) => (
+                  <InboxItemCard
+                    item={thread.latest}
+                    key={thread.key}
+                    onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
+                    threadCount={thread.items.length}
+                  />
+                ))
               )}
             </View>
           ))
@@ -200,13 +210,17 @@ function QuietSection({
   items: readonly InboxItem[];
   onToggle: (value: string | undefined) => void;
 }) {
+  const router = useRouter();
   const theme = useRelayTheme();
   return (
     <>
       {groupByApp(items).map((group) => {
         const showingAll = expanded === group.appLabel;
-        const visible = showingAll ? group.items : group.items.slice(0, QUIET_PREVIEW_COUNT);
-        const remaining = group.items.length - visible.length;
+        // Paging counts conversations rather than captures, so a preview of five is five things to
+        // read instead of five messages that might all belong to one thread.
+        const threads = groupByThread(group.items);
+        const visible = showingAll ? threads : threads.slice(0, QUIET_PREVIEW_COUNT);
+        const remaining = threads.length - visible.length;
         const first = group.items[0];
         return (
           <View key={group.appLabel} style={[styles.section, { gap: theme.relay.spacing.sm }]}>
@@ -222,8 +236,13 @@ function QuietSection({
                 {group.appLabel} · {String(group.items.length)} captured
               </AppText>
             </ActionRow>
-            {visible.map((item) => (
-              <InboxItemCard item={item} key={item.id} />
+            {visible.map((thread) => (
+              <InboxItemCard
+                item={thread.latest}
+                key={thread.key}
+                onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
+                threadCount={thread.items.length}
+              />
             ))}
             {remaining > 0 || showingAll ? (
               <AppButton

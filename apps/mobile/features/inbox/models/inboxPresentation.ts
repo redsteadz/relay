@@ -50,6 +50,8 @@ export type InboxSource = {
   occurredAt: string;
   sender: string | undefined;
   subject: string | undefined;
+  /** Provider-assigned conversation id, when the source names one of its own. */
+  threadId: string | undefined;
 };
 
 /**
@@ -125,6 +127,8 @@ export type InboxItem = {
   source: InboxSource;
   sourceItemId: string;
   summary: string | undefined;
+  /** Groups captures that continue one conversation. Undefined when an item stands alone. */
+  threadKey: string | undefined;
   title: string;
 };
 
@@ -387,6 +391,7 @@ export function inboxItemForEvent(
     source: context.source,
     sourceItemId: event.sourceItemId,
     summary: displaySummary(event, context),
+    threadKey: inboxThreadKey(context.source),
     title: displayTitle(event, context, evidence, appLabel),
   };
 }
@@ -400,6 +405,94 @@ function compareWithin(group: InboxGroup, left: InboxItem, right: InboxItem): nu
   }
   // Everything else reads newest first, because recency is what makes an unresolved item relevant.
   return right.occurredAt.localeCompare(left.occurredAt);
+}
+
+/**
+ * Normalizes text used to match one conversation to another.
+ *
+ * Matches the comparison rules the deterministic filter evaluator already uses -- NFKC, collapsed
+ * whitespace, lowercase -- so two spellings of one name group together rather than splitting a
+ * conversation in half.
+ */
+function normalizeThreadText(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
+}
+
+/** Reply and forward markers, so a reply joins the conversation it answers. */
+const REPLY_PREFIX = /^(?:re|fw|fwd|aw|sv|vs)\s*(?:\[\d+\])?\s*:\s*/iu;
+
+function subjectThreadText(subject: string): string {
+  let remaining = subject;
+  // Mail clients stack prefixes ("Re: Fwd: Re: ..."), so strip repeatedly rather than once.
+  for (let guard = 0; guard < 8 && REPLY_PREFIX.test(remaining); guard += 1) {
+    remaining = remaining.replace(REPLY_PREFIX, "");
+  }
+  return normalizeThreadText(remaining);
+}
+
+/**
+ * The conversation an item belongs to.
+ *
+ * A provider that names its own thread is believed before anything is inferred: Gmail assigns a
+ * thread ID, and using it means a renamed subject never splits a conversation and two unrelated
+ * messages sharing a subject never merge.
+ *
+ * Failing that, a conversation is the other party within one application, which is what a chat
+ * notification actually continues. Subject is the last resort and is only meaningful for mail.
+ *
+ * Returns undefined when nothing identifies a conversation, because grouping unrelated items under
+ * a fabricated parent would be worse than leaving them apart.
+ */
+export function inboxThreadKey(source: InboxSource): string | undefined {
+  if (source.threadId !== undefined && source.threadId.length > 0) {
+    return `provider:${source.kind}:${source.threadId}`;
+  }
+  const scope = source.applicationId ?? source.kind;
+  if (source.sender !== undefined && source.sender.length > 0) {
+    return `sender:${scope}:${normalizeThreadText(source.sender)}`;
+  }
+  if (source.subject !== undefined && source.subject.length > 0) {
+    const subject = subjectThreadText(source.subject);
+    if (subject.length > 0) return `subject:${scope}:${subject}`;
+  }
+  return undefined;
+}
+
+export type InboxThread = {
+  /** Newest item, shown as the thread's face. */
+  latest: InboxItem;
+  /** Every item in the conversation, newest first. `latest` included. */
+  items: readonly InboxItem[];
+  key: string;
+};
+
+/**
+ * Collapses items that continue one conversation.
+ *
+ * An item with no thread key becomes its own single-item thread rather than being dropped or pooled
+ * with other unrelated items, so a list still accounts for everything it was given.
+ */
+export function groupByThread(items: readonly InboxItem[]): readonly InboxThread[] {
+  const threads = new Map<string, InboxItem[]>();
+  const order: string[] = [];
+  for (const [index, item] of items.entries()) {
+    // A keyless item is kept distinct by position, which cannot collide with a real key.
+    const key = item.threadKey ?? `solo:${index.toString()}:${item.id}`;
+    const existing = threads.get(key);
+    if (existing === undefined) {
+      threads.set(key, [item]);
+      order.push(key);
+    } else {
+      existing.push(item);
+    }
+  }
+  return order.map((key) => {
+    const grouped = [...(threads.get(key) ?? [])].sort((left, right) =>
+      right.occurredAt.localeCompare(left.occurredAt),
+    );
+    // `order` is built from a non-empty first insert, so a group always has a newest item.
+    return { items: grouped, key, latest: grouped[0] };
+  });
 }
 
 export type InboxSection = { group: InboxGroup; items: readonly InboxItem[] };

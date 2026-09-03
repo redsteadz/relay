@@ -71,6 +71,7 @@ describe("listInbox", () => {
     expect(calls.sort()).toEqual([
       "categories",
       "classifications",
+      "hidden_inbox_events",
       "relay_events",
       "source_facts",
       "source_items",

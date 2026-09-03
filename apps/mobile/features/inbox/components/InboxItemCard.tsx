@@ -27,17 +27,36 @@ function readableEvidence(evidence: readonly InboxEvidence[]): readonly InboxEvi
  * Detail is assembled from derived fields only. The encrypted raw payload is never read here, so an
  * item still explains itself after its raw copy expires.
  */
-export function InboxItemCard({ item }: { item: InboxItem }) {
+export function InboxItemCard({
+  item,
+  onOpen,
+  threadCount,
+}: {
+  item: InboxItem;
+  /** Opens this item's detail. Omit to render the card as static reading matter. */
+  onOpen?: (() => void) | undefined;
+  /** How many captures share this item's conversation, when more than one does. */
+  threadCount?: number | undefined;
+}) {
   const theme = useRelayTheme();
   const evidence = readableEvidence(item.evidence);
   const occurred = formatCaptureTime(item.source.occurredAt);
   const scheduled =
     item.scheduledAt === undefined ? undefined : formatCaptureTime(item.scheduledAt);
 
+  const conversation =
+    threadCount === undefined || threadCount < 2
+      ? undefined
+      : `${threadCount.toString()} in this conversation`;
+
   return (
     <EditorialSurface
+      accessibilityHint={
+        onOpen === undefined ? undefined : "Opens what Relay read from this capture"
+      }
       icon={appIconFor(item.source)}
-      meta={[occurred, item.category?.name].filter(Boolean).join(" · ")}
+      meta={[occurred, conversation, item.category?.name].filter(Boolean).join(" · ")}
+      onPress={onOpen}
       title={item.title}
       variant={item.group === "actionable" ? "accent" : "raised"}
     >

@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, Surface } from "react-native-paper";
 
 import { useRelayTheme } from "@/theme";
@@ -9,17 +9,23 @@ import { AppText } from "./AppText";
 export type EditorialSurfaceVariant = "plain" | "raised" | "accent";
 
 type EditorialSurfaceProps = PropsWithChildren<{
+  /** Spoken after the label to say what opening this leads to. Required with `onPress`. */
+  accessibilityHint?: string | undefined;
   icon?: string | undefined;
   meta?: string | undefined;
+  /** Makes the whole surface one control. Omit to leave it as static reading matter. */
+  onPress?: (() => void) | undefined;
   title: string;
   titleAccessory?: ReactNode;
   variant?: EditorialSurfaceVariant;
 }>;
 
 export function EditorialSurface({
+  accessibilityHint,
   children,
   icon,
   meta,
+  onPress,
   title,
   titleAccessory,
   variant = "plain",
@@ -31,7 +37,7 @@ export function EditorialSurface({
   const foreground = accent ? colors.onAccentSubtle : colors.text;
   const muted = accent ? colors.onAccentSubtle : colors.textMuted;
 
-  return (
+  const surface = (
     <Surface
       elevation={raised ? theme.relay.elevation.raised : theme.relay.elevation.flat}
       style={[
@@ -76,6 +82,22 @@ export function EditorialSurface({
       <View style={{ gap: theme.relay.spacing.md }}>{children}</View>
     </Surface>
   );
+
+  if (onPress === undefined) return surface;
+
+  // The whole card is the target rather than a separate chevron, so the reachable area matches the
+  // area that looks tappable and clears the 48px minimum on its own.
+  return (
+    <Pressable
+      accessibilityRole="button"
+      {...(accessibilityHint === undefined ? {} : { accessibilityHint })}
+      accessibilityLabel={meta === undefined ? title : `${title}. ${meta}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.pressable, pressed && styles.pressed]}
+    >
+      {surface}
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -85,6 +107,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "space-between",
   },
+  pressable: { borderRadius: 0 },
+  pressed: { opacity: 0.7 },
   surface: { overflow: "hidden" },
   title: { flexShrink: 1 },
   titleRow: { alignItems: "center", flex: 1, flexDirection: "row", minWidth: 0 },

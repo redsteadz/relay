@@ -7,12 +7,15 @@ import {
   evidenceLabel,
   filterInbox,
   groupByApp,
+  groupByThread,
   inboxItemForEvent,
   inboxRetention,
   inboxSections,
+  inboxThreadKey,
   type InboxContext,
   type InboxEventInput,
   type InboxFactInput,
+  type InboxSource,
 } from "./inboxPresentation";
 
 function context(overrides: Partial<InboxContext> = {}): InboxContext {
@@ -27,6 +30,7 @@ function context(overrides: Partial<InboxContext> = {}): InboxContext {
       occurredAt: "2026-08-30T20:59:00.000Z",
       sender: undefined,
       subject: undefined,
+      threadId: undefined,
     },
     ...overrides,
   };
@@ -369,5 +373,94 @@ describe("inbox sections", () => {
     const sections = inboxSections([]);
     expect(sections).toHaveLength(3);
     expect(sections.every((section) => section.items.length === 0)).toBe(true);
+  });
+});
+
+describe("inboxThreadKey", () => {
+  const source = (overrides: Partial<InboxSource> = {}): InboxSource => ({
+    applicationId: "com.whatsapp",
+    kind: "notification",
+    occurredAt: "2026-09-01T09:00:00.000Z",
+    sender: undefined,
+    subject: undefined,
+    threadId: undefined,
+    ...overrides,
+  });
+
+  it("believes a provider's own thread id before anything inferred", () => {
+    const key = inboxThreadKey(source({ kind: "gmail", subject: "Invoice", threadId: "t-1" }));
+    expect(key).toBe("provider:gmail:t-1");
+  });
+
+  it("keeps one provider thread together even when the subject changes", () => {
+    const first = inboxThreadKey(source({ kind: "gmail", subject: "Invoice", threadId: "t-1" }));
+    const renamed = inboxThreadKey(
+      source({ kind: "gmail", subject: "Re: budget", threadId: "t-1" }),
+    );
+    expect(first).toBe(renamed);
+  });
+
+  it("groups a conversation by the other party within one application", () => {
+    const key = inboxThreadKey(source({ sender: "Alex Rivera" }));
+    expect(key).toBe("sender:com.whatsapp:alex rivera");
+  });
+
+  it("normalizes spelling so one person is not split in two", () => {
+    expect(inboxThreadKey(source({ sender: "Alex  RIVERA " }))).toBe(
+      inboxThreadKey(source({ sender: "alex rivera" })),
+    );
+  });
+
+  it("does not merge the same sender across different applications", () => {
+    const whatsapp = inboxThreadKey(source({ sender: "Alex" }));
+    const messages = inboxThreadKey(
+      source({ applicationId: "com.google.android.apps.messaging", sender: "Alex" }),
+    );
+    expect(whatsapp).not.toBe(messages);
+  });
+
+  it("joins a reply to the subject it answers", () => {
+    const original = inboxThreadKey(source({ kind: "email", subject: "Quarterly budget" }));
+    const reply = inboxThreadKey(source({ kind: "email", subject: "Re: Quarterly budget" }));
+    const forward = inboxThreadKey(source({ kind: "email", subject: "Fwd: Re: Quarterly budget" }));
+    expect(reply).toBe(original);
+    expect(forward).toBe(original);
+  });
+
+  it("returns nothing when the source identifies no conversation", () => {
+    expect(inboxThreadKey(source())).toBeUndefined();
+  });
+});
+
+describe("groupByThread", () => {
+  it("collapses items that share a conversation, newest first", () => {
+    const base = inboxItemForEvent(
+      event({ id: "a", createdAt: "2026-09-01T09:00:00.000Z" }),
+      context(),
+    );
+    const older = { ...base, id: "a", occurredAt: "2026-09-01T09:00:00.000Z", threadKey: "t" };
+    const newer = { ...base, id: "b", occurredAt: "2026-09-02T09:00:00.000Z", threadKey: "t" };
+    const [thread, ...rest] = groupByThread([older, newer]);
+    expect(rest).toHaveLength(0);
+    expect(thread?.items).toHaveLength(2);
+    expect(thread?.latest.id).toBe("b");
+  });
+
+  it("keeps items without a conversation apart rather than pooling them", () => {
+    const base = inboxItemForEvent(event({ id: "a" }), context());
+    const first = { ...base, id: "a", threadKey: undefined };
+    const second = { ...base, id: "b", threadKey: undefined };
+    expect(groupByThread([first, second])).toHaveLength(2);
+  });
+
+  it("accounts for every item it was given", () => {
+    const base = inboxItemForEvent(event({ id: "a" }), context());
+    const items = [
+      { ...base, id: "a", threadKey: "t" },
+      { ...base, id: "b", threadKey: "t" },
+      { ...base, id: "c", threadKey: undefined },
+    ];
+    const total = groupByThread(items).reduce((sum, thread) => sum + thread.items.length, 0);
+    expect(total).toBe(items.length);
   });
 });

@@ -24,8 +24,10 @@ import {
 const eventColumns =
   "id, kind, title, summary, starts_at, due_at, confidence, created_at, source_item_id, temporal_status, date_ambiguity, requires_review";
 const factColumns = "id, kind, certainty, value, uncertainty_reason, created_at, source_item_id";
+// `attributes` is read by one key rather than whole: adapters own that blob, and selecting all of
+// it would silently widen what the inbox reads whenever one of them adds a field.
 const sourceItemColumns =
-  "id, source, application_id, sender, subject, occurred_at, processed_at, raw_expires_at";
+  "id, source, application_id, sender, subject, occurred_at, processed_at, raw_expires_at, gmail_thread_id:attributes->>gmailThreadId";
 const classificationColumns = "source_item_id, category_id, method, confidence, rationale";
 const categoryColumns = "id, name";
 
@@ -83,6 +85,7 @@ type FactRow = {
 
 type SourceItemRow = {
   application_id: string | null;
+  gmail_thread_id: string | null;
   id: string;
   occurred_at: string;
   processed_at: string | null;
@@ -91,6 +94,8 @@ type SourceItemRow = {
   source: string;
   subject: string | null;
 };
+
+type HiddenEventRow = { event_id: string };
 
 type ClassificationRow = {
   category_id: string | null;
@@ -120,6 +125,7 @@ function unknownContext(occurredAt: string, content: InboxContent | undefined): 
       occurredAt,
       sender: undefined,
       subject: undefined,
+      threadId: undefined,
     },
   };
 }
@@ -161,6 +167,7 @@ function buildContext(
       occurredAt: item.occurred_at,
       sender: item.sender ?? undefined,
       subject: item.subject ?? undefined,
+      threadId: item.gmail_thread_id ?? undefined,
     },
   };
 }
@@ -208,7 +215,7 @@ export async function listInbox(
   tenantId: string,
   now = new Date().toISOString(),
 ) {
-  const [events, facts, items, classifications, categories] = await Promise.all([
+  const [events, facts, items, classifications, categories, hidden] = await Promise.all([
     client
       .from("relay_events")
       .select(eventColumns)
@@ -226,6 +233,7 @@ export async function listInbox(
       .limit(INBOX_PAGE_SIZE),
     client.from("classifications").select(classificationColumns).limit(INBOX_PAGE_SIZE),
     client.from("categories").select(categoryColumns),
+    client.from("hidden_inbox_events").select("event_id"),
   ]);
 
   if (events.error !== null) throw inboxError(events.error, "listRelayEvents");
@@ -234,6 +242,7 @@ export async function listInbox(
   if (classifications.error !== null)
     throw inboxError(classifications.error, "listClassifications");
   if (categories.error !== null) throw inboxError(categories.error, "listCategories");
+  if (hidden.error !== null) throw inboxError(hidden.error, "listHiddenInboxEvents");
 
   const itemsById = new Map(
     ((items.data ?? []) as SourceItemRow[]).map((row) => [row.id, row] as const),
@@ -250,7 +259,10 @@ export async function listInbox(
   // What the capture said is read from this device's own encrypted copy, keyed by the same envelope
   // ID the server knows as `source_item_id`. It is absent when another device captured the item or
   // when local retention has dropped it, which is ordinary rather than an error.
-  const eventRows = (events.data ?? []) as EventRow[];
+  // Hidden rows are dropped before content is read for them, so a person who removed an item does
+  // not have its retained copy reopened on every refresh.
+  const hiddenIds = new Set(((hidden.data ?? []) as HiddenEventRow[]).map((row) => row.event_id));
+  const eventRows = ((events.data ?? []) as EventRow[]).filter((row) => !hiddenIds.has(row.id));
   const retained = await readRetainedContent(
     tenantId,
     eventRows.map((row) => row.source_item_id),
@@ -309,4 +321,39 @@ export async function listInbox(
   ];
 
   return inbox;
+}
+
+/**
+ * Removes an item from this reader's inbox.
+ *
+ * Only Relay's own view changes. The source notification on the device is untouched, and the derived
+ * event, its facts, and the source item all remain: clearing a notification from a phone requires an
+ * explicit filter rule and a completed dry-run period, which this is not.
+ *
+ * Writing the reader's own `user_id` is what row-level security checks, so a client cannot hide an
+ * event belonging to someone else even by guessing its id.
+ */
+export async function hideInboxEvent(
+  client: SupabaseClient,
+  userId: string,
+  eventId: string,
+): Promise<void> {
+  const { error } = await client
+    .from("hidden_inbox_events")
+    .upsert({ event_id: eventId, user_id: userId }, { onConflict: "user_id,event_id" });
+  if (error !== null) throw inboxError(error, "hideInboxEvent");
+}
+
+/** Restores a hidden item. Hiding is reversible, so the record is deleted rather than flagged. */
+export async function restoreInboxEvent(
+  client: SupabaseClient,
+  userId: string,
+  eventId: string,
+): Promise<void> {
+  const { error } = await client
+    .from("hidden_inbox_events")
+    .delete()
+    .eq("user_id", userId)
+    .eq("event_id", eventId);
+  if (error !== null) throw inboxError(error, "restoreInboxEvent");
 }

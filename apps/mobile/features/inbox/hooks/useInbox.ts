@@ -1,10 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { AppState } from "react-native";
 
 import { useAuth } from "@/lib/auth-context";
 
-import { listInbox } from "../api/inbox";
+import { hideInboxEvent, listInbox, restoreInboxEvent } from "../api/inbox";
 import { filterInbox, inboxSections, type InboxSection } from "../models/inboxPresentation";
 
 export const inboxQueryKeys = {
@@ -12,11 +12,15 @@ export const inboxQueryKeys = {
 };
 
 export type InboxState = {
+  /** Removes an item from this reader's inbox. The device notification is never touched. */
+  hide: (eventId: string) => Promise<void>;
   /** True only for the first load, so a refresh never replaces the list with a spinner. */
   loading: boolean;
   query: string;
   refetch: () => void;
   refreshing: boolean;
+  /** Puts a hidden item back. Hiding is reversible, so this is always available after it. */
+  restore: (eventId: string) => Promise<void>;
   sections: readonly InboxSection[];
   setQuery: (value: string) => void;
   /** Distinguishes "nothing captured yet" from "nothing matches this search". */
@@ -26,6 +30,7 @@ export type InboxState = {
 
 export function useInbox(): InboxState {
   const { client, session } = useAuth();
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const userId = session?.user.id;
 
@@ -45,14 +50,31 @@ export function useInbox(): InboxState {
     return () => subscription.remove();
   }, [inbox]);
 
+  // Both writes refetch rather than patch the cache: the list a person sees is the server's answer,
+  // and a hidden item that failed to persist must reappear rather than look removed.
+  const visibility = useMutation({
+    mutationFn: async ({ action, eventId }: { action: "hide" | "restore"; eventId: string }) => {
+      if (client === undefined || userId === undefined) return;
+      const write = action === "hide" ? hideInboxEvent : restoreInboxEvent;
+      await write(client, userId, eventId);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: inboxQueryKeys.all(userId) }),
+  });
+
   const items = useMemo(() => inbox.data ?? [], [inbox.data]);
   const sections = useMemo(() => inboxSections(filterInbox(items, query)), [items, query]);
 
   return {
+    hide: async (eventId: string) => {
+      await visibility.mutateAsync({ action: "hide", eventId });
+    },
     loading: inbox.isPending,
     query,
     refetch: () => void inbox.refetch(),
     refreshing: inbox.isFetching && !inbox.isPending,
+    restore: async (eventId: string) => {
+      await visibility.mutateAsync({ action: "restore", eventId });
+    },
     sections,
     setQuery,
     total: items.length,
