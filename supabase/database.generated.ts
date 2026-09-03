@@ -903,6 +903,7 @@ export type Database = {
           encryption_environment: string | null;
           external_id: string;
           fact_set_fingerprint: string | null;
+          fact_set_normalizer_version: number | null;
           id: string;
           key_version: number | null;
           occurred_at: string;
@@ -928,6 +929,7 @@ export type Database = {
           encryption_environment?: string | null;
           external_id: string;
           fact_set_fingerprint?: string | null;
+          fact_set_normalizer_version?: number | null;
           id: string;
           key_version?: number | null;
           occurred_at: string;
@@ -953,6 +955,7 @@ export type Database = {
           encryption_environment?: string | null;
           external_id?: string;
           fact_set_fingerprint?: string | null;
+          fact_set_normalizer_version?: number | null;
           id?: string;
           key_version?: number | null;
           occurred_at?: string;
@@ -1382,6 +1385,55 @@ export type Database = {
           p_encryption_environment: string;
           p_external_id: string;
           p_fact_set_fingerprint: string;
+          p_id: string;
+          p_key_version: number;
+          p_occurred_at: string;
+          p_raw_ciphertext: string;
+          p_raw_expires_at: string;
+          p_raw_nonce: string;
+          p_source: Database["public"]["Enums"]["source_kind"];
+          p_source_account_id: string;
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: string;
+      };
+      persist_encrypted_source_item_v5: {
+        Args: {
+          p_accepted_at: string;
+          p_application_id: string;
+          p_captured_at: string;
+          p_content_fingerprint: string;
+          p_encryption_environment: string;
+          p_external_id: string;
+          p_fact_set_fingerprint: string;
+          p_fact_set_normalizer_version: number;
+          p_id: string;
+          p_key_version: number;
+          p_occurred_at: string;
+          p_raw_ciphertext: string;
+          p_raw_expires_at: string;
+          p_raw_nonce: string;
+          p_source: Database["public"]["Enums"]["source_kind"];
+          p_source_account_id: string;
+          p_user_id: string;
+          p_wrap_nonce: string;
+          p_wrapped_data_key: string;
+        };
+        Returns: string;
+      };
+      persist_encrypted_source_item_v6: {
+        Args: {
+          p_accepted_at: string;
+          p_application_id: string;
+          p_captured_at: string;
+          p_connection_id: string;
+          p_content_fingerprint: string;
+          p_encryption_environment: string;
+          p_external_id: string;
+          p_fact_set_fingerprint: string;
+          p_fact_set_normalizer_version: number;
           p_id: string;
           p_key_version: number;
           p_occurred_at: string;
