@@ -76,6 +76,7 @@ entry points and cross-milestone flow without copying issue prose.
 - [#154 Per-application browsing](https://github.com/redsteadz/relay/issues/154)
 - [#155 Remove fabricated screen data](https://github.com/redsteadz/relay/issues/155)
 - [#156 Navigation drawer](https://github.com/redsteadz/relay/issues/156)
+- [#158 Notification dismissal in the reworked surfaces](https://github.com/redsteadz/relay/issues/158)
 
 Primary flow:
 
