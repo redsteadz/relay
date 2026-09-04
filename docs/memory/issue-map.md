@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-26
+last_verified: 2026-09-04
 ---
 
 # Issue Dependency Map
@@ -69,6 +69,14 @@ entry points and cross-milestone flow without copying issue prose.
 - [#48 Gmail verification](https://github.com/redsteadz/relay/issues/48)
 - [#49 Release automation](https://github.com/redsteadz/relay/issues/49)
 
+## M6 Cleanup And Finalization
+
+- [#152 Deterministic classification at ingest](https://github.com/redsteadz/relay/issues/152)
+- [#153 Gesture-driven inbox interaction](https://github.com/redsteadz/relay/issues/153)
+- [#154 Per-application browsing](https://github.com/redsteadz/relay/issues/154)
+- [#155 Remove fabricated screen data](https://github.com/redsteadz/relay/issues/155)
+- [#156 Navigation drawer](https://github.com/redsteadz/relay/issues/156)
+
 Primary flow:
 
 ```text
@@ -78,6 +86,7 @@ M0 environments and keys
       -> M3 approval-safe provider actions
         -> M4 user controls and explainability
           -> M5 policy, resilience, audit, and release
+            -> M6 classification, interaction, and placeholder removal
 ```
 
 Related: [system architecture](../architecture/system.md) and
