@@ -495,6 +495,85 @@ export function groupByThread(items: readonly InboxItem[]): readonly InboxThread
   });
 }
 
+/**
+ * Stable identity for the application or source a capture came from.
+ *
+ * Routes are addressed by this rather than by display name: a label is resolved from the device and
+ * can differ between phones, change when an application is renamed, and collide between two
+ * packages that chose the same name. The package identifier does none of those.
+ *
+ * Captures with no application -- Gmail and SMS arrive as sources rather than apps -- key on their
+ * source kind, so every capture belongs to exactly one group and none are stranded.
+ */
+export function inboxAppKey(source: InboxSource): string {
+  return source.applicationId === undefined
+    ? `source:${source.kind}`
+    : `app:${source.applicationId}`;
+}
+
+/** Everything a list needs to show one application without reading its captures again. */
+export type InboxAppSummary = {
+  /** Newest capture in the group, for ordering and for saying how recent it is. */
+  latestOccurredAt: string;
+  /** Captures needing attention, so a busy application does not hide one urgent item. */
+  actionable: number;
+  /** Total captures. Distinct from `conversations`, which counts threads. */
+  captures: number;
+  conversations: number;
+  icon: string;
+  key: string;
+  label: string;
+  needsReview: number;
+};
+
+/**
+ * Summarises the applications a set of captures came from, busiest first.
+ *
+ * Counts both captures and conversations because they differ once threads collapse, and a count
+ * that does not say which it measures invites the reader to trust the wrong number.
+ */
+export function summariseByApp(
+  items: readonly InboxItem[],
+  labels: ReadonlyMap<string, string> = new Map(),
+): readonly InboxAppSummary[] {
+  const groups = new Map<string, InboxItem[]>();
+  for (const item of items) {
+    const key = inboxAppKey(item.source);
+    const existing = groups.get(key);
+    if (existing === undefined) groups.set(key, [item]);
+    else existing.push(item);
+  }
+
+  return [...groups.entries()]
+    .map(([key, grouped]) => {
+      const first = grouped[0];
+      const applicationId = first.source.applicationId;
+      return {
+        actionable: grouped.filter((item) => item.group === "actionable").length,
+        captures: grouped.length,
+        conversations: groupByThread(grouped).length,
+        icon: appIconFor(first.source),
+        key,
+        label:
+          applicationId === undefined
+            ? first.appLabel
+            : (labels.get(applicationId) ?? first.appLabel),
+        latestOccurredAt: grouped.reduce(
+          (latest, item) => (item.occurredAt > latest ? item.occurredAt : latest),
+          grouped[0]?.occurredAt ?? "",
+        ),
+        needsReview: grouped.filter((item) => item.group === "needs-review").length,
+      };
+    })
+    .sort(
+      (left, right) =>
+        // Anything waiting on a person outranks volume, then volume, then name for stability.
+        right.actionable + right.needsReview - (left.actionable + left.needsReview) ||
+        right.captures - left.captures ||
+        left.label.localeCompare(right.label),
+    );
+}
+
 export type InboxSection = { group: InboxGroup; items: readonly InboxItem[] };
 
 /**

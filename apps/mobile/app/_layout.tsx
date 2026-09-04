@@ -119,6 +119,8 @@ function AuthenticatedStack() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="inbox/[id]" />
           <Stack.Screen name="inbox/hidden" />
+          <Stack.Screen name="inbox/apps" />
+          <Stack.Screen name="inbox/app/[applicationId]" />
           <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />
