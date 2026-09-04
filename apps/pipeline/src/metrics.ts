@@ -6,6 +6,8 @@ export type PipelineMetricName =
   | "kek_rotation_failed"
   | "retention_purge_failed"
   | "retention_purge"
+  | "source_item_classified"
+  | "source_item_classification_failed"
   | "source_item_duplicate"
   | "source_item_failed"
   | "source_item_persisted";
