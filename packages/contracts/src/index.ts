@@ -1421,6 +1421,96 @@ export const actionWorkflowClaimSchema = z
 export type ActionWorkflowClaim = z.infer<typeof actionWorkflowClaimSchema>;
 
 /**
+ * A provider's own identifier for the effect a run produced.
+ *
+ * Recorded so a redelivered attempt can recognise its own earlier success instead of repeating it.
+ * Opaque to Relay: it is never parsed, only compared and stored.
+ */
+export const providerReferenceSchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .refine((value) => value.trim() === value, {
+    message: "A provider reference must not be padded",
+  });
+
+export const actionRunCompletionSchema = z
+  .object({
+    actionRunId: canonicalUuidSchema,
+    providerReference: providerReferenceSchema,
+    userId: canonicalUuidSchema,
+    workflowInstanceId: z
+      .string()
+      .min(1)
+      .max(256)
+      .refine((value) => value.trim() === value && value.trim().length > 0, {
+        message: "Workflow instance must not be blank or padded",
+      }),
+  })
+  .strict();
+export type ActionRunCompletion = z.infer<typeof actionRunCompletionSchema>;
+
+/**
+ * Why an attempt did not produce an effect, and whether another attempt is allowed.
+ *
+ * `retryable` is the caller's classification rather than the database's, because only the provider
+ * layer knows whether a status was a transient refusal or a permanent rejection. The routine still
+ * decides what that means for state: a retryable failure returns the run to `approved` so a later
+ * attempt can claim it, and a permanent one ends it.
+ */
+export const actionRunFailureSchema = z
+  .object({
+    actionRunId: canonicalUuidSchema,
+    errorCode: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z][a-z0-9-]*$/u, "An error code is lowercase, hyphenated, and stable"),
+    retryable: z.boolean(),
+    userId: canonicalUuidSchema,
+    workflowInstanceId: z
+      .string()
+      .min(1)
+      .max(256)
+      .refine((value) => value.trim() === value && value.trim().length > 0, {
+        message: "Workflow instance must not be blank or padded",
+      }),
+  })
+  .strict();
+export type ActionRunFailure = z.infer<typeof actionRunFailureSchema>;
+
+/**
+ * The task Relay will ask Google to create.
+ *
+ * Every field is validated here rather than trusted from a rendered template, and the task list is
+ * an explicit target: `google-tasks` has no notion of a default list that Relay should guess at, so
+ * a run that does not name one is a validation failure rather than a task filed somewhere arbitrary.
+ * Limits follow the Google Tasks resource (title and notes are bounded server-side; exceeding them
+ * is a permanent rejection, so it is cheaper to refuse before the call).
+ */
+export const googleTaskInputSchema = z
+  .object({
+    due: z.iso.datetime({ offset: true }).optional(),
+    notes: z.string().max(8192).optional(),
+    taskListId: z
+      .string()
+      .min(1)
+      .max(512)
+      .refine((value) => value.trim() === value, {
+        message: "A task list id must not be padded",
+      }),
+    title: z
+      .string()
+      .min(1)
+      .max(1024)
+      .refine((value) => value.trim().length > 0, {
+        message: "A task needs a title that is not only whitespace",
+      }),
+  })
+  .strict();
+export type GoogleTaskInput = z.infer<typeof googleTaskInputSchema>;
+
+/**
  * A bearer key for the configured semantic endpoint.
  *
  * Length is provider-defined now that the endpoint is configurable -- an OpenAI key is long, a

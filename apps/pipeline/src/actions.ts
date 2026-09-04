@@ -1,9 +1,13 @@
 import {
   actionProposalRequestSchema,
+  actionRunCompletionSchema,
+  actionRunFailureSchema,
   actionRunSchema,
   actionWorkflowClaimSchema,
   type ActionProposalRequest,
   type ActionRun,
+  type ActionRunCompletion,
+  type ActionRunFailure,
   type ActionWorkflowClaim,
 } from "@relay/contracts";
 
@@ -159,6 +163,70 @@ export async function claimActionRunForWorkflow(
       p_user_id: parsed.data.userId,
       p_action_run_id: parsed.data.actionRunId,
       p_workflow_instance_id: parsed.data.workflowInstanceId,
+    },
+    fetcher,
+    signal,
+  );
+}
+
+/**
+ * Records the effect a claimed run produced.
+ *
+ * Called after the provider call has committed, so the reference is the provider's own identifier
+ * for a thing that now exists. A redelivered step reporting the same reference converges on the row
+ * it already wrote; a different reference for an already-settled run is refused, because two effects
+ * for one approval is the failure this ledger exists to prevent.
+ */
+export async function completeActionRun(
+  configuration: PersistenceConfiguration,
+  completion: ActionRunCompletion,
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<ActionRun> {
+  const parsed = actionRunCompletionSchema.safeParse(completion);
+  if (!parsed.success) throw new ActionLedgerError("action_ledger_rejected");
+
+  return callLedgerRoutine(
+    configuration,
+    "complete_action_run_v1",
+    {
+      p_user_id: parsed.data.userId,
+      p_action_run_id: parsed.data.actionRunId,
+      p_workflow_instance_id: parsed.data.workflowInstanceId,
+      p_provider_reference: parsed.data.providerReference,
+    },
+    fetcher,
+    signal,
+  );
+}
+
+/**
+ * Records that an attempt produced no effect.
+ *
+ * `retryable` is decided by the provider layer, which is the only place that knows whether a status
+ * was a transient refusal or a permanent rejection. The routine turns that into state: a retryable
+ * failure returns the run to `approved` for a later attempt, a permanent one ends it. A failure
+ * reported against a run that already succeeded is ignored rather than applied, since the response
+ * proving success can be lost while the effect exists.
+ */
+export async function failActionRun(
+  configuration: PersistenceConfiguration,
+  failure: ActionRunFailure,
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<ActionRun> {
+  const parsed = actionRunFailureSchema.safeParse(failure);
+  if (!parsed.success) throw new ActionLedgerError("action_ledger_rejected");
+
+  return callLedgerRoutine(
+    configuration,
+    "fail_action_run_v1",
+    {
+      p_user_id: parsed.data.userId,
+      p_action_run_id: parsed.data.actionRunId,
+      p_workflow_instance_id: parsed.data.workflowInstanceId,
+      p_error_code: parsed.data.errorCode,
+      p_retryable: parsed.data.retryable,
     },
     fetcher,
     signal,
