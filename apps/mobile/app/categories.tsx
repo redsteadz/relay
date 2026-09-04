@@ -37,6 +37,7 @@ export default function CategoriesScreen() {
   const categories = useCategoryManagement(client, session?.user.id);
   const [editorCategory, setEditorCategory] = useState<Category | null>();
   const [deleteTarget, setDeleteTarget] = useState<Category>();
+  const [archiveTarget, setArchiveTarget] = useState<Category>();
 
   async function saveCategory(request: CategoryCreateRequest) {
     try {
@@ -47,6 +48,15 @@ export default function CategoriesScreen() {
     } catch (error: unknown) {
       // The fixed category error remains visible in the editor.
       reportCategoryUiFailure(error, "saveCategory");
+    }
+  }
+
+  async function archiveSelectedCategory() {
+    if (archiveTarget === undefined) return;
+    try {
+      await categories.setArchived(archiveTarget);
+    } finally {
+      setArchiveTarget(undefined);
     }
   }
 
@@ -134,11 +144,10 @@ export default function CategoriesScreen() {
               disableMoveUp={index === 0}
               disabled={categories.isMutating}
               key={category.id}
-              onArchive={() =>
-                void categories
-                  .setArchived(category)
-                  .catch((error: unknown) => reportCategoryUiFailure(error, "archiveCategory"))
-              }
+              onArchive={() => {
+                categories.clearError();
+                setArchiveTarget(category);
+              }}
               onEdit={() => {
                 categories.clearError();
                 setEditorCategory(category);
@@ -212,6 +221,23 @@ export default function CategoriesScreen() {
         onSave={saveCategory}
         saving={categories.isMutating}
         visible={editorCategory !== undefined}
+      />
+      <ConfirmationDialog
+        confirmLabel="Archive category"
+        detail={
+          archiveTarget === undefined
+            ? ""
+            : `Archive ${archiveTarget.name}? It stops appearing when classifying new items, and the classifications it already explains are kept. You can restore it.`
+        }
+        loading={categories.isMutating}
+        onCancel={() => setArchiveTarget(undefined)}
+        onConfirm={() =>
+          void archiveSelectedCategory().catch((error: unknown) =>
+            reportCategoryUiFailure(error, "archiveCategory"),
+          )
+        }
+        title="Archive this category?"
+        visible={archiveTarget !== undefined}
       />
       <ConfirmationDialog
         confirmLabel="Delete permanently"
