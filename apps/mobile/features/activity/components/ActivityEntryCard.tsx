@@ -2,6 +2,9 @@ import { StyleSheet, View } from "react-native";
 import { Chip } from "react-native-paper";
 
 import { AppText, EditorialSurface } from "@/components/ui";
+// `meta` sits in a flex row against a title that shrinks, so it has to stay short. This is the
+// compact, same-day-aware formatter the inbox already uses for exactly that slot.
+import { formatCaptureTime } from "@/features/inbox/models/inboxPresentation";
 import { formatPrivacyDate } from "@/features/privacy/models/privacyPresentation";
 import { useRelayTheme } from "@/theme";
 
@@ -21,7 +24,7 @@ export function ActivityEntryCard({ entry }: { entry: ActivityEntry }) {
     return (
       <EditorialSurface
         icon={entry.icon}
-        meta={formatPrivacyDate(entry.occurredAt)}
+        meta={formatCaptureTime(entry.occurredAt)}
         title={entry.title}
       >
         <AppText tone="muted">
@@ -49,15 +52,17 @@ export function ActivityEntryCard({ entry }: { entry: ActivityEntry }) {
     );
   }
 
-  // Status belongs in `meta`, not `titleAccessory`. The title row is a flex row whose title has
-  // `flexShrink: 1` against an unshrinkable chip, so a status as long as "Awaiting your approval"
-  // squeezes the title to zero width and wraps the header into a tall empty block.
+  // Status goes in the body, not the header. `EditorialSurface` lays its heading out as a flex row
+  // holding the title against `meta`, and the title is the only part that shrinks — so anything
+  // long in the header, whether a chip in `titleAccessory` or a status string in `meta`, collapses
+  // the title to a single character per line. The header keeps a compact time and nothing else.
   return (
     <EditorialSurface
       icon={entry.icon}
-      meta={`${entry.statusLabel} · ${formatPrivacyDate(entry.occurredAt)}`}
+      meta={formatCaptureTime(entry.occurredAt)}
       title={entry.title}
     >
+      <AppText>{entry.statusLabel}</AppText>
       <AppText tone="muted">{entry.detail}</AppText>
       {entry.problem === undefined ? null : (
         <AppText tone="muted" variant="caption">
