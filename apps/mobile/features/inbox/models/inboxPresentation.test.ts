@@ -11,10 +11,13 @@ import {
   inboxItemForEvent,
   inboxRetention,
   inboxSections,
+  inboxAppKey,
   inboxThreadKey,
+  summariseByApp,
   type InboxContext,
   type InboxEventInput,
   type InboxFactInput,
+  type InboxItem,
   type InboxSource,
 } from "./inboxPresentation";
 
@@ -461,6 +464,88 @@ describe("groupByThread", () => {
       { ...base, id: "c", threadKey: undefined },
     ];
     const total = groupByThread(items).reduce((sum, thread) => sum + thread.items.length, 0);
+    expect(total).toBe(items.length);
+  });
+});
+
+describe("inboxAppKey", () => {
+  const source = (overrides: Partial<InboxSource> = {}): InboxSource => ({
+    applicationId: undefined,
+    kind: "notification",
+    occurredAt: "2026-09-01T09:00:00.000Z",
+    sender: undefined,
+    subject: undefined,
+    threadId: undefined,
+    ...overrides,
+  });
+
+  it("keys an application by its package rather than its display name", () => {
+    expect(inboxAppKey(source({ applicationId: "com.whatsapp" }))).toBe("app:com.whatsapp");
+  });
+
+  it("keys a capture with no application by its source kind", () => {
+    expect(inboxAppKey(source({ kind: "gmail" }))).toBe("source:gmail");
+  });
+
+  it("separates an application from a source so neither can collide with the other", () => {
+    expect(inboxAppKey(source({ applicationId: "gmail" }))).not.toBe(
+      inboxAppKey(source({ kind: "gmail" })),
+    );
+  });
+});
+
+describe("summariseByApp", () => {
+  // Built through the real path so `appLabel` is derived from the application rather than pinned
+  // by the fixture, which is what the fallback under test actually reads.
+  const from = (applicationId: string | undefined, extra: Partial<InboxItem> = {}): InboxItem => ({
+    ...inboxItemForEvent(
+      event({ id: "a" }),
+      context({ source: { ...context().source, applicationId } }),
+    ),
+    ...extra,
+  });
+
+  it("counts captures and conversations separately", () => {
+    const summaries = summariseByApp([
+      from("com.whatsapp", { id: "a", threadKey: "t" }),
+      from("com.whatsapp", { id: "b", threadKey: "t" }),
+      from("com.whatsapp", { id: "c", threadKey: "u" }),
+    ]);
+    expect(summaries[0]?.captures).toBe(3);
+    expect(summaries[0]?.conversations).toBe(2);
+  });
+
+  it("prefers the device's name for an application over the package", () => {
+    const summaries = summariseByApp(
+      [from("com.example.unlisted", { id: "a" })],
+      new Map([["com.example.unlisted", "Example"]]),
+    );
+    expect(summaries[0]?.label).toBe("Example");
+  });
+
+  it("falls back to the exact package when the device cannot name it", () => {
+    const summaries = summariseByApp([from("com.example.unlisted", { id: "a" })]);
+    expect(summaries[0]?.label).toBe("com.example.unlisted");
+  });
+
+  it("ranks what is waiting on a person above sheer volume", () => {
+    const summaries = summariseByApp([
+      from("com.noisy", { id: "a", group: "quiet" }),
+      from("com.noisy", { id: "b", group: "quiet" }),
+      from("com.noisy", { id: "c", group: "quiet" }),
+      from("com.urgent", { id: "d", group: "actionable" }),
+    ]);
+    expect(summaries[0]?.key).toBe("app:com.urgent");
+    expect(summaries[0]?.actionable).toBe(1);
+  });
+
+  it("accounts for every capture it was given", () => {
+    const items = [
+      from("com.a", { id: "a" }),
+      from("com.b", { id: "b" }),
+      from(undefined, { id: "c" }),
+    ];
+    const total = summariseByApp(items).reduce((sum, entry) => sum + entry.captures, 0);
     expect(total).toBe(items.length);
   });
 });

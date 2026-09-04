@@ -20,10 +20,11 @@ import {
 } from "@/components/ui";
 import { InboxItemCard } from "@/features/inbox/components/InboxItemCard";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
+import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
 import {
-  appIconFor,
-  groupByApp,
   groupByThread,
+  inboxAppKey,
+  summariseByApp,
   type InboxGroup,
   type InboxItem,
 } from "@/features/inbox/models/inboxPresentation";
@@ -58,7 +59,6 @@ export default function InboxScreen() {
   const inbox = useInbox();
   const [status, setStatus] = useState("Ready for local simulation");
   const [sending, setSending] = useState(false);
-  const [quietExpanded, setQuietExpanded] = useState<string | undefined>();
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
@@ -71,6 +71,13 @@ export default function InboxScreen() {
   );
   const actionable =
     inbox.sections.find((section) => section.group === "actionable")?.items.length ?? 0;
+  const labels = useApplicationLabels(
+    inbox.sections
+      .flatMap((section) => section.items)
+      .flatMap((item) =>
+        item.source.applicationId === undefined ? [] : [item.source.applicationId],
+      ),
+  );
 
   // A failed hide surfaces as an error and the row returns, because `useInbox` refetches on settle
   // rather than patching the cache. Nothing here may leave an item looking removed when it is not.
@@ -163,6 +170,12 @@ export default function InboxScreen() {
 
       <ActionRow compact wrap={false}>
         <AppButton
+          accessibilityHint="Shows which sources sent captures, and how many"
+          label="Applications"
+          onPress={() => router.push("/inbox/apps")}
+          tone="secondary"
+        />
+        <AppButton
           accessibilityHint="Shows captures you removed, so you can put one back"
           label="Removed"
           onPress={() => router.push("/inbox/hidden")}
@@ -202,12 +215,7 @@ export default function InboxScreen() {
                   {inbox.query === "" ? GROUP_EMPTY[section.group] : "Nothing here matches."}
                 </AppText>
               ) : section.group === "quiet" ? (
-                <QuietSection
-                  expanded={quietExpanded}
-                  items={section.items}
-                  onHide={hide}
-                  onToggle={setQuietExpanded}
-                />
+                <QuietSection items={section.items} labels={labels} onHide={hide} />
               ) : (
                 groupByThread(section.items).map((thread) => (
                   <InboxItemCard
@@ -236,7 +244,6 @@ export default function InboxScreen() {
 }
 
 /** How many recent captures each quiet source shows before the rest are folded away. */
-const QUIET_PREVIEW_COUNT = 3;
 
 /**
  * Quiet items, grouped by capturing application.
@@ -246,59 +253,54 @@ const QUIET_PREVIEW_COUNT = 3;
  * quiet, and hiding all of it left the inbox looking unchanged no matter what arrived.
  */
 function QuietSection({
-  expanded,
   items,
+  labels,
   onHide,
-  onToggle,
 }: {
-  expanded: string | undefined;
   items: readonly InboxItem[];
+  labels: ReadonlyMap<string, string>;
   onHide: (eventId: string) => Promise<void>;
-  onToggle: (value: string | undefined) => void;
 }) {
   const router = useRouter();
   const theme = useRelayTheme();
+  const applications = summariseByApp(items, labels);
+
+  // One preview per source, then the whole source on its own screen. An accordion here made the
+  // shortest route to "everything from this app" a toggle that grew the page a reader was already
+  // scrolling; a tap that leads somewhere is both shorter and easier to come back from.
   return (
     <>
-      {groupByApp(items).map((group) => {
-        const showingAll = expanded === group.appLabel;
-        // Paging counts conversations rather than captures, so a preview of five is five things to
-        // read instead of five messages that might all belong to one thread.
-        const threads = groupByThread(group.items);
-        const visible = showingAll ? threads : threads.slice(0, QUIET_PREVIEW_COUNT);
-        const remaining = threads.length - visible.length;
-        const first = group.items[0];
+      {applications.map((application) => {
+        const grouped = items.filter((item) => inboxAppKey(item.source) === application.key);
+        const [newest] = groupByThread(grouped);
         return (
-          <View key={group.appLabel} style={[styles.section, { gap: theme.relay.spacing.sm }]}>
+          <View key={application.key} style={[styles.section, { gap: theme.relay.spacing.sm }]}>
             <ActionRow compact wrap={false}>
-              {first === undefined ? null : (
-                <MaterialCommunityIcons
-                  color={theme.relay.colors.textMuted}
-                  name={appIconFor(first.source) as never}
-                  size={theme.relay.sizes.icon.sm}
-                />
-              )}
+              <MaterialCommunityIcons
+                color={theme.relay.colors.textMuted}
+                name={application.icon as never}
+                size={theme.relay.sizes.icon.sm}
+              />
               <AppText accessibilityRole="header" tone="muted" variant="caption">
-                {group.appLabel} · {String(group.items.length)} captured
+                {application.label} · {String(application.captures)} captured
               </AppText>
             </ActionRow>
-            {visible.map((thread) => (
+            {newest === undefined ? null : (
               <InboxItemCard
-                item={thread.latest}
-                key={thread.key}
-                onHide={() => void onHide(thread.latest.id)}
-                onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
-                threadCount={thread.items.length}
+                item={newest.latest}
+                onHide={() => void onHide(newest.latest.id)}
+                onOpen={() => router.push(`/inbox/${newest.latest.id}`)}
+                threadCount={newest.items.length}
               />
-            ))}
-            {remaining > 0 || showingAll ? (
+            )}
+            {application.conversations <= 1 ? null : (
               <AppButton
-                accessibilityHint={`Shows every capture filed quietly from ${group.appLabel}`}
-                label={showingAll ? "Show fewer" : `Show all ${String(group.items.length)}`}
-                onPress={() => onToggle(showingAll ? undefined : group.appLabel)}
+                accessibilityHint={`Opens every capture from ${application.label}`}
+                label={`See all ${String(application.conversations)} from ${application.label}`}
+                onPress={() => router.push(`/inbox/app/${encodeURIComponent(application.key)}`)}
                 tone="secondary"
               />
-            ) : null}
+            )}
           </View>
         );
       })}
