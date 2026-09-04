@@ -178,6 +178,19 @@ function actionEntry(
   };
 }
 
+/**
+ * Turns a stored purpose slug into something a person reads.
+ *
+ * `purpose` is Relay's own vocabulary (`semantic-clause-evaluation`), not source content, so
+ * reshaping it is presentation rather than interpretation. An unrecognized purpose still renders,
+ * because a disclosure that happened must appear whether or not this build has a name for it.
+ */
+export function disclosurePurposeLabel(purpose: string): string {
+  const spaced = purpose.replaceAll("-", " ").replaceAll("_", " ").trim();
+  if (spaced === "") return purpose;
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 function disclosureEntry(disclosure: PrivacyDisclosure): DisclosureActivityEntry {
   return {
     fields: disclosure.disclosedFields,
@@ -187,7 +200,7 @@ function disclosureEntry(disclosure: PrivacyDisclosure): DisclosureActivityEntry
     model: disclosure.model,
     occurredAt: disclosure.createdAt,
     provider: disclosure.provider,
-    title: disclosure.purpose,
+    title: disclosurePurposeLabel(disclosure.purpose),
   };
 }
 

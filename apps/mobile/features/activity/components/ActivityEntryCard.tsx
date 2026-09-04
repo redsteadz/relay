@@ -27,26 +27,36 @@ export function ActivityEntryCard({ entry }: { entry: ActivityEntry }) {
         <AppText tone="muted">
           {entry.provider} · {entry.model}
         </AppText>
-        <View style={[styles.fields, { gap: theme.relay.spacing.sm }]}>
-          {entry.fields.map((field) => (
-            <Chip compact key={field}>
-              {field}
-            </Chip>
-          ))}
-        </View>
-        <AppText tone="muted" variant="caption">
-          Field names and purpose only. The prompt and the source content are never recorded.
-        </AppText>
+        {entry.fields.length === 0 ? (
+          // An empty field list is a record that nothing was sent. Rendering only the caption would
+          // read as a disclosure with its detail missing, which is the opposite of what happened.
+          <AppText tone="muted">No fields were sent. The clause was left undecided.</AppText>
+        ) : (
+          <>
+            <View style={[styles.fields, { gap: theme.relay.spacing.sm }]}>
+              {entry.fields.map((field) => (
+                <Chip compact key={field}>
+                  {field}
+                </Chip>
+              ))}
+            </View>
+            <AppText tone="muted" variant="caption">
+              Field names and purpose only. The prompt and the source content are never recorded.
+            </AppText>
+          </>
+        )}
       </EditorialSurface>
     );
   }
 
+  // Status belongs in `meta`, not `titleAccessory`. The title row is a flex row whose title has
+  // `flexShrink: 1` against an unshrinkable chip, so a status as long as "Awaiting your approval"
+  // squeezes the title to zero width and wraps the header into a tall empty block.
   return (
     <EditorialSurface
       icon={entry.icon}
-      meta={formatPrivacyDate(entry.occurredAt)}
+      meta={`${entry.statusLabel} · ${formatPrivacyDate(entry.occurredAt)}`}
       title={entry.title}
-      titleAccessory={<Chip compact>{entry.statusLabel}</Chip>}
     >
       <AppText tone="muted">{entry.detail}</AppText>
       {entry.problem === undefined ? null : (

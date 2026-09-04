@@ -6,6 +6,7 @@ import {
   actionStatusLabel,
   activityErrorMessage,
   activityTimeline,
+  disclosurePurposeLabel,
   isAwaitingDecision,
   pendingDecisionCount,
   type ActionRuleInput,
@@ -218,8 +219,14 @@ describe("activityTimeline", () => {
       model: "gpt-4.1-mini",
       occurredAt: LATER,
       provider: "openai",
-      title: "semantic-clause-evaluation",
+      title: "Semantic clause evaluation",
     });
+  });
+
+  it("keeps a disclosure that sent nothing, with no fields", () => {
+    const [entry] = timeline({ disclosures: [disclosure({ disclosedFields: [] })] });
+
+    expect(entry).toMatchObject({ fields: [], kind: "disclosure" });
   });
 });
 
@@ -264,6 +271,13 @@ describe("labels", () => {
     expect(isAwaitingDecision("succeeded")).toBe(false);
     expect(isAwaitingDecision("failed")).toBe(false);
     expect(isAwaitingDecision("cancelled")).toBe(false);
+  });
+
+  it("reads a purpose slug as a sentence without inventing one", () => {
+    expect(disclosurePurposeLabel("semantic-clause-evaluation")).toBe("Semantic clause evaluation");
+    expect(disclosurePurposeLabel("category_assignment")).toBe("Category assignment");
+    expect(disclosurePurposeLabel("Already readable")).toBe("Already readable");
+    expect(disclosurePurposeLabel("-")).toBe("-");
   });
 
   it("keeps the read failure message free of database detail", () => {
