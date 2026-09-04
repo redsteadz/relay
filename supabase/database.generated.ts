@@ -1131,6 +1131,39 @@ export type Database = {
           wrapped_data_key: string;
         }[];
       };
+      complete_action_run_v1: {
+        Args: {
+          p_action_run_id: string;
+          p_provider_reference: string;
+          p_user_id: string;
+          p_workflow_instance_id: string;
+        };
+        Returns: {
+          action_rule_id: string;
+          approval_mode: string;
+          approved_at: string | null;
+          attempt_count: number;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          error_message: string | null;
+          event_id: string;
+          id: string;
+          input: Json;
+          provider: Database["public"]["Enums"]["action_provider"];
+          provider_reference: string | null;
+          status: Database["public"]["Enums"]["action_status"];
+          updated_at: string;
+          user_id: string;
+          workflow_instance_id: string | null;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "action_runs";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       complete_dead_letter_replay: {
         Args: { p_id: string; p_request_id: string; p_result: string };
         Returns: boolean;
@@ -1227,6 +1260,40 @@ export type Database = {
           p_watch_stopped: boolean;
         };
         Returns: boolean;
+      };
+      fail_action_run_v1: {
+        Args: {
+          p_action_run_id: string;
+          p_error_code: string;
+          p_retryable: boolean;
+          p_user_id: string;
+          p_workflow_instance_id: string;
+        };
+        Returns: {
+          action_rule_id: string;
+          approval_mode: string;
+          approved_at: string | null;
+          attempt_count: number;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          error_message: string | null;
+          event_id: string;
+          id: string;
+          input: Json;
+          provider: Database["public"]["Enums"]["action_provider"];
+          provider_reference: string | null;
+          status: Database["public"]["Enums"]["action_status"];
+          updated_at: string;
+          user_id: string;
+          workflow_instance_id: string | null;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "action_runs";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
       filter_plan_has_forbidden_keys: {
         Args: { p_value: Json };
