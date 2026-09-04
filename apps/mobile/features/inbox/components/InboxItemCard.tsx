@@ -42,8 +42,8 @@ export function InboxItemCard({
 }: {
   item: InboxItem;
   /**
-   * Removes the item from this reader's inbox. Omit where removal does not apply, such as a list
-   * of already-removed items. Never clears the device notification.
+   * Removes the item from this reader's inbox. Omit where removal does not apply, such as a list of
+   * already-removed items. Never clears the device notification.
    */
   onHide?: (() => void) | undefined;
   /** Opens this item's detail. Omit to render the card as static reading matter. */

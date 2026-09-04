@@ -138,6 +138,18 @@ export default function InboxScreen() {
           </AppText>
         </View>
       }
+      overlay={
+        inbox.lastHidden === undefined ? undefined : (
+          <UndoBar
+            message={`Removed ${inbox.lastHidden.title} from your inbox`}
+            onExpire={inbox.clearLastHidden}
+            onUndo={() => {
+              const removed = inbox.lastHidden;
+              if (removed !== undefined) void inbox.restore(removed.id);
+            }}
+          />
+        )
+      }
     >
       <AppTextInput
         accessibilityLabel="Search the inbox"
@@ -158,6 +170,8 @@ export default function InboxScreen() {
         />
       </ActionRow>
 
+      {hideError === undefined ? null : <StatusMessage tone="error">{hideError}</StatusMessage>}
+
       {inbox.loading ? <LoadingState label="Reading your inbox" /> : null}
 
       {!inbox.loading && inbox.unavailable ? (
@@ -176,19 +190,6 @@ export default function InboxScreen() {
           title="Nothing captured yet"
         />
       ) : null}
-
-      {hideError === undefined ? null : <StatusMessage tone="error">{hideError}</StatusMessage>}
-
-      {inbox.lastHidden === undefined ? null : (
-        <UndoBar
-          message={`Removed ${inbox.lastHidden.title} from your inbox`}
-          onExpire={inbox.clearLastHidden}
-          onUndo={() => {
-            const removed = inbox.lastHidden;
-            if (removed !== undefined) void inbox.restore(removed.id);
-          }}
-        />
-      )}
 
       {!inbox.loading && !inbox.unavailable && inbox.total > 0
         ? inbox.sections.map((section) => (
