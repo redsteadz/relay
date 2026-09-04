@@ -210,10 +210,14 @@ async function readRetainedContent(
   }
 }
 
+/** Which side of the hidden set a read wants. */
+export type InboxVisibility = "hidden" | "visible";
+
 export async function listInbox(
   client: SupabaseClient,
   tenantId: string,
   now = new Date().toISOString(),
+  visibility: InboxVisibility = "visible",
 ) {
   const [events, facts, items, classifications, categories, hidden] = await Promise.all([
     client
@@ -259,10 +263,14 @@ export async function listInbox(
   // What the capture said is read from this device's own encrypted copy, keyed by the same envelope
   // ID the server knows as `source_item_id`. It is absent when another device captured the item or
   // when local retention has dropped it, which is ordinary rather than an error.
-  // Hidden rows are dropped before content is read for them, so a person who removed an item does
-  // not have its retained copy reopened on every refresh.
+  // One read serves both views. Rows on the side the caller did not ask for are dropped before
+  // content is read for them, so the inbox never reopens the retained copy of a removed item and
+  // the hidden list never reopens one still on display.
   const hiddenIds = new Set(((hidden.data ?? []) as HiddenEventRow[]).map((row) => row.event_id));
-  const eventRows = ((events.data ?? []) as EventRow[]).filter((row) => !hiddenIds.has(row.id));
+  const wantHidden = visibility === "hidden";
+  const eventRows = ((events.data ?? []) as EventRow[]).filter(
+    (row) => hiddenIds.has(row.id) === wantHidden,
+  );
   const retained = await readRetainedContent(
     tenantId,
     eventRows.map((row) => row.source_item_id),
@@ -356,4 +364,18 @@ export async function restoreInboxEvent(
     .eq("user_id", userId)
     .eq("event_id", eventId);
   if (error !== null) throw inboxError(error, "restoreInboxEvent");
+}
+
+/**
+ * Reads what this reader removed from their inbox.
+ *
+ * Hiding is reversible by design, so a removed item has to remain findable after the undo offer
+ * expires. Everything else about the read is identical to the inbox itself.
+ */
+export function listHiddenInbox(
+  client: SupabaseClient,
+  tenantId: string,
+  now = new Date().toISOString(),
+) {
+  return listInbox(client, tenantId, now, "hidden");
 }

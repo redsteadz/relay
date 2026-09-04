@@ -14,4 +14,6 @@ export type { EditorialSurfaceVariant } from "./EditorialSurface";
 export { EmptyState, FeedbackState, LoadingState } from "./FeedbackState";
 export type { FeedbackKind } from "./FeedbackState";
 export { StatusMessage } from "./StatusMessage";
+export { SwipeableRow } from "./SwipeableRow";
+export { UndoBar } from "./UndoBar";
 export { ScreenHeader } from "./ScreenHeader";

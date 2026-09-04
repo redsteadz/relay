@@ -12,8 +12,12 @@ export const inboxQueryKeys = {
 };
 
 export type InboxState = {
+  /** Clears the pending undo offer without restoring anything. */
+  clearLastHidden: () => void;
   /** Removes an item from this reader's inbox. The device notification is never touched. */
   hide: (eventId: string) => Promise<void>;
+  /** The item just removed, while the offer to put it back still stands. */
+  lastHidden: { id: string; title: string } | undefined;
   /** True only for the first load, so a refresh never replaces the list with a spinner. */
   loading: boolean;
   query: string;
@@ -32,6 +36,7 @@ export function useInbox(): InboxState {
   const { client, session } = useAuth();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
+  const [lastHidden, setLastHidden] = useState<{ id: string; title: string } | undefined>();
   const userId = session?.user.id;
 
   const inbox = useQuery({
@@ -65,15 +70,24 @@ export function useInbox(): InboxState {
   const sections = useMemo(() => inboxSections(filterInbox(items, query)), [items, query]);
 
   return {
-    hide: async (eventId: string) => {
-      await visibility.mutateAsync({ action: "hide", eventId });
+    clearLastHidden: () => {
+      setLastHidden(undefined);
     },
+    hide: async (eventId: string) => {
+      const removed = items.find((item) => item.id === eventId);
+      await visibility.mutateAsync({ action: "hide", eventId });
+      // Offered only after the write settles. Offering to undo something that never persisted
+      // would be a second false statement on top of the row appearing to vanish.
+      setLastHidden(removed === undefined ? undefined : { id: removed.id, title: removed.title });
+    },
+    lastHidden,
     loading: inbox.isPending,
     query,
     refetch: () => void inbox.refetch(),
     refreshing: inbox.isFetching && !inbox.isPending,
     restore: async (eventId: string) => {
       await visibility.mutateAsync({ action: "restore", eventId });
+      setLastHidden((current) => (current?.id === eventId ? undefined : current));
     },
     sections,
     setQuery,

@@ -9,7 +9,7 @@ vi.mock("@/modules/relay-device-ingress", () => ({ default: retained }));
 
 const TENANT = "208455fe-e5ae-4dc3-b416-40c7186ac6b2";
 
-import { listInbox } from "./inbox";
+import { listHiddenInbox, listInbox } from "./inbox";
 
 type Result = { data: unknown[] | null; error: unknown };
 
@@ -203,5 +203,48 @@ describe("listInbox", () => {
     });
 
     await expect(listInbox(supabase as never, TENANT)).resolves.toEqual([]);
+  });
+});
+
+describe("hidden captures", () => {
+  it("omits a hidden event from the inbox", async () => {
+    const { supabase } = client({
+      hidden_inbox_events: { data: [{ event_id: eventRow.id }], error: null },
+      relay_events: { data: [eventRow], error: null },
+    });
+
+    expect(await listInbox(supabase as never, TENANT)).toEqual([]);
+  });
+
+  it("returns only hidden events to the removed view", async () => {
+    const other = { ...eventRow, id: "33333333-3333-4333-8333-333333333333" };
+    const { supabase } = client({
+      hidden_inbox_events: { data: [{ event_id: eventRow.id }], error: null },
+      relay_events: { data: [eventRow, other], error: null },
+    });
+
+    const removed = await listHiddenInbox(supabase as never, TENANT);
+    expect(removed).toHaveLength(1);
+    expect(removed[0]?.id).toBe(eventRow.id);
+  });
+
+  it("shows every event when nothing is hidden", async () => {
+    const { supabase } = client({
+      hidden_inbox_events: { data: [], error: null },
+      relay_events: { data: [eventRow], error: null },
+    });
+
+    expect(await listInbox(supabase as never, TENANT)).toHaveLength(1);
+    expect(await listHiddenInbox(supabase as never, TENANT)).toEqual([]);
+  });
+
+  it("surfaces a failed hidden read rather than showing a full inbox", async () => {
+    const { supabase } = client({
+      hidden_inbox_events: { data: null, error: { message: "denied" } },
+      relay_events: { data: [eventRow], error: null },
+    });
+
+    // Treating an unreadable hidden set as "nothing is hidden" would resurrect removed items.
+    await expect(listInbox(supabase as never, TENANT)).rejects.toThrow();
   });
 });

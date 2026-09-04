@@ -1,6 +1,13 @@
 import { View } from "react-native";
 
-import { AppText, ContextualNotice, EditorialSurface, StatusMessage } from "@/components/ui";
+import {
+  AppIconButton,
+  AppText,
+  ContextualNotice,
+  EditorialSurface,
+  StatusMessage,
+  SwipeableRow,
+} from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import {
@@ -29,10 +36,16 @@ function readableEvidence(evidence: readonly InboxEvidence[]): readonly InboxEvi
  */
 export function InboxItemCard({
   item,
+  onHide,
   onOpen,
   threadCount,
 }: {
   item: InboxItem;
+  /**
+   * Removes the item from this reader's inbox. Omit where removal does not apply, such as a list
+   * of already-removed items. Never clears the device notification.
+   */
+  onHide?: (() => void) | undefined;
   /** Opens this item's detail. Omit to render the card as static reading matter. */
   onOpen?: (() => void) | undefined;
   /** How many captures share this item's conversation, when more than one does. */
@@ -49,7 +62,7 @@ export function InboxItemCard({
       ? undefined
       : `${threadCount.toString()} in this conversation`;
 
-  return (
+  const card = (
     <EditorialSurface
       accessibilityHint={
         onOpen === undefined ? undefined : "Opens what Relay read from this capture"
@@ -58,6 +71,16 @@ export function InboxItemCard({
       meta={[occurred, conversation, item.category?.name].filter(Boolean).join(" · ")}
       onPress={onOpen}
       title={item.title}
+      titleAccessory={
+        onHide === undefined ? undefined : (
+          <AppIconButton
+            accessibilityLabel={`Remove ${item.title} from inbox`}
+            accessibilityHint="The notification on your device is not touched"
+            icon="inbox-remove-outline"
+            onPress={onHide}
+          />
+        )
+      }
       variant={item.group === "actionable" ? "accent" : "raised"}
     >
       {item.summary === undefined ? null : <AppText>{item.summary}</AppText>}
@@ -100,5 +123,15 @@ export function InboxItemCard({
         </ContextualNotice>
       ) : null}
     </EditorialSurface>
+  );
+
+  if (onHide === undefined) return card;
+
+  // The swipe is the shortcut, not the only route: the same action sits on the card as a labelled
+  // control, and SwipeableRow publishes it as an accessibility action besides.
+  return (
+    <SwipeableRow actionLabel="Remove" icon="inbox-remove-outline" onAction={onHide}>
+      {card}
+    </SwipeableRow>
   );
 }
