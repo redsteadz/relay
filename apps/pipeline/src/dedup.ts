@@ -26,6 +26,8 @@ import {
 } from "./configuration";
 import { base64ToPostgresBytea, sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
+import { classifyCapture } from "./classification";
+import { readSemanticEndpointDefaults } from "./semantic";
 import { EventPersistenceError, persistSourceEventSet } from "./events";
 import { FactPersistenceError, persistSourceFactSet } from "./facts";
 import { recordPipelineMetric } from "./metrics";
@@ -580,6 +582,43 @@ export async function processIngressMessage(
     );
     return failureResponse("event_integrity_conflict");
   }
+  // Classification runs only for a capture this delivery actually stored. A redelivery has already
+  // been classified, and re-running would evaluate the tenant's rules again -- and disclose the same
+  // fields to their provider again -- to reach the answer already on the row.
+  if (persistence === "stored") {
+    try {
+      const outcome = await classifyCapture(configuration, envelope, userId.data, {
+        endpoint: readSemanticEndpointDefaults(env),
+      });
+      if (outcome.status === "stored") {
+        recordPipelineMetric(
+          env.PIPELINE_METRICS,
+          "source_item_classified",
+          1,
+          performance.now() - startedAt,
+          env.DEBUG,
+        );
+      }
+    } catch (error: unknown) {
+      // A capture that could not be classified is still a capture. Failing the message would send
+      // a durably persisted item back through the queue to be stored again, so the failure is
+      // recorded and the item stays unclassified until a rule change or a replay revisits it.
+      recordPipelineMetric(
+        env.PIPELINE_METRICS,
+        "source_item_classification_failed",
+        1,
+        performance.now() - startedAt,
+        env.DEBUG,
+      );
+      logPipelineError(env, "ingress.classification_failed", error, {
+        code: "INGRESS_CLASSIFICATION_FAILED",
+        integration: "supabase",
+        operation: "classifyCapture",
+        startedAt: logStartedAt,
+      });
+    }
+  }
+
   recordPipelineMetric(
     env.PIPELINE_METRICS,
     persistence === "duplicate" ? "source_item_duplicate" : "source_item_persisted",

@@ -538,6 +538,7 @@ export type Database = {
       filter_rules: {
         Row: {
           approval_mode: string;
+          category_id: string | null;
           compiler_version: number;
           created_at: string;
           dismiss_source_notification: boolean;
@@ -556,6 +557,7 @@ export type Database = {
         };
         Insert: {
           approval_mode?: string;
+          category_id?: string | null;
           compiler_version?: number;
           created_at?: string;
           dismiss_source_notification?: boolean;
@@ -574,6 +576,7 @@ export type Database = {
         };
         Update: {
           approval_mode?: string;
+          category_id?: string | null;
           compiler_version?: number;
           created_at?: string;
           dismiss_source_notification?: boolean;
@@ -590,7 +593,15 @@ export type Database = {
           user_id?: string;
           version?: number;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "filter_rules_category_fk";
+            columns: ["user_id", "category_id"];
+            isOneToOne: false;
+            referencedRelation: "categories";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
       };
       gmail_connection_state: {
         Row: {
@@ -1149,6 +1160,7 @@ export type Database = {
         };
         Returns: {
           approval_mode: string;
+          category_id: string | null;
           compiler_version: number;
           created_at: string;
           dismiss_source_notification: boolean;

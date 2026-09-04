@@ -619,6 +619,12 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
         factCalls += 1;
         return Promise.resolve(Response.json(factCalls === 1 ? "stored" : "duplicate"));
       }
+      if (
+        requestUrl(input).endsWith("filter_rules") ||
+        requestUrl(input).includes("filter_rules?")
+      ) {
+        return Promise.resolve(Response.json([]));
+      }
       eventCalls += 1;
       return Promise.resolve(Response.json(eventCalls === 1 ? "stored" : "duplicate"));
     });
@@ -633,7 +639,9 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     expect(results).toContainEqual({ accepted: true, reason: "persisted" });
     expect(results).toContainEqual({ accepted: false, reason: "duplicate" });
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    // Six persistence calls plus one rule read: only the delivery that stored the row classifies it,
+    // so the duplicate never re-evaluates the tenant's rules.
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     expect([sourceCalls, factCalls, eventCalls]).toEqual([2, 2, 2]);
     vi.unstubAllGlobals();
   });
@@ -768,6 +776,12 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
       if (requestUrl(input).endsWith("persist_source_facts")) {
         factCalls += 1;
         return Promise.resolve(Response.json("stored"));
+      }
+      if (
+        requestUrl(input).endsWith("filter_rules") ||
+        requestUrl(input).includes("filter_rules?")
+      ) {
+        return Promise.resolve(Response.json([]));
       }
       eventCalls += 1;
       return Promise.resolve(Response.json("stored"));
