@@ -15,6 +15,8 @@ import {
   EditorialSurface,
   FeedbackState,
   LoadingState,
+  StatusMessage,
+  UndoBar,
 } from "@/components/ui";
 import { InboxItemCard } from "@/features/inbox/components/InboxItemCard";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
@@ -70,6 +72,23 @@ export default function InboxScreen() {
   const actionable =
     inbox.sections.find((section) => section.group === "actionable")?.items.length ?? 0;
 
+  // A failed hide surfaces as an error and the row returns, because `useInbox` refetches on settle
+  // rather than patching the cache. Nothing here may leave an item looking removed when it is not.
+  const [hideError, setHideError] = useState<string | undefined>();
+  async function hide(eventId: string): Promise<void> {
+    setHideError(undefined);
+    try {
+      await inbox.hide(eventId);
+    } catch (error: unknown) {
+      logMobileError("ui.inbox_hide_failed", error, {
+        code: "INBOX_HIDE_FAILED",
+        integration: "supabase-postgrest",
+        operation: "hideInboxEvent",
+      });
+      setHideError("Could not remove that from your inbox. It is still here.");
+    }
+  }
+
   async function simulate() {
     setSending(true);
     setStatus("Sending...");
@@ -119,6 +138,18 @@ export default function InboxScreen() {
           </AppText>
         </View>
       }
+      overlay={
+        inbox.lastHidden === undefined ? undefined : (
+          <UndoBar
+            message={`Removed ${inbox.lastHidden.title} from your inbox`}
+            onExpire={inbox.clearLastHidden}
+            onUndo={() => {
+              const removed = inbox.lastHidden;
+              if (removed !== undefined) void inbox.restore(removed.id);
+            }}
+          />
+        )
+      }
     >
       <AppTextInput
         accessibilityLabel="Search the inbox"
@@ -129,6 +160,17 @@ export default function InboxScreen() {
         placeholder="Search titles, senders, apps, and categories"
         value={inbox.query}
       />
+
+      <ActionRow compact wrap={false}>
+        <AppButton
+          accessibilityHint="Shows captures you removed, so you can put one back"
+          label="Removed"
+          onPress={() => router.push("/inbox/hidden")}
+          tone="secondary"
+        />
+      </ActionRow>
+
+      {hideError === undefined ? null : <StatusMessage tone="error">{hideError}</StatusMessage>}
 
       {inbox.loading ? <LoadingState label="Reading your inbox" /> : null}
 
@@ -163,6 +205,7 @@ export default function InboxScreen() {
                 <QuietSection
                   expanded={quietExpanded}
                   items={section.items}
+                  onHide={hide}
                   onToggle={setQuietExpanded}
                 />
               ) : (
@@ -170,6 +213,7 @@ export default function InboxScreen() {
                   <InboxItemCard
                     item={thread.latest}
                     key={thread.key}
+                    onHide={() => void hide(thread.latest.id)}
                     onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
                     threadCount={thread.items.length}
                   />
@@ -204,10 +248,12 @@ const QUIET_PREVIEW_COUNT = 3;
 function QuietSection({
   expanded,
   items,
+  onHide,
   onToggle,
 }: {
   expanded: string | undefined;
   items: readonly InboxItem[];
+  onHide: (eventId: string) => Promise<void>;
   onToggle: (value: string | undefined) => void;
 }) {
   const router = useRouter();
@@ -240,6 +286,7 @@ function QuietSection({
               <InboxItemCard
                 item={thread.latest}
                 key={thread.key}
+                onHide={() => void onHide(thread.latest.id)}
                 onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
                 threadCount={thread.items.length}
               />

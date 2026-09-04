@@ -16,6 +16,14 @@ import { ScreenHeader } from "./ui";
 
 type AppScreenProps = PropsWithChildren<{
   action?: ReactNode;
+  /**
+   * Pinned above the content, outside the scroll flow.
+   *
+   * A transient bar placed among the children shifts everything below it each time it appears and
+   * again when it leaves, which moves the very rows a person is reading. Anything that comes and
+   * goes belongs here instead.
+   */
+  overlay?: ReactNode;
   backLabel?: string | undefined;
   detail: string;
   eyebrow?: string | undefined;
@@ -32,6 +40,7 @@ export function AppScreen({
   detail,
   eyebrow,
   onBack,
+  overlay,
   scroll = true,
   title,
   titleAccessory,
@@ -101,6 +110,21 @@ export function AppScreen({
             {children}
           </View>
         )}
+        {overlay === undefined ? null : (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.overlay,
+              {
+                left: screenLayout.pagePadding,
+                right: screenLayout.pagePadding,
+                bottom: theme.relay.spacing.md + insets.bottom,
+              },
+            ]}
+          >
+            {overlay}
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -109,6 +133,7 @@ export function AppScreen({
 const styles = StyleSheet.create({
   content: { alignSelf: "center", width: "100%" },
   keyboard: { flex: 1 },
+  overlay: { position: "absolute" },
   safeArea: { flex: 1 },
   staticContent: { flex: 1 },
 });

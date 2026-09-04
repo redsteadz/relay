@@ -118,6 +118,7 @@ function AuthenticatedStack() {
         <Stack.Protected guard={appAccessAllowed}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="inbox/[id]" />
+          <Stack.Screen name="inbox/hidden" />
           <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />
