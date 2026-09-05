@@ -1,15 +1,23 @@
 import { Tabs } from "expo-router";
-import { Icon } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { RelayIcon, type RelayIconName } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
-const symbols: Record<string, string> = {
-  index: "inbox-outline",
-  automations: "tune-variant",
-  connections: "connection",
-  activity: "history",
-  settings: "cog-outline",
+/**
+ * The five places a person can be.
+ *
+ * Relay's own icon set rather than the Material family, because the tab bar is the most-seen surface
+ * in the app and the tray, the rule graph and the mark all belong to one hand. Selection is stated
+ * with the accent alone: a filled variant of each glyph would double the vocabulary for no extra
+ * information.
+ */
+const symbols: Record<string, RelayIconName> = {
+  activity: "activity",
+  automations: "rules",
+  connections: "sources",
+  index: "inbox",
+  settings: "settings",
 };
 
 export default function TabsLayout() {
@@ -32,10 +40,10 @@ export default function TabsLayout() {
           paddingTop: theme.relay.spacing.sm,
         },
         tabBarIcon: ({ focused }) => (
-          <Icon
+          <RelayIcon
             color={focused ? theme.relay.colors.accent : theme.relay.colors.textMuted}
+            name={symbols[route.name] ?? "inbox"}
             size={theme.relay.sizes.icon.lg}
-            source={symbols[route.name] ?? "circle-outline"}
           />
         ),
       })}

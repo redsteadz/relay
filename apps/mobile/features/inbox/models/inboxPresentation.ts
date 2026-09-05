@@ -11,11 +11,25 @@ import type { EventKind, FactKind } from "@relay/contracts";
  */
 export type InboxGroup = "actionable" | "needs-review" | "quiet";
 
-/** A fact that supports an event, shown as its evidence rather than as its own inbox row. */
+/**
+ * A fact that supports an event, shown as its evidence rather than as its own inbox row.
+ *
+ * Key and value are kept apart rather than joined into one label because a receipt sets them
+ * differently: the key is the quiet part and the value is the read one, and a date fact's key is the
+ * role that says which moment it describes.
+ */
 export type InboxEvidence = {
   certain: boolean;
+  /**
+   * True when `value` is an ISO instant awaiting a reader's own timezone and clock.
+   *
+   * Formatting is left to the screen so this model stays independent of the current time, which is
+   * what lets it be tested against fixed values.
+   */
+  isInstant: boolean;
+  key: string;
   kind: FactKind;
-  label: string;
+  value: string;
 };
 
 export type InboxEventInput = {
@@ -246,32 +260,49 @@ function reasonText(reason: string): string {
 }
 
 /**
- * Renders a fact value for display.
+ * Splits a stored fact into the pair a receipt shows.
  *
- * Date facts carry a role and an instant rather than a bare string, so the instant is shown with the
- * role that explains which moment it describes.
+ * Most facts are named by their kind. A date is not: it carries a role -- occurred, due, start --
+ * and that role, not the word "date", is what tells a reader which moment they are looking at.
+ *
+ * A value with no displayable form falls back to naming its kind rather than rendering an object,
+ * because a fact Relay holds but cannot show is still evidence that it holds one.
  */
-export function evidenceLabel(kind: FactKind, value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+export function evidenceParts(
+  kind: FactKind,
+  value: unknown,
+): { isInstant: boolean; key: string; value: string } {
+  if (typeof value === "string") return { isInstant: false, key: kind, value };
+  if (typeof value === "number" || typeof value === "boolean") {
+    return { isInstant: false, key: kind, value: String(value) };
+  }
   if (value !== null && typeof value === "object") {
     const record = value as Record<string, unknown>;
     const instant = record.instant;
     const role = record.role;
     if (typeof instant === "string") {
-      return typeof role === "string" ? `${role} ${instant}` : instant;
+      return {
+        isInstant: true,
+        key: typeof role === "string" ? role : kind,
+        value: instant,
+      };
     }
     const amount = record.amount;
-    if (typeof amount === "string" || typeof amount === "number") return String(amount);
+    if (typeof amount === "string" || typeof amount === "number") {
+      return { isInstant: false, key: kind, value: String(amount) };
+    }
   }
-  return kind;
+  return { isInstant: false, key: kind, value: kind };
 }
 
 export function inboxEvidence(fact: InboxFactInput): InboxEvidence {
+  const parts = evidenceParts(fact.kind, fact.value);
   return {
     certain: fact.certainty === "certain",
+    isInstant: parts.isInstant,
+    key: parts.key,
     kind: fact.kind,
-    label: evidenceLabel(fact.kind, fact.value),
+    value: parts.value,
   };
 }
 
@@ -315,7 +346,7 @@ function searchTextFor(
     context.source.applicationId,
     context.source.sender,
     context.source.subject,
-    ...evidence.map((fact) => `${fact.kind} ${fact.label}`),
+    ...evidence.map((fact) => `${fact.kind} ${fact.key} ${fact.value}`),
   ]
     .filter((part): part is string => part !== undefined && part !== "")
     .join(" ")
@@ -339,7 +370,7 @@ function displayTitle(
   if (!PLACEHOLDER_TITLES.has(event.title)) return event.title;
   const said = context.content?.subject;
   if (said !== undefined && said.length > 0) return said;
-  const sender = evidence.find((fact) => fact.kind === "sender")?.label;
+  const sender = evidence.find((fact) => fact.kind === "sender")?.value;
   if (sender !== undefined && sender.length > 0) return sender;
   return appLabel;
 }

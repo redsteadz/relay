@@ -1,29 +1,31 @@
 import Constants from "expo-constants";
-import { useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 
-import { AppScreen } from "@/components/AppScreen";
-import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
-  ActionRow,
   AppButton,
   AppText,
   AppTextInput,
   EditorialSurface,
   FeedbackState,
   LoadingState,
+  OutcomeTabs,
   StatusMessage,
+  SwipeableRow,
+  TopBarIconButton,
   UndoBar,
+  type OutcomeTab,
 } from "@/components/ui";
-import { InboxItemCard } from "@/features/inbox/components/InboxItemCard";
-import { useInbox } from "@/features/inbox/hooks/useInbox";
+import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
+import { QuietSourceRow } from "@/features/inbox/components/QuietSourceRow";
+import { ReceiptCard } from "@/features/inbox/components/ReceiptCard";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
+import { useInbox } from "@/features/inbox/hooks/useInbox";
 import {
   groupByThread,
-  inboxAppKey,
   summariseByApp,
   type InboxGroup,
   type InboxItem,
@@ -40,16 +42,25 @@ import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { useRelayTheme } from "@/theme";
 
-const GROUP_HEADING: Record<InboxGroup, string> = {
-  actionable: "Needs doing",
-  "needs-review": "Needs your review",
-  quiet: "Filed quietly",
+/**
+ * The inbox, grouped by outcome rather than by section.
+ *
+ * The three tabs are the three things that can have happened to a capture: Relay proposes something
+ * and is waiting on you, Relay could not resolve something and is waiting on you for a different
+ * reason, or Relay filed it and is waiting on nothing. Stacking those as sections put the count that
+ * mattered below eighteen that did not; as tabs, every count is legible at once and a person can
+ * stay inside one outcome.
+ */
+const TAB_FOR_GROUP: Readonly<Record<InboxGroup, string>> = {
+  actionable: "Needs you",
+  quiet: "Quiet",
+  "needs-review": "Review",
 };
 
-const GROUP_EMPTY: Record<InboxGroup, string> = {
-  actionable: "Nothing is scheduled.",
-  "needs-review": "Nothing is waiting on you.",
+const EMPTY_DETAIL: Readonly<Record<InboxGroup, string>> = {
+  actionable: "Nothing is waiting on a decision from you.",
   quiet: "Nothing has been filed quietly yet.",
+  "needs-review": "Relay resolved everything it read.",
 };
 
 export default function InboxScreen() {
@@ -57,31 +68,31 @@ export default function InboxScreen() {
   const router = useRouter();
   const theme = useRelayTheme();
   const inbox = useInbox();
-  const [status, setStatus] = useState("Ready for local simulation");
-  const [sending, setSending] = useState(false);
-  const localDevelopmentAccess = localDevelopmentAccessEnabled(
-    __DEV__,
-    Constants.expoConfig?.extra?.relayBuildVariant,
-    localDiagnosticsDisabled(),
-  );
-  const localCaptureTenantId = notificationCaptureTenantId(
-    undefined,
-    localDevelopmentAccess,
-    Platform.OS,
-  );
-  const actionable =
-    inbox.sections.find((section) => section.group === "actionable")?.items.length ?? 0;
+  const { client } = useAuth();
+  const proposals = useProposedActions(client, session?.user.id);
+  const [tab, setTab] = useState<InboxGroup>("actionable");
+  const [searching, setSearching] = useState(false);
+  const [hideError, setHideError] = useState<string | undefined>();
+
+  const sectionFor = (group: InboxGroup) =>
+    inbox.sections.find((section) => section.group === group)?.items ?? [];
+  const tabs: readonly OutcomeTab<InboxGroup>[] = (
+    ["actionable", "needs-review", "quiet"] as const
+  ).map((group) => ({
+    count: sectionFor(group).length,
+    key: group,
+    label: TAB_FOR_GROUP[group],
+  }));
+
+  const items = sectionFor(tab);
   const labels = useApplicationLabels(
-    inbox.sections
-      .flatMap((section) => section.items)
-      .flatMap((item) =>
-        item.source.applicationId === undefined ? [] : [item.source.applicationId],
-      ),
+    items.flatMap((item) =>
+      item.source.applicationId === undefined ? [] : [item.source.applicationId],
+    ),
   );
 
   // A failed hide surfaces as an error and the row returns, because `useInbox` refetches on settle
   // rather than patching the cache. Nothing here may leave an item looking removed when it is not.
-  const [hideError, setHideError] = useState<string | undefined>();
   async function hide(eventId: string): Promise<void> {
     setHideError(undefined);
     try {
@@ -95,6 +106,176 @@ export default function InboxScreen() {
       setHideError("Could not remove that from your inbox. It is still here.");
     }
   }
+
+  const quietCount = sectionFor("quiet").length;
+
+  return (
+    <ReceiptScreen
+      action={
+        <TopBarIconButton
+          label={searching ? "Close search" : "Search the inbox"}
+          name="search"
+          onPress={() => {
+            const next = !searching;
+            setSearching(next);
+            if (!next) inbox.setQuery("");
+          }}
+        />
+      }
+      overlay={
+        inbox.lastHidden === undefined ? undefined : (
+          <UndoBar
+            message={`Removed ${inbox.lastHidden.title} from your inbox`}
+            onExpire={inbox.clearLastHidden}
+            onUndo={() => {
+              const removed = inbox.lastHidden;
+              if (removed !== undefined) void inbox.restore(removed.id);
+            }}
+          />
+        )
+      }
+      sticky={
+        <>
+          {searching ? (
+            <View style={[styles.search, { paddingHorizontal: theme.relay.layout.compactGutter }]}>
+              <AppTextInput
+                accessibilityLabel="Search the inbox"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                label="Search"
+                onChangeText={inbox.setQuery}
+                placeholder="Titles, senders, apps, and categories"
+                value={inbox.query}
+              />
+            </View>
+          ) : null}
+          <OutcomeTabs onSelect={setTab} selected={tab} tabs={tabs} />
+        </>
+      }
+      title="Inbox"
+    >
+      {hideError === undefined ? null : <StatusMessage tone="error">{hideError}</StatusMessage>}
+      {proposals.error === undefined ? null : (
+        <StatusMessage tone="error">{proposals.error}</StatusMessage>
+      )}
+
+      {inbox.loading ? <LoadingState label="Reading your inbox" /> : null}
+
+      {!inbox.loading && inbox.unavailable ? (
+        <FeedbackState
+          action={<AppButton label="Retry" onPress={inbox.refetch} tone="secondary" />}
+          detail="Relay could not reach your inbox. It will still be here when the connection returns."
+          kind="offline"
+          title="Inbox unavailable"
+        />
+      ) : null}
+
+      {!inbox.loading && !inbox.unavailable && inbox.total === 0 ? (
+        <FeedbackState
+          detail="Once a connected source is captured, what matters appears here and the rest stays quietly searchable."
+          kind="empty"
+          title="Nothing captured yet"
+        />
+      ) : null}
+
+      {!inbox.loading && !inbox.unavailable && inbox.total > 0 && items.length === 0 ? (
+        <AppText tone="muted" variant="caption">
+          {inbox.query === "" ? EMPTY_DETAIL[tab] : "Nothing here matches that search."}
+        </AppText>
+      ) : null}
+
+      {tab === "quiet" ? (
+        <QuietList items={items} labels={labels} />
+      ) : (
+        groupByThread(items).map((thread) => {
+          const proposal = proposals.forEvent(thread.latest.id)[0];
+          // The swipe is a shortcut, not the only route: the same removal sits on the receipt's own
+          // screen as a labelled control, and SwipeableRow publishes it as an accessibility action.
+          return (
+            <SwipeableRow
+              actionLabel="Remove"
+              icon="inbox-remove-outline"
+              key={thread.key}
+              onAction={() => void hide(thread.latest.id)}
+            >
+              <ReceiptCard
+                busy={proposal !== undefined && proposals.deciding === proposal.id}
+                item={thread.latest}
+                onApprove={(runId) => void proposals.approve(runId)}
+                onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
+                onSkip={(runId) => void proposals.skip(runId)}
+                proposal={proposal}
+                threadCount={thread.items.length}
+              />
+            </SwipeableRow>
+          );
+        })
+      )}
+
+      {tab === "quiet" || quietCount === 0 ? null : (
+        <AppButton
+          accessibilityHint="Shows everything Relay filed without asking you"
+          label={`${String(quietCount)} filed quietly →`}
+          onPress={() => setTab("quiet")}
+          tone="secondary"
+        />
+      )}
+
+      {tab === "quiet" ? <LocalSkeleton onSent={inbox.refetch} /> : null}
+    </ReceiptScreen>
+  );
+}
+
+/**
+ * Quiet captures, one line per source.
+ *
+ * Folding a source away entirely was worse than the noise it removed: extraction derives little from
+ * an ordinary notification, so almost everything is quiet, and hiding all of it left the inbox
+ * looking unchanged no matter what arrived. Each source keeps its count and its newest arrival.
+ */
+function QuietList({
+  items,
+  labels,
+}: {
+  items: readonly InboxItem[];
+  labels: ReadonlyMap<string, string>;
+}) {
+  const router = useRouter();
+  return (
+    <>
+      {summariseByApp(items, labels).map((application) => (
+        <QuietSourceRow
+          application={application}
+          key={application.key}
+          onPress={() => router.push(`/inbox/app/${encodeURIComponent(application.key)}`)}
+        />
+      ))}
+    </>
+  );
+}
+
+/**
+ * The local walking skeleton.
+ *
+ * Kept at the foot of the quiet tab rather than under the receipts a person came to read. It is a
+ * diagnostic, and the inbox is the one screen whose whole argument is that it shows only what
+ * arrived.
+ */
+function LocalSkeleton({ onSent }: { onSent: () => void }) {
+  const { session } = useAuth();
+  const [status, setStatus] = useState("Ready for local simulation");
+  const [sending, setSending] = useState(false);
+  const localDevelopmentAccess = localDevelopmentAccessEnabled(
+    __DEV__,
+    Constants.expoConfig?.extra?.relayBuildVariant,
+    localDiagnosticsDisabled(),
+  );
+  const localCaptureTenantId = notificationCaptureTenantId(
+    undefined,
+    localDevelopmentAccess,
+    Platform.OS,
+  );
 
   async function simulate() {
     setSending(true);
@@ -117,7 +298,7 @@ export default function InboxScreen() {
       const device = await registerInstallation(session.user.id, session.access_token);
       const result = await sendDemoIngress(session.access_token, device.id);
       setStatus(result.accepted ? `Queued ${result.id.slice(0, 8)}` : "Not accepted");
-      inbox.refetch();
+      onSent();
     } catch (error) {
       logMobileError("ui.demo_ingress_failed", error, {
         code: "DEMO_INGRESS_FAILED",
@@ -131,184 +312,17 @@ export default function InboxScreen() {
   }
 
   return (
-    <AppScreen
-      eyebrow="Signal over noise"
-      title="Inbox"
-      detail="Important facts remain visible. Everything else stays searchable without demanding attention."
-      action={
-        <View style={[styles.score, { paddingTop: theme.relay.spacing.xs }]}>
-          <AppText tone="accent" variant="hero">
-            {String(actionable)}
-          </AppText>
-          <AppText tone="muted" variant="eyebrow">
-            ACTIONABLE
-          </AppText>
-        </View>
-      }
-      overlay={
-        inbox.lastHidden === undefined ? undefined : (
-          <UndoBar
-            message={`Removed ${inbox.lastHidden.title} from your inbox`}
-            onExpire={inbox.clearLastHidden}
-            onUndo={() => {
-              const removed = inbox.lastHidden;
-              if (removed !== undefined) void inbox.restore(removed.id);
-            }}
-          />
-        )
-      }
-    >
-      <AppTextInput
-        accessibilityLabel="Search the inbox"
-        autoCapitalize="none"
-        autoCorrect={false}
-        label="Search"
-        onChangeText={inbox.setQuery}
-        placeholder="Search titles, senders, apps, and categories"
-        value={inbox.query}
+    <EditorialSurface icon="flask-outline" meta="Development" title="Local walking skeleton">
+      <AppText tone="muted">{status}</AppText>
+      <AppButton
+        label="Send simulated notification"
+        loading={sending}
+        onPress={() => void simulate()}
       />
-
-      <ActionRow compact wrap={false}>
-        <AppButton
-          accessibilityHint="Shows which sources sent captures, and how many"
-          label="Applications"
-          onPress={() => router.push("/inbox/apps")}
-          tone="secondary"
-        />
-        <AppButton
-          accessibilityHint="Shows captures you removed, so you can put one back"
-          label="Removed"
-          onPress={() => router.push("/inbox/hidden")}
-          tone="secondary"
-        />
-      </ActionRow>
-
-      {hideError === undefined ? null : <StatusMessage tone="error">{hideError}</StatusMessage>}
-
-      {inbox.loading ? <LoadingState label="Reading your inbox" /> : null}
-
-      {!inbox.loading && inbox.unavailable ? (
-        <FeedbackState
-          action={<AppButton label="Retry" onPress={inbox.refetch} tone="secondary" />}
-          detail="Relay could not reach your inbox. It will still be here when the connection returns."
-          kind="offline"
-          title="Inbox unavailable"
-        />
-      ) : null}
-
-      {!inbox.loading && !inbox.unavailable && inbox.total === 0 ? (
-        <FeedbackState
-          detail="Once a connected source is captured, what matters appears here and the rest stays quietly searchable."
-          kind="empty"
-          title="Nothing captured yet"
-        />
-      ) : null}
-
-      {!inbox.loading && !inbox.unavailable && inbox.total > 0
-        ? inbox.sections.map((section) => (
-            <View key={section.group} style={[styles.section, { gap: theme.relay.spacing.sm }]}>
-              <AppText accessibilityRole="header" variant="eyebrow">
-                {GROUP_HEADING[section.group]}
-              </AppText>
-              {section.items.length === 0 ? (
-                <AppText tone="muted" variant="caption">
-                  {inbox.query === "" ? GROUP_EMPTY[section.group] : "Nothing here matches."}
-                </AppText>
-              ) : section.group === "quiet" ? (
-                <QuietSection items={section.items} labels={labels} onHide={hide} />
-              ) : (
-                groupByThread(section.items).map((thread) => (
-                  <InboxItemCard
-                    item={thread.latest}
-                    key={thread.key}
-                    onHide={() => void hide(thread.latest.id)}
-                    onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
-                    threadCount={thread.items.length}
-                  />
-                ))
-              )}
-            </View>
-          ))
-        : null}
-
-      <EditorialSurface icon="flask-outline" title="Local walking skeleton" meta="Development">
-        <AppText tone="muted">{status}</AppText>
-        <AppButton
-          label="Send simulated notification"
-          loading={sending}
-          onPress={() => void simulate()}
-        />
-      </EditorialSurface>
-    </AppScreen>
-  );
-}
-
-/** How many recent captures each quiet source shows before the rest are folded away. */
-
-/**
- * Quiet items, grouped by capturing application.
- *
- * The newest few from each source stay on screen. Folding the group away entirely was worse than the
- * noise it removed: extraction derives little from an ordinary notification, so almost everything is
- * quiet, and hiding all of it left the inbox looking unchanged no matter what arrived.
- */
-function QuietSection({
-  items,
-  labels,
-  onHide,
-}: {
-  items: readonly InboxItem[];
-  labels: ReadonlyMap<string, string>;
-  onHide: (eventId: string) => Promise<void>;
-}) {
-  const router = useRouter();
-  const theme = useRelayTheme();
-  const applications = summariseByApp(items, labels);
-
-  // One preview per source, then the whole source on its own screen. An accordion here made the
-  // shortest route to "everything from this app" a toggle that grew the page a reader was already
-  // scrolling; a tap that leads somewhere is both shorter and easier to come back from.
-  return (
-    <>
-      {applications.map((application) => {
-        const grouped = items.filter((item) => inboxAppKey(item.source) === application.key);
-        const [newest] = groupByThread(grouped);
-        return (
-          <View key={application.key} style={[styles.section, { gap: theme.relay.spacing.sm }]}>
-            <ActionRow compact wrap={false}>
-              <MaterialCommunityIcons
-                color={theme.relay.colors.textMuted}
-                name={application.icon as never}
-                size={theme.relay.sizes.icon.sm}
-              />
-              <AppText accessibilityRole="header" tone="muted" variant="caption">
-                {application.label} · {String(application.captures)} captured
-              </AppText>
-            </ActionRow>
-            {newest === undefined ? null : (
-              <InboxItemCard
-                item={newest.latest}
-                onHide={() => void onHide(newest.latest.id)}
-                onOpen={() => router.push(`/inbox/${newest.latest.id}`)}
-                threadCount={newest.items.length}
-              />
-            )}
-            {application.conversations <= 1 ? null : (
-              <AppButton
-                accessibilityHint={`Opens every capture from ${application.label}`}
-                label={`See all ${String(application.conversations)} from ${application.label}`}
-                onPress={() => router.push(`/inbox/app/${encodeURIComponent(application.key)}`)}
-                tone="secondary"
-              />
-            )}
-          </View>
-        );
-      })}
-    </>
+    </EditorialSurface>
   );
 }
 
 const styles = StyleSheet.create({
-  score: { alignItems: "flex-end" },
-  section: { width: "100%" },
+  search: { width: "100%" },
 });

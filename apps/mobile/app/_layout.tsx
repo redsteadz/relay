@@ -3,6 +3,8 @@ import "react-native-gesture-handler";
 import { Inter_400Regular } from "@expo-google-fonts/inter/400Regular";
 import { Inter_500Medium } from "@expo-google-fonts/inter/500Medium";
 import { Inter_700Bold } from "@expo-google-fonts/inter/700Bold";
+import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono/500Medium";
+import { JetBrainsMono_600SemiBold } from "@expo-google-fonts/jetbrains-mono/600SemiBold";
 import { SpaceGrotesk_600SemiBold } from "@expo-google-fonts/space-grotesk/600SemiBold";
 import { SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk/700Bold";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -173,6 +175,8 @@ export default function RootLayout() {
     Inter_400Regular,
     Inter_500Medium,
     Inter_700Bold,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_600SemiBold,
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
   });
