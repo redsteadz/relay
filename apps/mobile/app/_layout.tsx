@@ -123,6 +123,7 @@ function AuthenticatedStack() {
           <Stack.Screen name="inbox/hidden" />
           <Stack.Screen name="inbox/apps" />
           <Stack.Screen name="inbox/app/[applicationId]" />
+          <Stack.Screen name="rules/editor" />
           <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />

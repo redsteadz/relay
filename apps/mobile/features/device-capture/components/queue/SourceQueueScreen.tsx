@@ -1,7 +1,7 @@
 import { type ReactNode, useMemo, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import { AppText, ContextualNotice, FeedbackState, LoadingState } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
@@ -49,14 +49,10 @@ export function SourceQueueScreen({
   );
 
   return (
-    <AppScreen
-      action={action}
-      backLabel="Back to source"
-      detail={detail}
-      onBack={onBack}
-      scroll={false}
-      title={title}
-    >
+    <ReceiptScreen action={action} onBack={onBack} scroll={false} title={title}>
+      <AppText tone="muted" variant="caption">
+        {detail}
+      </AppText>
       <QueueFilterBar
         filter={filter}
         onFilterChange={setFilter}
@@ -107,7 +103,7 @@ export function SourceQueueScreen({
         showsVerticalScrollIndicator={false}
         style={styles.list}
       />
-    </AppScreen>
+    </ReceiptScreen>
   );
 }
 

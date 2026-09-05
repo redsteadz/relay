@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenTopBar } from "@/components/ui";
@@ -17,6 +17,13 @@ type ReceiptScreenProps = PropsWithChildren<{
    * again when it leaves, which moves the very rows a person is reading.
    */
   overlay?: ReactNode;
+  /**
+   * False when the children manage their own scrolling, such as a long virtualized list.
+   *
+   * Nesting a FlatList inside this frame's ScrollView would defeat its windowing and warn at
+   * runtime, so a screen that owns a list opts out and takes the padding on itself.
+   */
+  scroll?: boolean;
   /** Pinned below the header and above the scroll: outcome tabs, a filter row, a search field. */
   sticky?: ReactNode;
   title: string;
@@ -35,11 +42,21 @@ export function ReceiptScreen({
   children,
   onBack,
   overlay,
+  scroll = true,
   sticky,
   title,
 }: ReceiptScreenProps) {
   const theme = useRelayTheme();
   const { colors, layout, spacing } = theme.relay;
+  const contentStyle = [
+    styles.content,
+    {
+      gap: spacing.md,
+      paddingBottom: layout.screenBottom,
+      paddingHorizontal: layout.compactGutter,
+      paddingTop: spacing.md,
+    },
+  ];
 
   return (
     <SafeAreaView
@@ -53,21 +70,17 @@ export function ReceiptScreen({
         <ScreenTopBar action={action} onBack={onBack} title={title} />
         {sticky}
         {overlay}
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            {
-              gap: spacing.md,
-              paddingBottom: layout.screenBottom,
-              paddingHorizontal: layout.compactGutter,
-              paddingTop: spacing.md,
-            },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          style={styles.scroll}
-        >
-          {children}
-        </ScrollView>
+        {scroll ? (
+          <ScrollView
+            contentContainerStyle={contentStyle}
+            keyboardShouldPersistTaps="handled"
+            style={styles.scroll}
+          >
+            {children}
+          </ScrollView>
+        ) : (
+          <View style={[contentStyle, styles.scroll]}>{children}</View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
