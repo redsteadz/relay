@@ -1,0 +1,42 @@
+.root {
+  padding-top: 22px;
+}
+
+.inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  flex-wrap: wrap;
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.link {
+  font: 500 14px/20px var(--font-body-stack);
+  color: var(--text-muted);
+}
+
+.link:hover {
+  color: var(--accent);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .links {
+    order: 3;
+    width: 100%;
+    gap: 16px;
+  }
+}

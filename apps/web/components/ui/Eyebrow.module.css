@@ -1,0 +1,6 @@
+.root {
+  font: 600 12px/18px var(--font-mono-stack);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--accent);
+}

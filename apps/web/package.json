@@ -1,0 +1,26 @@
+{
+  "name": "@relay/web",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "build": "next build",
+    "clean": "rm -rf .next out",
+    "dev": "next dev --port 3100",
+    "lint": "eslint app components content lib next.config.ts",
+    "start": "next start",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "16.3.2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@relay/config": "workspace:*",
+    "@types/node": "22.19.15",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3"
+  }
+}

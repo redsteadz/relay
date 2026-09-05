@@ -1,0 +1,129 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(28px, 4vw, 48px);
+  padding-bottom: var(--section-pad);
+}
+
+.frame {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.corner,
+.contender {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  font: 600 14px/20px var(--font-display-stack);
+  text-align: left;
+  vertical-align: bottom;
+}
+
+.corner {
+  width: 20%;
+}
+
+.question {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  font: 600 14px/20px var(--font-display-stack);
+  text-align: left;
+  vertical-align: top;
+}
+
+.answer {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  font: 400 14px/21px var(--font-body-stack);
+  color: var(--text-muted);
+  vertical-align: top;
+  text-wrap: pretty;
+}
+
+.table tbody tr:last-child .question,
+.table tbody tr:last-child .answer {
+  border-bottom: 0;
+}
+
+.highlight {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.contender.highlight {
+  color: var(--accent);
+}
+
+.cards {
+  display: none;
+}
+
+.rule {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-subtle);
+  font: 500 14px/20px var(--font-body-stack);
+}
+
+.ruleLabel {
+  margin-right: 4px;
+  font: 600 11px/16px var(--font-mono-stack);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+@media (max-width: 860px) {
+  .table {
+    display: none;
+  }
+
+  .cards {
+    display: grid;
+    gap: 1px;
+    background: var(--border-subtle);
+  }
+
+  .card {
+    padding: 18px 20px;
+    background: var(--surface);
+  }
+
+  .card.highlight {
+    background: var(--surface-raised);
+  }
+
+  .cardTitle {
+    margin-bottom: 12px;
+    font: 600 16px/22px var(--font-display-stack);
+  }
+
+  .card.highlight .cardTitle {
+    color: var(--accent);
+  }
+
+  .cardList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .cardQuestion {
+    font: 500 11px/16px var(--font-mono-stack);
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .cardAnswer {
+    font: 400 14px/21px var(--font-body-stack);
+    text-wrap: pretty;
+  }
+}

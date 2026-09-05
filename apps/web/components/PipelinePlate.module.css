@@ -1,0 +1,57 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+  padding-bottom: var(--section-pad);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 1px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--border-subtle);
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 26px 24px 28px;
+  background: var(--bg);
+}
+
+.stepHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.index {
+  font: 500 13px/18px var(--font-mono-stack);
+  color: var(--accent);
+}
+
+.boundary {
+  font: 500 11px/16px var(--font-mono-stack);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.title {
+  font: 600 22px/26px var(--font-display-stack);
+  letter-spacing: -0.3px;
+}
+
+.body {
+  font: 400 15px/23px var(--font-body-stack);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}

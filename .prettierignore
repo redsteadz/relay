@@ -7,3 +7,4 @@ node_modules
 pnpm-lock.yaml
 apps/api/cloudflare-env.generated.d.ts
 apps/mobile/expo-env.d.ts
+out

@@ -1,0 +1,14 @@
+.root {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  padding: 0;
+  list-style: none;
+  font: 500 12px/18px var(--font-mono-stack);
+  color: var(--text-muted);
+}
+
+.item + .item::before {
+  content: "·";
+  margin: 0 8px;
+}

@@ -1,0 +1,156 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(28px, 4vw, 48px);
+  padding-top: var(--section-pad);
+  padding-bottom: var(--section-pad);
+}
+
+.frame {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rowHeading,
+.columnHeading {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  font: 500 11px/16px var(--font-mono-stack);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.rowHeading {
+  width: 40%;
+  text-align: left;
+}
+
+.labelCell,
+.cell {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.row:last-child .labelCell,
+.row:last-child .cell {
+  border-bottom: 0;
+}
+
+.labelCell {
+  text-align: left;
+  font-weight: 400;
+}
+
+.label {
+  display: block;
+  font: 600 16px/22px var(--font-display-stack);
+}
+
+.note {
+  display: block;
+  margin-top: 2px;
+  font: 400 13px/18px var(--font-body-stack);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.cell {
+  text-align: center;
+}
+
+.mark {
+  font: 500 20px/24px var(--font-mono-stack);
+}
+
+.mark[data-mark="stored"] {
+  color: var(--text);
+}
+
+.mark[data-mark="minimized"] {
+  color: var(--on-warning-surface);
+}
+
+.mark[data-mark="never"] {
+  color: var(--text-muted);
+}
+
+.mark[data-mark="n/a"] {
+  color: var(--border-subtle);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+  list-style: none;
+  font: 500 12px/18px var(--font-body-stack);
+  color: var(--text-muted);
+}
+
+.legend .mark {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.footnote {
+  max-width: 720px;
+  font: 400 13px/19px var(--font-body-stack);
+  color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .table,
+  .table tbody,
+  .row {
+    display: block;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .row {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .row:last-child {
+    border-bottom: 0;
+  }
+
+  .labelCell {
+    display: block;
+    padding: 0 0 8px;
+    border-bottom: 0;
+  }
+
+  .cell {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 0;
+    text-align: left;
+  }
+
+  .cell::before {
+    content: attr(data-label);
+    font: 500 11px/16px var(--font-mono-stack);
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+}

@@ -1,0 +1,44 @@
+.root {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: clamp(40px, 6vw, 80px);
+  align-items: center;
+  padding-top: clamp(56px, 9vw, 120px);
+  padding-bottom: clamp(56px, 8vw, 104px);
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  animation: rl-in var(--motion-screen) ease-out both;
+}
+
+.title {
+  font: 700 clamp(44px, 6.6vw, 80px) / 0.98 var(--font-display-stack);
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.line {
+  display: block;
+}
+
+.subtitle {
+  max-width: 560px;
+  font: 400 clamp(17px, 1.4vw, 19px) / 1.55 var(--font-body-stack);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.ctas {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.aside {
+  display: flex;
+  justify-content: center;
+  animation: rl-in var(--motion-screen) 80ms ease-out both;
+}
