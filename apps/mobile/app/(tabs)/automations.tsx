@@ -45,6 +45,9 @@ export default function AutomationsScreen() {
   const categoryDescriptors = categories.activeCustom
     .concat(categories.systemCategories)
     .map((category) => ({ name: category.name, slug: category.slug }));
+  const categoryOptions = categories.activeCustom
+    .concat(categories.systemCategories)
+    .map((category) => ({ id: category.id, name: category.name }));
 
   async function save(draft: FilterDraft) {
     try {
@@ -154,6 +157,7 @@ export default function AutomationsScreen() {
 
       <FilterEditorDialog
         categories={categoryDescriptors}
+        categoryOptions={categoryOptions}
         defaults={editorDraft ?? filterDraftFor(undefined)}
         errorMessage={
           filters.saveError === null || filters.saveError === undefined

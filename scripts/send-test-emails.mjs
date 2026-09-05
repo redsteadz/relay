@@ -147,6 +147,30 @@ const CORPUS = [
     ].join("\n"),
   },
   {
+    id: "marketing",
+    proves:
+      "Unambiguously promotional. A rule whose intent is marketing or promotional material should " +
+      "classify this, and a semantic clause should reach high confidence on it.",
+    subject: "Final hours: 50% off everything, this weekend only",
+    body: [
+      "Our biggest sale of the season ends tonight.",
+      "Take 50% off every item with code WEEKEND50 at checkout, plus free delivery over 30.",
+      "Shop now before it is gone. You are receiving this because you subscribed to our mailing list.",
+      "Unsubscribe at any time from your preferences page.",
+    ].join("\n"),
+  },
+  {
+    id: "personal",
+    proves:
+      "The control. Ordinary correspondence with no promotional intent, so the same rule should " +
+      "leave it alone. A rule that classifies this one too is matching on the wrong thing.",
+    subject: "Are we still on for Thursday?",
+    body: [
+      "Hi, checking whether Thursday still works for you.",
+      "I can do any time after two. Let me know what suits and I will book the room.",
+    ].join("\n"),
+  },
+  {
     id: "long-body",
     proves:
       "Body bounding. Exceeds the envelope budget, so the capture should be marked truncated " +
@@ -356,7 +380,7 @@ async function main() {
     return;
   }
 
-  const password = requireEnvironment("RELAY_TEST_SMTP_PASSWORD");
+  const password = requireEnvironment("RELAY_TEST_SMTP_PASSWORD").replace(/\s+/gu, "");
   const sent = await send({ from, host, password, port, secure, to, user }, messages);
   process.stdout.write(`\nSent ${sent.length} message(s).\n`);
 }

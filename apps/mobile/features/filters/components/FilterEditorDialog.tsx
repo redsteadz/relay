@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
 import { Dialog, Portal } from "react-native-paper";
 
 import { AppButton, AppSwitch, AppText, AppTextInput, StatusMessage } from "@/components/ui";
@@ -18,7 +18,15 @@ import { FilterPlanSummary } from "./FilterPlanSummary";
 import { FilterPreviewPanel } from "./FilterPreviewPanel";
 
 type FilterEditorDialogProps = {
+  /** Names and slugs the compiler resolves a `category` predicate against. */
   categories: readonly FilterCategoryDescriptor[];
+  /**
+   * Categories a rule can file into, with the identity actually stored.
+   *
+   * Separate from `categories` because the compiler matches a category by slug while a rule files
+   * into one by id, and conflating the two would let a renamed category silently repoint a rule.
+   */
+  categoryOptions: readonly { id: string; name: string }[];
   defaults: FilterDraft;
   errorMessage?: string | undefined;
   onDismiss: () => void;
@@ -30,6 +38,7 @@ type FilterEditorDialogProps = {
 
 export function FilterEditorDialog({
   categories,
+  categoryOptions,
   defaults,
   errorMessage,
   onDismiss,
@@ -99,6 +108,31 @@ export function FilterEditorDialog({
                   value={draft.intent}
                 />
 
+                <View style={{ gap: theme.relay.spacing.xs }}>
+                  <AppText variant="label">Files into</AppText>
+                  <AppText tone="muted" variant="caption">
+                    Where a matching capture goes. A rule with no category still decides, but the
+                    capture is filed without one.
+                  </AppText>
+                  <View style={[styles.categories, { gap: theme.relay.spacing.xs }]}>
+                    <AppButton
+                      accessibilityHint="Files matching captures without naming a category"
+                      label="No category"
+                      onPress={() => setDraft({ ...draft, categoryId: undefined })}
+                      tone={draft.categoryId === undefined ? "primary" : "secondary"}
+                    />
+                    {categoryOptions.map((category) => (
+                      <AppButton
+                        accessibilityHint={`Files matching captures into ${category.name}`}
+                        key={category.id}
+                        label={category.name}
+                        onPress={() => setDraft({ ...draft, categoryId: category.id })}
+                        tone={draft.categoryId === category.id ? "primary" : "secondary"}
+                      />
+                    ))}
+                  </View>
+                </View>
+
                 <AppSwitch
                   detail="A disabled rule keeps its history and stops deciding anything."
                   label="Enabled"
@@ -143,3 +177,9 @@ export function FilterEditorDialog({
     </Portal>
   );
 }
+
+const styles = StyleSheet.create({
+  // Wraps rather than scrolls sideways: a category off the edge of a row is one a person never
+  // finds, and the list is short enough to read in full.
+  categories: { flexDirection: "row", flexWrap: "wrap" },
+});

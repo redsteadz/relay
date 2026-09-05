@@ -1181,6 +1181,7 @@ export type Database = {
       };
       create_filter_rule_revision: {
         Args: {
+          p_category_id?: string;
           p_enabled?: boolean;
           p_expected_version?: number;
           p_intent: string;

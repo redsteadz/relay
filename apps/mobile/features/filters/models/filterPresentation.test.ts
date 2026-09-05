@@ -275,6 +275,7 @@ describe("revisions", () => {
 describe("drafts and save requests", () => {
   it("starts a new rule enabled and empty", () => {
     expect(filterDraftFor(undefined)).toEqual({
+      categoryId: undefined,
       enabled: true,
       intent: "",
       name: "",
@@ -309,6 +310,7 @@ describe("drafts and save requests", () => {
 
   it("trims the name and intent before sending", () => {
     const request = filterSaveRequest({
+      categoryId: undefined,
       enabled: true,
       intent: "  sender contains bank  ",
       name: "  Receipts  ",
@@ -331,14 +333,32 @@ describe("drafts and save requests", () => {
   });
 
   it("rejects an empty name or intent before a request is made", () => {
-    expect(filterDraftError({ enabled: true, intent: "x", name: "", series: undefined })).toContain(
-      "name",
-    );
-    expect(filterDraftError({ enabled: true, intent: "", name: "x", series: undefined })).toContain(
-      "match",
-    );
     expect(
-      filterDraftError({ enabled: true, intent: "x", name: "y", series: undefined }),
+      filterDraftError({
+        categoryId: undefined,
+        enabled: true,
+        intent: "x",
+        name: "",
+        series: undefined,
+      }),
+    ).toContain("name");
+    expect(
+      filterDraftError({
+        categoryId: undefined,
+        enabled: true,
+        intent: "",
+        name: "x",
+        series: undefined,
+      }),
+    ).toContain("match");
+    expect(
+      filterDraftError({
+        categoryId: undefined,
+        enabled: true,
+        intent: "x",
+        name: "y",
+        series: undefined,
+      }),
     ).toBeUndefined();
   });
 });
@@ -419,5 +439,45 @@ describe("labels", () => {
         schemaVersion: 1,
       }),
     ).toBe("Matches nothing");
+  });
+});
+
+describe("filter category selection", () => {
+  const draft = {
+    categoryId: undefined as string | undefined,
+    enabled: true,
+    intent: "Marketing or promotional material",
+    name: "Marketing",
+    series: undefined,
+  };
+
+  it("sends the chosen category so a match has somewhere to go", () => {
+    const request = filterSaveRequest({
+      ...draft,
+      categoryId: "8f4b1c2d-0000-4000-8000-00000000ab01",
+    });
+    expect(request.categoryId).toBe("8f4b1c2d-0000-4000-8000-00000000ab01");
+  });
+
+  it("sends null rather than omitting the field when no category is chosen", () => {
+    // An absent field reads as "unchanged" to the revision RPC, which would leave a rule pointed at
+    // a category the editor is no longer showing as selected.
+    expect(filterSaveRequest(draft).categoryId).toBeNull();
+  });
+
+  it("restores the stored category when an existing rule is reopened", () => {
+    const restored = filterDraftFor({
+      categoryId: "8f4b1c2d-0000-4000-8000-00000000ab01",
+      createdAt: "2026-09-01T09:00:00.000Z",
+      enabled: true,
+      id: "1f4b1c2d-0000-4000-8000-00000000ab02",
+      intent: "Marketing or promotional material",
+      name: "Marketing",
+      plan: { compilerVersion: 1, intent: "Marketing or promotional material", schemaVersion: 1 },
+      seriesId: "2f4b1c2d-0000-4000-8000-00000000ab03",
+      userId: "3f4b1c2d-0000-4000-8000-00000000ab04",
+      version: 3,
+    });
+    expect(restored.categoryId).toBe("8f4b1c2d-0000-4000-8000-00000000ab01");
   });
 });

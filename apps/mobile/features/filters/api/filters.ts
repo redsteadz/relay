@@ -21,9 +21,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { logMobileError } from "@/lib/observability";
 import { RelayApiError, requestRelayApi } from "@/lib/relay-api";
 
-const revisionColumns = "id, user_id, series_id, name, intent, plan, version, enabled, created_at";
+const revisionColumns =
+  "id, user_id, series_id, name, intent, plan, version, enabled, created_at, category_id";
 
 type FilterRuleRow = {
+  category_id: string | null;
   created_at: string;
   enabled: boolean;
   id: string;
@@ -87,6 +89,7 @@ export async function listFilterRevisions(client: SupabaseClient): Promise<Filte
       seriesId: row.series_id,
       userId: row.user_id,
       version: row.version,
+      ...(typeof row.category_id === "string" ? { categoryId: row.category_id } : {}),
     });
     if (!parsed.success) {
       throw filterRuleError(parsed.error, "listFilterRevisions.contract");

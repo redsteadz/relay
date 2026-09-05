@@ -77,6 +77,7 @@ export async function compileAndPersistFilter(
         p_enabled: request.data.enabled ?? true,
         p_series_id: request.data.seriesId ?? null,
         p_expected_version: request.data.expectedVersion ?? null,
+        p_category_id: request.data.categoryId ?? null,
       }),
     },
   );
