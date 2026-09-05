@@ -64,11 +64,10 @@ const EMPTY_DETAIL: Readonly<Record<InboxGroup, string>> = {
 };
 
 export default function InboxScreen() {
-  const { session } = useAuth();
+  const { client, session } = useAuth();
   const router = useRouter();
   const theme = useRelayTheme();
   const inbox = useInbox();
-  const { client } = useAuth();
   const proposals = useProposedActions(client, session?.user.id);
   const [tab, setTab] = useState<InboxGroup>("actionable");
   const [searching, setSearching] = useState(false);
