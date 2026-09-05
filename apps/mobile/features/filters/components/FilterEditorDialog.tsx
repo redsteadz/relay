@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
-import { Dialog, Portal } from "react-native-paper";
+import { StyleSheet, View } from "react-native";
 
-import { AppButton, AppSwitch, AppText, AppTextInput, StatusMessage } from "@/components/ui";
+import {
+  AppButton,
+  AppDialog,
+  AppSwitch,
+  AppText,
+  AppTextInput,
+  StatusMessage,
+} from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 import type { FilterCategoryDescriptor } from "@relay/domain";
 
@@ -78,103 +84,101 @@ export function FilterEditorDialog({
   }
 
   return (
-    <Portal>
-      <Dialog dismissable={!saving} onDismiss={onDismiss} visible={visible}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <Dialog.Title>{editing ? "Edit rule" : "New rule"}</Dialog.Title>
-          <Dialog.ScrollArea>
-            <ScrollView contentContainerStyle={{ paddingVertical: theme.relay.spacing.md }}>
-              <View style={{ gap: theme.relay.spacing.md }}>
-                <AppText tone="muted">
-                  Describe the rule in plain language. Relay compiles it as you type and shows the
-                  exact behaviour below before anything is saved.
-                </AppText>
+    <AppDialog
+      actions={
+        <>
+          <AppButton disabled={saving} label="Cancel" onPress={onDismiss} tone="secondary" />
+          <AppButton
+            label={editing ? "Save version" : "Create rule"}
+            loading={saving}
+            onPress={() => void submit()}
+          />
+        </>
+      }
+      dismissable={!saving}
+      onDismiss={onDismiss}
+      title={editing ? "Edit rule" : "New rule"}
+      visible={visible}
+    >
+      <View style={{ gap: theme.relay.spacing.md }}>
+        <AppText tone="muted">
+          Describe the rule in plain language. Relay compiles it as you type and shows the exact
+          behaviour below before anything is saved.
+        </AppText>
 
-                <AppTextInput
-                  errorMessage={nameError}
-                  label="Name"
-                  maxLength={80}
-                  onChangeText={(name) => setDraft({ ...draft, name })}
-                  value={draft.name}
-                />
+        <AppTextInput
+          errorMessage={nameError}
+          label="Name"
+          maxLength={80}
+          onChangeText={(name) => setDraft({ ...draft, name })}
+          value={draft.name}
+        />
 
-                <AppTextInput
-                  errorMessage={intentError}
-                  label="What should this match?"
-                  maxLength={4000}
-                  multiline
-                  onChangeText={(intent) => setDraft({ ...draft, intent })}
-                  placeholder="Receipts from my bank over 50 USD"
-                  value={draft.intent}
-                />
+        <AppTextInput
+          errorMessage={intentError}
+          label="What should this match?"
+          maxLength={4000}
+          multiline
+          onChangeText={(intent) => setDraft({ ...draft, intent })}
+          placeholder="Receipts from my bank over 50 USD"
+          value={draft.intent}
+        />
 
-                <View style={{ gap: theme.relay.spacing.xs }}>
-                  <AppText variant="label">Files into</AppText>
-                  <AppText tone="muted" variant="caption">
-                    Where a matching capture goes. A rule with no category still decides, but the
-                    capture is filed without one.
-                  </AppText>
-                  <View style={[styles.categories, { gap: theme.relay.spacing.xs }]}>
-                    <AppButton
-                      accessibilityHint="Files matching captures without naming a category"
-                      label="No category"
-                      onPress={() => setDraft({ ...draft, categoryId: undefined })}
-                      tone={draft.categoryId === undefined ? "primary" : "secondary"}
-                    />
-                    {categoryOptions.map((category) => (
-                      <AppButton
-                        accessibilityHint={`Files matching captures into ${category.name}`}
-                        key={category.id}
-                        label={category.name}
-                        onPress={() => setDraft({ ...draft, categoryId: category.id })}
-                        tone={draft.categoryId === category.id ? "primary" : "secondary"}
-                      />
-                    ))}
-                  </View>
-                </View>
-
-                <AppSwitch
-                  detail="A disabled rule keeps its history and stops deciding anything."
-                  label="Enabled"
-                  onValueChange={(enabled) => setDraft({ ...draft, enabled })}
-                  value={draft.enabled}
-                />
-
-                {preview.status === "incomplete" ? (
-                  <AppText tone="muted" variant="caption">
-                    {preview.message}
-                  </AppText>
-                ) : (
-                  <>
-                    <FilterPlanSummary compilation={preview.compilation} />
-                    <AppText variant="label">Preview</AppText>
-                    <FilterPreviewPanel items={items} plan={preview.compilation.plan} />
-                  </>
-                )}
-
-                {editing ? (
-                  <AppText tone="muted" variant="caption">
-                    Saving adds a new version. The current one is kept and stays inspectable.
-                  </AppText>
-                ) : null}
-
-                {errorMessage === undefined ? null : (
-                  <StatusMessage tone="error">{errorMessage}</StatusMessage>
-                )}
-              </View>
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <AppButton disabled={saving} label="Cancel" onPress={onDismiss} tone="secondary" />
+        <View style={{ gap: theme.relay.spacing.xs }}>
+          <AppText variant="label">Files into</AppText>
+          <AppText tone="muted" variant="caption">
+            Where a matching capture goes. A rule with no category still decides, but the capture is
+            filed without one.
+          </AppText>
+          <View style={[styles.categories, { gap: theme.relay.spacing.xs }]}>
             <AppButton
-              label={editing ? "Save version" : "Create rule"}
-              loading={saving}
-              onPress={() => void submit()}
+              accessibilityHint="Files matching captures without naming a category"
+              label="No category"
+              onPress={() => setDraft({ ...draft, categoryId: undefined })}
+              tone={draft.categoryId === undefined ? "primary" : "secondary"}
             />
-          </Dialog.Actions>
-        </KeyboardAvoidingView>
-      </Dialog>
-    </Portal>
+            {categoryOptions.map((category) => (
+              <AppButton
+                accessibilityHint={`Files matching captures into ${category.name}`}
+                key={category.id}
+                label={category.name}
+                onPress={() => setDraft({ ...draft, categoryId: category.id })}
+                tone={draft.categoryId === category.id ? "primary" : "secondary"}
+              />
+            ))}
+          </View>
+        </View>
+
+        <AppSwitch
+          detail="A disabled rule keeps its history and stops deciding anything."
+          label="Enabled"
+          onValueChange={(enabled) => setDraft({ ...draft, enabled })}
+          value={draft.enabled}
+        />
+
+        {preview.status === "incomplete" ? (
+          <AppText tone="muted" variant="caption">
+            {preview.message}
+          </AppText>
+        ) : (
+          <>
+            <FilterPlanSummary compilation={preview.compilation} />
+            <AppText variant="label">Preview</AppText>
+            <FilterPreviewPanel items={items} plan={preview.compilation.plan} />
+          </>
+        )}
+
+        {editing ? (
+          <AppText tone="muted" variant="caption">
+            Saving adds a new version. The current one is kept and stays inspectable.
+          </AppText>
+        ) : null}
+
+        {errorMessage === undefined ? null : (
+          <StatusMessage tone="error">{errorMessage}</StatusMessage>
+        )}
+      </View>
+    </AppDialog>
   );
 }
 
