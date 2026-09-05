@@ -10,8 +10,17 @@
 -- without naming a category.
 --
 -- Defaulted last so existing callers keep working unchanged during a rolling deploy.
+--
+-- The previous signature is dropped rather than replaced. Adding a parameter produces a new
+-- overload rather than a replacement, and Postgres then cannot choose between them for a call that
+-- omits the defaulted arguments -- every existing caller becomes ambiguous. Dropping first leaves
+-- exactly one function, which the defaults make callable in every shape the old one accepted.
 
-create or replace function public.create_filter_rule_revision(
+drop function if exists public.create_filter_rule_revision(
+  uuid, text, text, jsonb, jsonb, jsonb, boolean, uuid, integer
+);
+
+create function public.create_filter_rule_revision(
   p_user_id uuid,
   p_name text,
   p_intent text,
@@ -163,3 +172,10 @@ begin
   return revision;
 end;
 $$;
+
+revoke all on function public.create_filter_rule_revision(
+  uuid, text, text, jsonb, jsonb, jsonb, boolean, uuid, integer, uuid
+) from public, anon, authenticated;
+grant execute on function public.create_filter_rule_revision(
+  uuid, text, text, jsonb, jsonb, jsonb, boolean, uuid, integer, uuid
+) to service_role;
