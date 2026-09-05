@@ -22,6 +22,7 @@ import { InboxItemCard } from "@/features/inbox/components/InboxItemCard";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
 import {
+  groupByCategory,
   groupByThread,
   inboxAppKey,
   summariseByApp,
@@ -42,14 +43,16 @@ import { useRelayTheme } from "@/theme";
 
 const GROUP_HEADING: Record<InboxGroup, string> = {
   actionable: "Needs doing",
+  filed: "Filed",
   "needs-review": "Needs your review",
-  quiet: "Filed quietly",
+  unfiled: "Not filed yet",
 };
 
 const GROUP_EMPTY: Record<InboxGroup, string> = {
   actionable: "Nothing is scheduled.",
+  filed: "No rule has filed anything yet.",
   "needs-review": "Nothing is waiting on you.",
-  quiet: "Nothing has been filed quietly yet.",
+  unfiled: "Everything captured has been filed.",
 };
 
 export default function InboxScreen() {
@@ -214,7 +217,24 @@ export default function InboxScreen() {
                 <AppText tone="muted" variant="caption">
                   {inbox.query === "" ? GROUP_EMPTY[section.group] : "Nothing here matches."}
                 </AppText>
-              ) : section.group === "quiet" ? (
+              ) : section.group === "filed" ? (
+                groupByCategory(section.items).map((group) => (
+                  <View key={group.categoryName} style={{ gap: theme.relay.spacing.sm }}>
+                    <AppText tone="muted" variant="caption">
+                      {group.categoryName}
+                    </AppText>
+                    {groupByThread(group.items).map((thread) => (
+                      <InboxItemCard
+                        item={thread.latest}
+                        key={thread.key}
+                        onHide={() => void hide(thread.latest.id)}
+                        onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
+                        threadCount={thread.items.length}
+                      />
+                    ))}
+                  </View>
+                ))
+              ) : section.group === "unfiled" ? (
                 <QuietSection items={section.items} labels={labels} onHide={hide} />
               ) : (
                 groupByThread(section.items).map((thread) => (

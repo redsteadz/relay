@@ -109,3 +109,14 @@ own tenant identity.
 
 Related: [data flow](data-flow.md), [Google Tasks](../integrations/google-tasks.md),
 [Nextcloud Budget](../integrations/nextcloud-budget.md).
+
+## Classification Origin And Dispatch
+
+A classification records who decided it. `origin = 'device'` means a client evaluated deterministic
+rules against what it could read; `origin = 'server'` means the pipeline decided with the raw payload
+available. See [ADR-0014](../decisions/0014-device-local-classification.md).
+
+**A device-authored classification must never gate a provider effect.** When category begins to
+select an action rule, dispatch must require `origin = 'server'`. Nothing dispatches on category
+today, so this is a constraint on the dispatch path being built rather than a check that exists in
+code.

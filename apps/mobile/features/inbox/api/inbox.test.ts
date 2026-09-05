@@ -23,6 +23,7 @@ function client(results: Record<string, Result>) {
         const settle = () => Promise.resolve(results[table] ?? { data: [], error: null });
         // PostgREST query builders are thenable, so a query that ends without `limit` still awaits.
         const builder = {
+          is: () => builder,
           limit: settle,
           order: () => builder,
           select: () => builder,
@@ -90,7 +91,9 @@ describe("listInbox", () => {
           {
             category_id: "cat-1",
             confidence: 0.77,
+            filter_rule_id: "rule-3",
             method: "deterministic",
+            origin: "server",
             rationale: "Rule 3",
             source_item_id: eventRow.source_item_id,
           },
@@ -122,8 +125,12 @@ describe("listInbox", () => {
     expect(item?.source.applicationId).toBe("com.google.android.gm");
     expect(item?.category).toEqual({
       confidence: 0.77,
+      filterRuleId: "rule-3",
       method: "deterministic",
       name: "Finance",
+      // Provenance is part of what placed an item: a reader is entitled to know whether the server
+      // decided this from the raw payload or a device decided it from what it could read.
+      origin: "server",
       rationale: "Rule 3",
     });
     expect(item?.processing).toBe("processed");

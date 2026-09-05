@@ -9,7 +9,15 @@ import type { EventKind, FactKind } from "@relay/contracts";
  * below that automation threshold in the ordinary case, so promoting them would fill the inbox with
  * warnings and bury the one item that matters.
  */
-export type InboxGroup = "actionable" | "needs-review" | "quiet";
+/**
+ * Where an item sits in the inbox.
+ *
+ * `filed` and `unfiled` replace the single `quiet` group. "Filed quietly" was the only thing the
+ * inbox could say about an item nothing had classified, which made a capture Relay had actively
+ * filed indistinguishable from one it had never looked at. Separating them is what lets the screen
+ * say which of the two it is.
+ */
+export type InboxGroup = "actionable" | "filed" | "needs-review" | "unfiled";
 
 /** A fact that supports an event, shown as its evidence rather than as its own inbox row. */
 export type InboxEvidence = {
@@ -62,8 +70,18 @@ export type InboxSource = {
  */
 export type InboxCategory = {
   confidence: number | undefined;
+  /** The rule revision that filed this, when a rule did. Revisions are immutable, so it is exact. */
+  filterRuleId: string | undefined;
   method: string;
   name: string | undefined;
+  /**
+   * Who decided this.
+   *
+   * A device decides from what it can read; the server decides from the raw payload as well. Saying
+   * which is not decoration -- a device-authored classification must never gate a provider effect,
+   * and a reader is entitled to know which kind they are looking at.
+   */
+  origin: "device" | "server";
   rationale: string | undefined;
 };
 
@@ -113,6 +131,15 @@ export type InboxItem = {
   category: InboxCategory | undefined;
   confidence: number | undefined;
   evidence: readonly InboxEvidence[];
+  /**
+   * Certain fact values, keyed by kind.
+   *
+   * Kept beside `evidence` rather than derived from it because evidence labels are formatted for a
+   * reader and filing must compare what the pipeline actually derived. These are also how a capture
+   * whose body this device cannot read is still filed on an amount or a merchant: the pipeline
+   * extracted them from that body server-side, so the signal survives without the text.
+   */
+  factValues: Readonly<Record<string, string>>;
   group: InboxGroup;
   id: string;
   kind: string;
@@ -357,6 +384,19 @@ export function inboxItemForEvent(
   facts: readonly InboxFactInput[] = [],
 ): InboxItem {
   const evidence = facts.map(inboxEvidence);
+  const factValues: Record<string, string> = {};
+  for (const fact of facts) {
+    // Fact values are jsonb. Amount, currency and merchant are stored as plain strings, and only a
+    // string can answer a filter predicate, so anything else is left out rather than stringified
+    // into a shape a rule was never written against.
+    if (
+      fact.certainty === "certain" &&
+      typeof fact.value === "string" &&
+      factValues[fact.kind] === undefined
+    ) {
+      factValues[fact.kind] = fact.value;
+    }
+  }
   const uncertainReasons = facts
     .filter((fact) => fact.certainty !== "certain" && fact.uncertaintyReason !== null)
     .map((fact) => fact.uncertaintyReason as string);
@@ -369,10 +409,18 @@ export function inboxItemForEvent(
     category: context.category,
     confidence: event.confidence ?? undefined,
     evidence,
+    factValues,
     // Unresolved first, then work with a time, then everything Relay simply recorded. An event
     // Relay declined to automate is not itself a problem, so it files quietly unless something
     // about it is genuinely unresolved.
-    group: reasons.length > 0 ? "needs-review" : scheduledAt === undefined ? "quiet" : "actionable",
+    group:
+      reasons.length > 0
+        ? "needs-review"
+        : scheduledAt !== undefined
+          ? "actionable"
+          : context.category === undefined
+            ? "unfiled"
+            : "filed",
     id: event.id,
     kind: event.kind,
     occurredAt: event.createdAt,
@@ -396,7 +444,7 @@ export function inboxItemForEvent(
   };
 }
 
-const GROUP_ORDER: readonly InboxGroup[] = ["needs-review", "actionable", "quiet"];
+const GROUP_ORDER: readonly InboxGroup[] = ["needs-review", "actionable", "filed", "unfiled"];
 
 function compareWithin(group: InboxGroup, left: InboxItem, right: InboxItem): number {
   if (group === "actionable") {
@@ -633,4 +681,33 @@ export function inboxRetention(rawExpiresAt: string | null, now: string): InboxR
     rawExpired: rawExpiresAt !== null && rawExpiresAt <= now,
     rawExpiresAt: rawExpiresAt ?? undefined,
   };
+}
+
+export type InboxCategoryGroup = { categoryName: string; items: readonly InboxItem[] };
+
+/**
+ * Collects filed items under the category they were filed into.
+ *
+ * A rule may file a capture without naming a category, which is a real outcome rather than a gap:
+ * the classification records that a rule claimed the item and which one. Those are collected under a
+ * heading that says exactly that, instead of being dropped or folded in with items nothing matched.
+ *
+ * Ordered by size and then by name, matching `groupByApp`, so the heaviest category reads first and
+ * two runs over the same items always produce the same order.
+ */
+export function groupByCategory(items: readonly InboxItem[]): readonly InboxCategoryGroup[] {
+  const groups = new Map<string, InboxItem[]>();
+  for (const item of items) {
+    const name = item.category?.name ?? "Filed without a category";
+    const existing = groups.get(name);
+    if (existing === undefined) groups.set(name, [item]);
+    else existing.push(item);
+  }
+  return [...groups.entries()]
+    .map(([categoryName, grouped]) => ({ categoryName, items: grouped }))
+    .sort(
+      (left, right) =>
+        right.items.length - left.items.length ||
+        left.categoryName.localeCompare(right.categoryName),
+    );
 }

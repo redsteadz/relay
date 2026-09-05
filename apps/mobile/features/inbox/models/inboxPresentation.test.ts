@@ -23,7 +23,14 @@ import {
 
 function context(overrides: Partial<InboxContext> = {}): InboxContext {
   return {
-    category: { confidence: 0.8, method: "deterministic", name: "Finance", rationale: "Rule 3" },
+    category: {
+      confidence: 0.8,
+      filterRuleId: undefined,
+      method: "deterministic",
+      name: "Finance",
+      origin: "server",
+      rationale: "Rule 3",
+    },
     content: undefined,
     processing: "processed",
     retention: { rawExpired: false, rawExpiresAt: "2026-09-06T21:00:00.000Z" },
@@ -76,14 +83,27 @@ const item = (
   facts: InboxFactInput[] = [fact()],
 ) => inboxItemForEvent(event(o), c, facts);
 
+/** A capture no rule has claimed, which is what an inbox looks like before any rule exists. */
+const itemWithoutCategory = (o: Partial<InboxEventInput> = {}) =>
+  inboxItemForEvent(event(o), context({ category: undefined }), [fact()]);
+
 describe("inbox grouping", () => {
-  it("files an unautomatable but unambiguous event quietly", () => {
+  it("does not promote an unautomatable but unambiguous event to review", () => {
     // `requiresReview` means "below the automation threshold", which most captures are. Promoting
-    // those would bury the few items that genuinely need attention.
+    // those would bury the few items that genuinely need attention. This fixture carries a
+    // classification, so it belongs with what has been filed.
     const quiet = item();
-    expect(quiet.group).toBe("quiet");
+    expect(quiet.group).toBe("filed");
     expect(quiet.reviewReasons).toEqual([]);
     expect(quiet.confidence).toBe(0.75);
+  });
+
+  it("separates a capture nothing has classified from one a rule filed", () => {
+    const filed = item();
+    const unfiled = itemWithoutCategory();
+
+    expect(filed.group).toBe("filed");
+    expect(unfiled.group).toBe("unfiled");
   });
 
   it("treats a scheduled event as actionable", () => {
@@ -336,9 +356,9 @@ describe("inbox search", () => {
 });
 
 describe("inbox sections", () => {
-  it("ranks review above actionable above quiet and hides nothing", () => {
+  it("ranks review above actionable above filed above unfiled and hides nothing", () => {
     const items = [
-      item({ id: "quiet" }),
+      item({ id: "unfiled" }),
       item({ id: "actionable", startsAt: "2026-09-01T09:00:00.000Z" }),
       item({ dateAmbiguity: "invalid", id: "review" }),
     ];
@@ -348,7 +368,8 @@ describe("inbox sections", () => {
     expect(sections.map((section) => section.group)).toEqual([
       "needs-review",
       "actionable",
-      "quiet",
+      "filed",
+      "unfiled",
     ]);
     expect(sections.flatMap((section) => section.items)).toHaveLength(items.length);
     expect(sections[0]?.items[0]?.id).toBe("review");
@@ -374,7 +395,7 @@ describe("inbox sections", () => {
 
   it("returns empty sections so a screen can say a group is genuinely clear", () => {
     const sections = inboxSections([]);
-    expect(sections).toHaveLength(3);
+    expect(sections).toHaveLength(4);
     expect(sections.every((section) => section.items.length === 0)).toBe(true);
   });
 });
@@ -530,9 +551,9 @@ describe("summariseByApp", () => {
 
   it("ranks what is waiting on a person above sheer volume", () => {
     const summaries = summariseByApp([
-      from("com.noisy", { id: "a", group: "quiet" }),
-      from("com.noisy", { id: "b", group: "quiet" }),
-      from("com.noisy", { id: "c", group: "quiet" }),
+      from("com.noisy", { id: "a", group: "unfiled" }),
+      from("com.noisy", { id: "b", group: "unfiled" }),
+      from("com.noisy", { id: "c", group: "unfiled" }),
       from("com.urgent", { id: "d", group: "actionable" }),
     ]);
     expect(summaries[0]?.key).toBe("app:com.urgent");

@@ -51,6 +51,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0011: Notification capture identity](../decisions/0011-notification-capture-identity.md)
 - [ADR-0012: OpenAI-compatible semantic endpoint](../decisions/0012-openai-compatible-semantic-endpoint.md)
 - [ADR-0013: Text-derived facts](../decisions/0013-text-derived-facts.md)
+- [ADR-0014: Device-local classification](../decisions/0014-device-local-classification.md)
 
 ## Delivery
 

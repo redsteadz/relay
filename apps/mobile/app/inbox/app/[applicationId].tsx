@@ -18,14 +18,15 @@ import { useRelayTheme } from "@/theme";
 
 const GROUP_HEADING: Record<InboxGroup, string> = {
   actionable: "Needs doing",
+  filed: "Filed",
   "needs-review": "Needs your review",
-  quiet: "Filed quietly",
+  unfiled: "Not filed yet",
 };
 
 /**
  * Everything one application sent, in the same order of importance as the inbox itself.
  *
- * The three groups are kept rather than flattened, so narrowing to one source never costs a reader
+ * The groups are kept rather than flattened, so narrowing to one source never costs a reader
  * the distinction between what needs doing and what was merely recorded. Grouping applies to every
  * group here, which is what the main inbox deliberately does not do: there, a handful of items
  * needing attention stay flat so a busy application cannot bury them under its own heading.

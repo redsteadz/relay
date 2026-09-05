@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 
+import { listFilterRevisions } from "@/features/filters/api/filters";
 import { useAuth } from "@/lib/auth-context";
+import { runInBackground } from "@/lib/observability";
 
+import { recordDeviceClassifications } from "../api/classifications";
 import { hideInboxEvent, listInbox, restoreInboxEvent } from "../api/inbox";
+import { classifiableRules, classificationWrites } from "../models/deviceClassification";
 import {
   filterInbox,
   inboxSections,
@@ -108,7 +112,54 @@ export function useInbox(): InboxState {
     onSettled: () => queryClient.invalidateQueries({ queryKey: inboxKey }),
   });
 
+  // Rules are read here rather than in the filter feature's own hook because filing needs the newest
+  // enabled revision of each series, which is what that reader already returns.
+  const revisions = useQuery({
+    enabled: client !== undefined && userId !== undefined,
+    queryFn: () => listFilterRevisions(client as NonNullable<typeof client>),
+    queryKey: ["filter-rules", userId],
+  });
+
   const items = useMemo(() => inbox.data ?? [], [inbox.data]);
+  const rules = useMemo(() => classifiableRules(revisions.data ?? []), [revisions.data]);
+
+  /**
+   * Files what this device can decide, once per load.
+   *
+   * The pass converges rather than looping: a write invalidates the inbox, the refetched items carry
+   * the classification that was just written, and the next pass finds nothing left to change. The
+   * ref guards the window before that refetch lands, where the same decision would otherwise be
+   * written twice.
+   *
+   * Filing is deliberately not awaited by the screen. It is advisory -- a capture that stays unfiled
+   * is filed on the next open -- so it must never delay drawing the inbox or turn a write failure
+   * into a failed read.
+   */
+  const filing = useRef(false);
+  useEffect(() => {
+    if (client === undefined || filing.current) return;
+    if (inbox.isPending || revisions.isPending) return;
+
+    const writes = classificationWrites(items, rules);
+    if (writes.length === 0) return;
+
+    filing.current = true;
+    runInBackground(
+      recordDeviceClassifications(client, writes)
+        .then(async (result) => {
+          if (result.recorded > 0) await queryClient.invalidateQueries({ queryKey: inboxKey });
+        })
+        .finally(() => {
+          filing.current = false;
+        }),
+      "inbox.device_classification_failed",
+      {
+        code: "DEVICE_CLASSIFICATION_FAILED",
+        integration: "supabase-postgrest",
+        operation: "recordDeviceClassifications",
+      },
+    );
+  }, [client, inbox.isPending, inboxKey, items, queryClient, revisions.isPending, rules]);
   const sections = useMemo(() => inboxSections(filterInbox(items, query)), [items, query]);
 
   return {

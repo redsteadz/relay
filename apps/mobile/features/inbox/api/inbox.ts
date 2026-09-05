@@ -28,8 +28,11 @@ const factColumns = "id, kind, certainty, value, uncertainty_reason, created_at,
 // it would silently widen what the inbox reads whenever one of them adds a field.
 const sourceItemColumns =
   "id, source, application_id, sender, subject, occurred_at, processed_at, raw_expires_at, gmail_thread_id:attributes->>gmailThreadId";
-const classificationColumns = "source_item_id, category_id, method, confidence, rationale";
-const categoryColumns = "id, name";
+const classificationColumns =
+  "source_item_id, category_id, method, confidence, rationale, origin, filter_rule_id";
+// `slug` is what a compiled plan compares against and `quiet_by_default` decides which
+// category sections open collapsed, so both are read alongside the display name.
+const categoryColumns = "id, name, slug, quiet_by_default";
 
 /** Bounded so one very active tenant cannot turn a first paint into an unbounded read. */
 const INBOX_PAGE_SIZE = 200;
@@ -100,12 +103,14 @@ type HiddenEventRow = { event_id: string };
 type ClassificationRow = {
   category_id: string | null;
   confidence: number | null;
+  filter_rule_id: string | null;
   method: string;
+  origin: string;
   rationale: string | null;
   source_item_id: string;
 };
 
-type CategoryRow = { id: string; name: string };
+type CategoryRow = { id: string; name: string; quiet_by_default: boolean; slug: string };
 
 /**
  * Context for an item whose source row is missing.
@@ -148,11 +153,13 @@ function buildContext(
       ? undefined
       : {
           confidence: classification.confidence ?? undefined,
+          filterRuleId: classification.filter_rule_id ?? undefined,
           method: classification.method,
           name:
             classification.category_id === null
               ? undefined
               : categoryNames.get(classification.category_id),
+          origin: classification.origin === "device" ? "device" : "server",
           rationale: classification.rationale ?? undefined,
         };
 
@@ -235,7 +242,13 @@ export async function listInbox(
       .select(sourceItemColumns)
       .order("created_at", { ascending: false })
       .limit(INBOX_PAGE_SIZE),
-    client.from("classifications").select(classificationColumns).limit(INBOX_PAGE_SIZE),
+    // Superseded rows are history: a re-filed capture keeps the reason it moved, but only the
+    // current classification describes where it is now.
+    client
+      .from("classifications")
+      .select(classificationColumns)
+      .is("superseded_at", null)
+      .limit(INBOX_PAGE_SIZE),
     client.from("categories").select(categoryColumns),
     client.from("hidden_inbox_events").select("event_id"),
   ]);
