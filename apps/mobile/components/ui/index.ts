@@ -14,6 +14,8 @@ export type { ContextualNoticeTone } from "./ContextualNotice";
 export { EditorialSurface } from "./EditorialSurface";
 export type { EditorialSurfaceVariant } from "./EditorialSurface";
 export { EmptyState, FeedbackState, LoadingState } from "./FeedbackState";
+export { FilterChips } from "./FilterChips";
+export type { FilterChip } from "./FilterChips";
 export type { FeedbackKind } from "./FeedbackState";
 export { MonoChip } from "./MonoChip";
 export { StatusMessage } from "./StatusMessage";

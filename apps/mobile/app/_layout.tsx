@@ -28,6 +28,7 @@ import {
   localDiagnosticsDisabled,
   notificationCaptureMode,
 } from "@/lib/development-access";
+import { useOnboardingState } from "@/hooks/useOnboardingState";
 import { syncDeviceCaptures } from "@/lib/device-capture-sync";
 import { logMobileError, runInBackground } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
@@ -42,6 +43,7 @@ runInBackground(SplashScreen.preventAutoHideAsync(), "ui.splash_prevent_auto_hid
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
   const queryClient = useQueryClient();
+  const onboarding = useOnboardingState();
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
@@ -94,7 +96,9 @@ function AuthenticatedStack() {
     };
   }, [captureMode.cleanupTenantId, captureMode.stateKey, captureMode.tenantId, initialized]);
 
-  if (!initialized || preparedStateKey !== captureMode.stateKey) {
+  // `seen` is undefined only while the local read is in flight. Holding the existing splash for it
+  // is what stops a returning user seeing one frame of the introduction.
+  if (!initialized || onboarding.seen === undefined || preparedStateKey !== captureMode.stateKey) {
     if (!preparationFailed) {
       return (
         <LoadingState
@@ -112,12 +116,18 @@ function AuthenticatedStack() {
   }
 
   const appAccessAllowed = canEnterApp(session !== null, localDevelopmentAccess);
+  // The introduction runs before sign-in: it explains what Relay would capture, which is what a
+  // person needs in order to decide whether to create an account at all.
+  const introduced = onboarding.seen === true;
 
   return (
     <>
       <DeviceCaptureSync />
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Protected guard={appAccessAllowed}>
+        <Stack.Protected guard={!introduced}>
+          <Stack.Screen name="onboarding" />
+        </Stack.Protected>
+        <Stack.Protected guard={introduced && appAccessAllowed}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="inbox/[id]" />
           <Stack.Screen name="inbox/hidden" />
@@ -127,8 +137,9 @@ function AuthenticatedStack() {
           <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />
+          <Stack.Screen name="your-data" />
         </Stack.Protected>
-        <Stack.Protected guard={canEnterSignIn(session !== null)}>
+        <Stack.Protected guard={introduced && canEnterSignIn(session !== null)}>
           <Stack.Screen name="sign-in" />
         </Stack.Protected>
         <Stack.Protected guard={session === null}>
