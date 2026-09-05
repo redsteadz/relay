@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3efe7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#151411" />
+    <link rel="icon" type="image/svg+xml" sizes="32x32" href="/icon.svg" />
+    <!--
+      There is no server render step, so vite.config.ts substitutes the RELAY tokens below: the
+      title and description from content/site.ts, and the theme script from lib/theme.ts. That
+      script must stay here, inline and blocking, so a stored preference is applied before the first
+      paint instead of flashing the system scheme.
+    -->
+    <title>%RELAY_TITLE%</title>
+    <meta name="description" content="%RELAY_DESCRIPTION%" />
+    <script>
+      %RELAY_THEME_INIT%
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/app/main.tsx"></script>
+  </body>
+</html>

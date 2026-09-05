@@ -38,6 +38,11 @@
   --on-info-surface: light-dark(#183846, #cbeaf5);
   --shadow-color: light-dark(rgba(25, 24, 22, 0.12), rgba(0, 0, 0, 0.35));
 
+  /* Families are declared as self-hosted faces in app/fonts.css. */
+  --font-body: "Inter Variable";
+  --font-display: "Space Grotesk Variable";
+  --font-mono: "JetBrains Mono Variable";
+
   --font-body-stack: var(--font-body), "Inter", system-ui, sans-serif;
   --font-display-stack: var(--font-display), "Space Grotesk", system-ui, sans-serif;
   --font-mono-stack: var(--font-mono), "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;

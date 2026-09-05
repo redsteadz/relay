@@ -18,7 +18,7 @@ tracked as GitHub issues.
 | `apps/mobile`        | Expo Android-first client and native capability shell                    |
 | `apps/api`           | Next.js authentication and ingestion boundary on Cloudflare OpenNext     |
 | `apps/pipeline`      | Cloudflare Queue, Durable Object, Workflow, and provider dispatch        |
-| `apps/web`           | Static marketing landing page built with Next.js and exported as HTML    |
+| `apps/web`           | Static marketing landing page built with Vite and React                  |
 | `packages/contracts` | Runtime-validated shared wire contracts                                  |
 | `packages/domain`    | Pure filter and deduplication logic                                      |
 | `packages/crypto`    | WebCrypto envelope encryption primitives                                 |

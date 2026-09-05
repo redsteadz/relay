@@ -16,7 +16,7 @@ last_verified: 2026-09-05
 | Tenant Durable Object | Per-user/source ordering and short-lived coordination           | Sole permanent idempotency record             |
 | Cloudflare Workflow   | Approval waits, retry-safe provider steps                       | Undocumented arbitrary actions                |
 | Supabase              | Auth, RLS, encrypted durable data, audit and action ledger      | Plaintext credentials or raw payloads         |
-| Static web landing    | Public landing page as a static export; copy and links only     | Runtime, user data, credentials, API calls    |
+| Static web landing    | Public landing page as a static Vite build; copy and links only | Runtime, user data, credentials, API calls    |
 
 Shared wire shapes live in `packages/contracts`. Pure domain rules live in `packages/domain`.
 Envelope encryption lives in `packages/crypto`.

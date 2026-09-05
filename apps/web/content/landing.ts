@@ -12,9 +12,11 @@ import type { RulesPlateProps } from "../components/RulesPlate";
 import type { StatusLineProps } from "../components/StatusLine";
 import type { ThemeToggleProps } from "../components/theme/ThemeToggle";
 
+import { site } from "./site";
+
 /**
  * Every string and URL on the landing page. Components take these as props, so wiring real
- * destinations later means editing this file only.
+ * destinations later means editing this file, or `site.ts` for the three head strings it spreads.
  *
  * TODO placeholders (no such destination exists yet):
  * - `androidBuild`: there is no published APK; the releases page stands in for a download link.
@@ -41,12 +43,7 @@ const wordmark = { label: "Relay", href: "#top" };
 const androidCta = { label: "Get the Android build", href: urls.androidBuild };
 
 export const landing = {
-  site: {
-    title: "Relay · Your notifications, with receipts",
-    description:
-      "Relay turns Gmail, Android notifications, and SMS into a quiet, explainable inbox and actions you approve. Open source, self-hostable, AGPL-3.0.",
-    skipLink: "Skip to content",
-  },
+  site,
 
   themeToggle: {
     label: "Theme",

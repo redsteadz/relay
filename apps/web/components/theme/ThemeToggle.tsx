@@ -1,5 +1,3 @@
-"use client";
-
 import { useSyncExternalStore } from "react";
 
 import {
@@ -28,10 +26,6 @@ function readPreference(): ThemePreference {
   }
 }
 
-function readServerPreference(): ThemePreference {
-  return "system";
-}
-
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   window.addEventListener("storage", listener);
@@ -54,7 +48,7 @@ function writePreference(preference: ThemePreference): void {
 }
 
 export function ThemeToggle({ label, options }: ThemeToggleProps) {
-  const preference = useSyncExternalStore(subscribe, readPreference, readServerPreference);
+  const preference = useSyncExternalStore(subscribe, readPreference);
 
   return (
     <div role="radiogroup" aria-label={label} className={styles.root}>
