@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import type { Category, CategoryCreateRequest } from "@relay/contracts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -28,9 +29,20 @@ export function useCategoryManagement(
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: queryKey(userId) }),
   });
 
-  const categories = query.data ?? [];
-  const activeCustom = categories.filter(
-    (category) => !category.isSystem && category.archivedAt === undefined,
+  const categories = useMemo(() => query.data ?? [], [query.data]);
+  // Memoized because callers derive from these on every render -- the inbox groups its whole list
+  // by category -- and a fresh array each time turns those derivations into per-render work.
+  const activeCustom = useMemo(
+    () => categories.filter((category) => !category.isSystem && category.archivedAt === undefined),
+    [categories],
+  );
+  const archivedCustom = useMemo(
+    () => categories.filter((category) => !category.isSystem && category.archivedAt !== undefined),
+    [categories],
+  );
+  const systemCategories = useMemo(
+    () => categories.filter((category) => category.isSystem),
+    [categories],
   );
 
   function run(action: CategoryAction) {
@@ -40,9 +52,7 @@ export function useCategoryManagement(
 
   return {
     activeCustom,
-    archivedCustom: categories.filter(
-      (category) => !category.isSystem && category.archivedAt !== undefined,
-    ),
+    archivedCustom,
     clearError: mutation.reset,
     create: (request: CategoryCreateRequest) =>
       run({
@@ -127,6 +137,6 @@ export function useCategoryManagement(
           await updateCategory(client, category.id, { quietByDefault });
         },
       }),
-    systemCategories: categories.filter((category) => category.isSystem),
+    systemCategories,
   };
 }

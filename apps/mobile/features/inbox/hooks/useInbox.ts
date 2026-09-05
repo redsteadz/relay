@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppState } from "react-native";
 
 import { useAuth } from "@/lib/auth-context";
@@ -110,34 +110,52 @@ export function useInbox(): InboxState {
       // Put back precisely what was there. An item whose removal failed must reappear rather than
       // stay gone because the screen already drew it that way.
       if (context?.previous !== undefined) queryClient.setQueryData(inboxKey, context.previous);
+      void queryClient.invalidateQueries({ queryKey: inboxKey });
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: inboxKey }),
   });
 
   const items = useMemo(() => inbox.data ?? [], [inbox.data]);
   const sections = useMemo(() => inboxSections(filterInbox(items, query)), [items, query]);
 
-  return {
-    clearLastHidden: () => {
-      setLastHidden(undefined);
-    },
-    hide: async (eventId: string) => {
+  // Every callback below is stable across renders. The inbox list memoizes its rows on prop
+  // identity, and a handler rebuilt each render would silently defeat that.
+  const mutate = visibility.mutateAsync;
+  const clearLastHidden = useCallback(() => {
+    setLastHidden(undefined);
+  }, []);
+
+  const hide = useCallback(
+    async (eventId: string) => {
       const removed = items.find((item) => item.id === eventId);
-      await visibility.mutateAsync({ action: "hide", eventId });
+      await mutate({ action: "hide", eventId });
       // Offered only after the write settles. Offering to undo something that never persisted
       // would be a second false statement on top of the row appearing to vanish.
       setLastHidden(removed);
     },
+    [items, mutate],
+  );
+
+  const restore = useCallback(
+    async (eventId: string) => {
+      const item = lastHidden?.id === eventId ? lastHidden : undefined;
+      await mutate({ action: "restore", eventId, item });
+      setLastHidden((current) => (current?.id === eventId ? undefined : current));
+    },
+    [lastHidden, mutate],
+  );
+
+  const refetchInbox = inbox.refetch;
+  const refetch = useCallback(() => void refetchInbox(), [refetchInbox]);
+
+  return {
+    clearLastHidden,
+    hide,
     lastHidden,
     loading: inbox.isPending && inbox.fetchStatus !== "idle",
     query,
-    refetch: () => void inbox.refetch(),
+    refetch,
     refreshing: inbox.isFetching && !inbox.isPending,
-    restore: async (eventId: string) => {
-      const item = lastHidden?.id === eventId ? lastHidden : undefined;
-      await visibility.mutateAsync({ action: "restore", eventId, item });
-      setLastHidden((current) => (current?.id === eventId ? undefined : current));
-    },
+    restore,
     sections,
     setQuery,
     total: items.length,

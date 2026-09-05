@@ -1,10 +1,9 @@
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
-  AnimatedListItem,
   AppButton,
   AppText,
   AppTextInput,
@@ -13,7 +12,6 @@ import {
   LoadingState,
   OutcomeTabs,
   StatusMessage,
-  SwipeableRow,
   TopBarIconButton,
   UndoBar,
   type OutcomeTab,
@@ -21,8 +19,8 @@ import {
 import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
 import { useCategoryManagement } from "@/features/categories/hooks/useCategoryManagement";
 import { CategoryRow } from "@/features/inbox/components/CategoryRow";
+import { InboxReceiptRow } from "@/features/inbox/components/InboxReceiptRow";
 import { QuietSourceRow } from "@/features/inbox/components/QuietSourceRow";
-import { ReceiptCard } from "@/features/inbox/components/ReceiptCard";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
 import {
@@ -68,6 +66,9 @@ const EMPTY_DETAIL: Readonly<Record<InboxTab, string>> = {
   "needs-review": "Relay resolved everything it read.",
 };
 
+/** Stable empty list, so a tab with nothing in it does not hand the memo a new array. */
+const EMPTY_ITEMS: readonly InboxItem[] = [];
+
 export default function InboxScreen() {
   const { client, session } = useAuth();
   const router = useRouter();
@@ -79,45 +80,79 @@ export default function InboxScreen() {
   const [searching, setSearching] = useState(false);
   const [hideError, setHideError] = useState<string | undefined>();
 
-  const sectionFor = (group: InboxGroup) =>
-    inbox.sections.find((section) => section.group === group)?.items ?? [];
-  const known = categories.activeCustom.concat(categories.systemCategories);
-  const summaries = summariseByCategory(
-    inbox.sections.flatMap((section) => section.items),
-    known,
-  );
-  const tabs: readonly OutcomeTab<InboxTab>[] = (
-    ["actionable", "needs-review", "quiet", "categories"] as const
-  ).map((key) => ({
-    count: key === "categories" ? summaries.length : sectionFor(key).length,
-    key,
-    label: TAB_LABEL[key],
-  }));
+  // Every derivation below runs over the whole inbox. Removing one item puts this component
+  // through several renders -- the optimistic write, the undo offer, the mutation settling -- and
+  // recomputing all of it on each was the JS-thread work that made removal feel late.
+  const sections = inbox.sections;
+  const itemsByGroup = useMemo(() => {
+    const grouped = new Map<InboxGroup, readonly InboxItem[]>();
+    for (const section of sections) grouped.set(section.group, section.items);
+    return grouped;
+  }, [sections]);
 
-  const items = tab === "categories" ? [] : sectionFor(tab);
-  const labels = useApplicationLabels(
-    items.flatMap((item) =>
-      item.source.applicationId === undefined ? [] : [item.source.applicationId],
-    ),
+  const known = useMemo(
+    () => categories.activeCustom.concat(categories.systemCategories),
+    [categories.activeCustom, categories.systemCategories],
+  );
+  const summaries = useMemo(
+    () =>
+      summariseByCategory(
+        sections.flatMap((section) => section.items),
+        known,
+      ),
+    [known, sections],
   );
 
-  // A failed hide surfaces as an error and the row returns, because `useInbox` refetches on settle
-  // rather than patching the cache. Nothing here may leave an item looking removed when it is not.
-  async function hide(eventId: string): Promise<void> {
-    setHideError(undefined);
-    try {
-      await inbox.hide(eventId);
-    } catch (error: unknown) {
-      logMobileError("ui.inbox_hide_failed", error, {
-        code: "INBOX_HIDE_FAILED",
-        integration: "supabase-postgrest",
-        operation: "hideInboxEvent",
+  const items = useMemo(
+    () => (tab === "categories" ? EMPTY_ITEMS : (itemsByGroup.get(tab) ?? EMPTY_ITEMS)),
+    [itemsByGroup, tab],
+  );
+  const threads = useMemo(() => groupByThread(items), [items]);
+  const quietCount = itemsByGroup.get("quiet")?.length ?? 0;
+
+  const tabs: readonly OutcomeTab<InboxTab>[] = useMemo(
+    () =>
+      (["actionable", "needs-review", "quiet", "categories"] as const).map((key) => ({
+        count: key === "categories" ? summaries.length : (itemsByGroup.get(key)?.length ?? 0),
+        key,
+        label: TAB_LABEL[key],
+      })),
+    [itemsByGroup, summaries.length],
+  );
+
+  const applicationIds = useMemo(
+    () =>
+      items.flatMap((item) =>
+        item.source.applicationId === undefined ? [] : [item.source.applicationId],
+      ),
+    [items],
+  );
+  const labels = useApplicationLabels(applicationIds);
+
+  // Stable across renders so the memoized rows are not invalidated by a new closure each time.
+  const hideEvent = inbox.hide;
+  const approveRun = proposals.approve;
+  const skipRun = proposals.skip;
+  const hide = useCallback(
+    (eventId: string) => {
+      // Cleared only when something is actually showing: an unconditional reset is a state write,
+      // and a state write is a render the list does not need while a row is leaving.
+      setHideError((current) => (current === undefined ? current : undefined));
+      void hideEvent(eventId).catch((error: unknown) => {
+        logMobileError("ui.inbox_hide_failed", error, {
+          code: "INBOX_HIDE_FAILED",
+          integration: "supabase-postgrest",
+          operation: "hideInboxEvent",
+        });
+        setHideError("Could not remove that from your inbox. It is still here.");
       });
-      setHideError("Could not remove that from your inbox. It is still here.");
-    }
-  }
+    },
+    [hideEvent],
+  );
 
-  const quietCount = sectionFor("quiet").length;
+  const openReceipt = useCallback((eventId: string) => router.push(`/inbox/${eventId}`), [router]);
+  const approve = useCallback((actionRunId: string) => void approveRun(actionRunId), [approveRun]);
+  const skip = useCallback((actionRunId: string) => void skipRun(actionRunId), [skipRun]);
 
   return (
     <ReceiptScreen
@@ -237,28 +272,19 @@ export default function InboxScreen() {
       {tab === "quiet" ? (
         <QuietList items={items} labels={labels} />
       ) : tab === "categories" ? null : (
-        groupByThread(items).map((thread) => {
+        threads.map((thread) => {
           const proposal = proposals.forEvent(thread.latest.id)[0];
-          // The swipe is a shortcut, not the only route: the same removal sits on the receipt's own
-          // screen as a labelled control, and SwipeableRow publishes it as an accessibility action.
           return (
-            <AnimatedListItem key={thread.key}>
-              <SwipeableRow
-                actionLabel="Remove"
-                icon="inbox-remove-outline"
-                onAction={() => void hide(thread.latest.id)}
-              >
-                <ReceiptCard
-                  busy={proposal !== undefined && proposals.deciding === proposal.id}
-                  item={thread.latest}
-                  onApprove={(runId) => void proposals.approve(runId)}
-                  onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
-                  onSkip={(runId) => void proposals.skip(runId)}
-                  proposal={proposal}
-                  threadCount={thread.items.length}
-                />
-              </SwipeableRow>
-            </AnimatedListItem>
+            <InboxReceiptRow
+              busy={proposal !== undefined && proposals.deciding === proposal.id}
+              key={thread.key}
+              onApprove={approve}
+              onHide={hide}
+              onOpen={openReceipt}
+              onSkip={skip}
+              proposal={proposal}
+              thread={thread}
+            />
           );
         })
       )}

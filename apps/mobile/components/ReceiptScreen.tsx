@@ -2,11 +2,15 @@ import type { PropsWithChildren, ReactNode } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   useWindowDimensions,
   View,
 } from "react-native";
+// Gesture-handler's ScrollView, not React Native's. On Android the platform ScrollView claims a
+// touch natively before gesture-handler can arbitrate for it, so a row's swipe had to wait for the
+// scroll view to decide it was not interested. This one is a native gesture handler itself and
+// negotiates with the row directly, which is what makes a swipe start on the first frame.
+import { ScrollView } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenTopBar } from "@/components/ui";

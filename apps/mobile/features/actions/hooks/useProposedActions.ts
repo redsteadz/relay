@@ -1,7 +1,7 @@
 import type { ActionDecision } from "@relay/contracts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { decideActionRun, loadProposedActions, type ProposedActionLedger } from "../api/actions";
 import {
@@ -101,29 +101,43 @@ export function useProposedActions(
       // waiting, because the alternative reads as "handled" for an action that never happened.
       if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous);
       setError(actionDecisionErrorMessage(variables.decision));
+      void queryClient.invalidateQueries({ queryKey: key });
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
+    // Re-read only after a failure. On success the optimistic state already matches the ledger,
+    // and refetching replaces every proposal with a new object, which re-renders every receipt in
+    // the list for no new information.
   });
 
-  async function decide(actionRunId: string, choice: ActionDecision): Promise<void> {
+  // Stable across renders: the inbox memoizes its rows on prop identity, and a handler rebuilt
+  // each render would silently defeat that.
+  const mutate = decision.mutateAsync;
+  const decide = useCallback(
+    async (actionRunId: string, choice: ActionDecision): Promise<void> => {
+      setError((current) => (current === undefined ? current : undefined));
+      setDeciding(actionRunId);
+      try {
+        await mutate({ actionRunId, decision: choice });
+      } finally {
+        setDeciding(undefined);
+      }
+    },
+    [mutate],
+  );
+
+  const approve = useCallback((actionRunId: string) => decide(actionRunId, "approve"), [decide]);
+  const skip = useCallback((actionRunId: string) => decide(actionRunId, "cancel"), [decide]);
+  const clearError = useCallback(() => {
     setError(undefined);
-    setDeciding(actionRunId);
-    try {
-      await decision.mutateAsync({ actionRunId, decision: choice });
-    } finally {
-      setDeciding(undefined);
-    }
-  }
+  }, []);
+  const forEvent = useCallback((eventId: string) => byEvent.get(eventId) ?? EMPTY, [byEvent]);
 
   return {
-    approve: (actionRunId: string) => decide(actionRunId, "approve"),
-    clearError: () => {
-      setError(undefined);
-    },
+    approve,
+    clearError,
     deciding,
     error,
-    forEvent: (eventId: string) => byEvent.get(eventId) ?? EMPTY,
+    forEvent,
     loading: ledger.isPending,
-    skip: (actionRunId: string) => decide(actionRunId, "cancel"),
+    skip,
   };
 }
