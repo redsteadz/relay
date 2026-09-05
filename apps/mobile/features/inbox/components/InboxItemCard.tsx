@@ -68,7 +68,11 @@ export function InboxItemCard({
         onOpen === undefined ? undefined : "Opens what Relay read from this capture"
       }
       icon={appIconFor(item.source)}
-      meta={[occurred, conversation, item.category?.name].filter(Boolean).join(" · ")}
+      // The category is deliberately not here. `EditorialSurface` lays its heading out as a flex
+      // row where the title is the only element that shrinks, so a longer `meta` collapses the
+      // title to one word per line. The category is named in the body below, and in the inbox the
+      // section heading already says it.
+      meta={[occurred, conversation].filter(Boolean).join(" · ")}
       onPress={onOpen}
       title={item.title}
       titleAccessory={
@@ -104,7 +108,10 @@ export function InboxItemCard({
         )}
         {item.category === undefined ? null : (
           <AppText tone="muted" variant="caption">
-            Filed by {item.category.method} rule
+            {item.category.name === undefined
+              ? `Filed by a ${item.category.method} rule`
+              : `Filed into ${item.category.name} by a ${item.category.method} rule`}
+            {item.category.origin === "device" ? " on this device" : ""}
             {item.category.rationale === undefined ? "" : ` · ${item.category.rationale}`}
           </AppText>
         )}

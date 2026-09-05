@@ -1810,6 +1810,29 @@ export type Database = {
         };
         Returns: boolean;
       };
+      withdraw_device_classification_v1: {
+        Args: { p_source_item_id: string };
+        Returns: {
+          category_id: string | null;
+          confidence: number;
+          created_at: string;
+          filter_rule_id: string | null;
+          id: string;
+          method: string;
+          model: string | null;
+          origin: string;
+          rationale: string | null;
+          source_item_id: string;
+          superseded_at: string | null;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "classifications";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
     };
     Enums: {
       account_deletion_state: "requested" | "connectors_revoked" | "completed";

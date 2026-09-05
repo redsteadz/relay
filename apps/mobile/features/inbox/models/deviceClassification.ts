@@ -110,6 +110,14 @@ export function classifiableRules(revisions: readonly FilterRuleVersion[]): Clas
     }));
 }
 
+/**
+ * A capture whose device classification no longer follows from any rule.
+ *
+ * Withdrawal is what makes filing reversible. A rule that is disabled or edited so it no longer
+ * matches must stop filing, or the inbox keeps asserting a category no rule would now produce.
+ */
+export type ClassificationWithdrawal = { sourceItemId: string };
+
 export type ClassificationWrite = {
   categoryId: string | undefined;
   filterRuleId: string;
@@ -128,14 +136,14 @@ export type ClassificationWrite = {
  * never overrules one made where the whole payload was readable -- the database enforces that too,
  * and agreeing with it here saves a round trip rather than relying on it.
  */
-export function classificationWrites(
+export function classificationPass(
   captures: readonly ClassifiableCapture[],
   rules: readonly ClassifiableRule[],
-): ClassificationWrite[] {
-  if (rules.length === 0) return [];
-
+): { withdrawals: ClassificationWithdrawal[]; writes: ClassificationWrite[] } {
   const writes: ClassificationWrite[] = [];
+  const withdrawals: ClassificationWithdrawal[] = [];
   const seen = new Set<string>();
+
   for (const capture of captures) {
     // Several events can derive from one capture, and a capture is filed once.
     if (seen.has(capture.sourceItemId)) continue;
@@ -144,24 +152,32 @@ export function classificationWrites(
     const existing = capture.category;
     if (existing?.origin === "server") continue;
 
-    const outcome = classifyCapture(
-      rules,
-      classificationItemFor(capture),
-      availableFieldsFor(capture),
-    );
-    if (outcome.kind !== "filed") continue;
-    // Already filed here by this device. Rewriting would supersede a row with an identical one and
-    // fill the history that explains a re-filing with entries that explain nothing.
-    if (existing !== undefined && existing.filterRuleId === outcome.filterRuleId) continue;
+    const outcome =
+      rules.length === 0
+        ? ({ kind: "unfiled" } as const)
+        : classifyCapture(rules, classificationItemFor(capture), availableFieldsFor(capture));
 
-    writes.push({
-      categoryId: outcome.categoryId,
-      filterRuleId: outcome.filterRuleId,
-      rationale: classificationRationale(outcome.matchedPredicates),
-      sourceItemId: capture.sourceItemId,
-    });
+    if (outcome.kind === "filed") {
+      // Already filed here by this device. Rewriting would supersede a row with an identical one
+      // and fill the history that explains a re-filing with entries that explain nothing.
+      if (existing !== undefined && existing.filterRuleId === outcome.filterRuleId) continue;
+      writes.push({
+        categoryId: outcome.categoryId,
+        filterRuleId: outcome.filterRuleId,
+        rationale: classificationRationale(outcome.matchedPredicates),
+        sourceItemId: capture.sourceItemId,
+      });
+      continue;
+    }
+
+    // Nothing claims it any more. `unfiled` withdraws; an undecidable outcome does not, because a
+    // rule this device merely cannot evaluate is not evidence that the earlier decision was wrong.
+    if (outcome.kind === "unfiled" && existing !== undefined) {
+      withdrawals.push({ sourceItemId: capture.sourceItemId });
+    }
   }
-  return writes;
+
+  return { withdrawals, writes };
 }
 
 /** Why a capture is not filed, for a card to state plainly instead of leaving a gap. */

@@ -8,7 +8,7 @@ import { runInBackground } from "@/lib/observability";
 
 import { recordDeviceClassifications } from "../api/classifications";
 import { hideInboxEvent, listInbox, restoreInboxEvent } from "../api/inbox";
-import { classifiableRules, classificationWrites } from "../models/deviceClassification";
+import { classifiableRules, classificationPass } from "../models/deviceClassification";
 import {
   filterInbox,
   inboxSections,
@@ -140,14 +140,14 @@ export function useInbox(): InboxState {
     if (client === undefined || filing.current) return;
     if (inbox.isPending || revisions.isPending) return;
 
-    const writes = classificationWrites(items, rules);
-    if (writes.length === 0) return;
+    const { withdrawals, writes } = classificationPass(items, rules);
+    if (writes.length === 0 && withdrawals.length === 0) return;
 
     filing.current = true;
     runInBackground(
-      recordDeviceClassifications(client, writes)
+      recordDeviceClassifications(client, writes, withdrawals)
         .then(async (result) => {
-          if (result.recorded > 0) await queryClient.invalidateQueries({ queryKey: inboxKey });
+          if (result.changed > 0) await queryClient.invalidateQueries({ queryKey: inboxKey });
         })
         .finally(() => {
           filing.current = false;

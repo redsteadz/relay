@@ -6,7 +6,7 @@ import {
   availableFieldsFor,
   classifiableRules,
   classificationItemFor,
-  classificationWrites,
+  classificationPass,
   unfiledReason,
   type ClassifiableCapture,
 } from "./deviceClassification";
@@ -157,11 +157,11 @@ describe("classifiableRules", () => {
   });
 });
 
-describe("classificationWrites", () => {
+describe("classificationPass", () => {
   const rules = classifiableRules([revision()]);
 
   it("files a capture a rule claims", () => {
-    expect(classificationWrites([capture()], rules)).toEqual([
+    expect(classificationPass([capture()], rules).writes).toEqual([
       {
         categoryId: CATEGORY,
         filterRuleId: RULE,
@@ -172,7 +172,7 @@ describe("classificationWrites", () => {
   });
 
   it("writes nothing when there are no rules", () => {
-    expect(classificationWrites([capture()], [])).toEqual([]);
+    expect(classificationPass([capture()], []).writes).toEqual([]);
   });
 
   it("writes nothing for a capture no rule claims", () => {
@@ -180,7 +180,7 @@ describe("classificationWrites", () => {
       source: { ...capture().source, sender: "friend@example.test", subject: "Hello" },
     });
 
-    expect(classificationWrites([other], rules)).toEqual([]);
+    expect(classificationPass([other], rules).writes).toEqual([]);
   });
 
   it("leaves a capture the server already classified alone", () => {
@@ -195,7 +195,7 @@ describe("classificationWrites", () => {
       },
     });
 
-    expect(classificationWrites([classified], rules)).toEqual([]);
+    expect(classificationPass([classified], rules).writes).toEqual([]);
   });
 
   it("does not rewrite a decision this device already made", () => {
@@ -210,7 +210,7 @@ describe("classificationWrites", () => {
       },
     });
 
-    expect(classificationWrites([alreadyFiled], rules)).toEqual([]);
+    expect(classificationPass([alreadyFiled], rules).writes).toEqual([]);
   });
 
   it("refiles when a different rule now claims the capture", () => {
@@ -225,11 +225,11 @@ describe("classificationWrites", () => {
       },
     });
 
-    expect(classificationWrites([filedByAnother], rules)).toHaveLength(1);
+    expect(classificationPass([filedByAnother], rules).writes).toHaveLength(1);
   });
 
   it("files a capture once even when several events derive from it", () => {
-    expect(classificationWrites([capture(), capture()], rules)).toHaveLength(1);
+    expect(classificationPass([capture(), capture()], rules).writes).toHaveLength(1);
   });
 
   it("writes nothing for a rule that needs a body this device cannot read", () => {
@@ -239,7 +239,7 @@ describe("classificationWrites", () => {
       }),
     ]);
 
-    expect(classificationWrites([capture()], bodyRules)).toEqual([]);
+    expect(classificationPass([capture()], bodyRules).writes).toEqual([]);
   });
 
   it("files on the body once the device holds its own copy", () => {
@@ -250,13 +250,96 @@ describe("classificationWrites", () => {
     ]);
     const held = capture({ content: { body: "Your invoice is ready", subject: undefined } });
 
-    expect(classificationWrites([held], bodyRules)).toHaveLength(1);
+    expect(classificationPass([held], bodyRules).writes).toHaveLength(1);
+  });
+
+  // Filing has to be reversible: a rule you disable must stop filing, or the inbox keeps asserting a
+  // category no rule would now produce.
+  it("withdraws a device classification once no rule claims the capture", () => {
+    const filedByGoneRule = capture({
+      category: {
+        confidence: 1,
+        filterRuleId: RULE,
+        method: "deterministic",
+        name: "Transactions",
+        origin: "device",
+        rationale: undefined,
+      },
+      source: { ...capture().source, sender: "friend@example.test", subject: "Hello" },
+    });
+
+    const pass = classificationPass([filedByGoneRule], rules);
+
+    expect(pass.writes).toEqual([]);
+    expect(pass.withdrawals).toEqual([{ sourceItemId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }]);
+  });
+
+  it("withdraws when every rule has been disabled", () => {
+    const filed = capture({
+      category: {
+        confidence: 1,
+        filterRuleId: RULE,
+        method: "deterministic",
+        name: "Transactions",
+        origin: "device",
+        rationale: undefined,
+      },
+    });
+
+    expect(classificationPass([filed], []).withdrawals).toHaveLength(1);
+  });
+
+  it("withdraws nothing for a capture that was never filed", () => {
+    const other = capture({
+      source: { ...capture().source, sender: "friend@example.test", subject: "Hello" },
+    });
+
+    expect(classificationPass([other], rules).withdrawals).toEqual([]);
+  });
+
+  it("never withdraws a server classification", () => {
+    const serverFiled = capture({
+      category: {
+        confidence: 0.9,
+        filterRuleId: undefined,
+        method: "semantic",
+        name: "Promotions",
+        origin: "server",
+        rationale: undefined,
+      },
+      source: { ...capture().source, sender: "friend@example.test", subject: "Hello" },
+    });
+
+    expect(classificationPass([serverFiled], rules).withdrawals).toEqual([]);
+  });
+
+  // A rule this device merely cannot evaluate is not evidence the earlier decision was wrong.
+  it("does not withdraw when a rule is undecidable rather than unmatched", () => {
+    const bodyRules = classifiableRules([
+      revision({
+        plan: plan({ deterministic: { field: "body", operator: "contains", value: "invoice" } }),
+      }),
+    ]);
+    const filed = capture({
+      category: {
+        confidence: 1,
+        filterRuleId: RULE,
+        method: "deterministic",
+        name: "Transactions",
+        origin: "device",
+        rationale: undefined,
+      },
+    });
+
+    expect(classificationPass([filed], bodyRules).withdrawals).toEqual([]);
   });
 
   it("files a rule that names no category, recording that a rule still claimed it", () => {
     const unnamed = classifiableRules([revision({ categoryId: undefined })]);
 
-    expect(classificationWrites([capture()], unnamed)).toMatchObject([{ categoryId: undefined }]);
+    expect(classificationPass([capture()], unnamed).writes).toMatchObject([
+      { categoryId: undefined },
+    ]);
   });
 });
 

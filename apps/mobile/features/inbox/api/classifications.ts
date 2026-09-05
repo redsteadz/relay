@@ -18,7 +18,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logMobileError } from "@/lib/observability";
 
-import type { ClassificationWrite } from "../models/deviceClassification";
+import type { ClassificationWithdrawal, ClassificationWrite } from "../models/deviceClassification";
 
 export class ClassificationError extends AppError {
   constructor(cause: unknown, operation: string) {
@@ -58,8 +58,9 @@ function classificationError(cause: unknown, operation: string): ClassificationE
 export async function recordDeviceClassifications(
   client: SupabaseClient,
   writes: readonly ClassificationWrite[],
-): Promise<{ failed: number; recorded: number }> {
-  let recorded = 0;
+  withdrawals: readonly ClassificationWithdrawal[] = [],
+): Promise<{ changed: number; failed: number }> {
+  let changed = 0;
   let failed = 0;
   let firstFailure: unknown;
 
@@ -70,17 +71,27 @@ export async function recordDeviceClassifications(
       p_rationale: write.rationale ?? null,
       p_source_item_id: write.sourceItemId,
     });
-    if (error === null) {
-      recorded += 1;
-      continue;
+    if (error === null) changed += 1;
+    else {
+      failed += 1;
+      firstFailure ??= error;
     }
-    failed += 1;
-    firstFailure ??= error;
+  }
+
+  for (const withdrawal of withdrawals) {
+    const { error } = await client.rpc("withdraw_device_classification_v1", {
+      p_source_item_id: withdrawal.sourceItemId,
+    });
+    if (error === null) changed += 1;
+    else {
+      failed += 1;
+      firstFailure ??= error;
+    }
   }
 
   // Logged once, after the pass, so a systemic failure is one incident rather than one per capture.
   if (firstFailure !== undefined) {
     classificationError(firstFailure, "recordDeviceClassifications");
   }
-  return { failed, recorded };
+  return { changed, failed };
 }

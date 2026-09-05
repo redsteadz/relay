@@ -133,3 +133,54 @@ revoke all on function public.record_device_classification_v1(uuid, uuid, uuid, 
 from public, anon;
 grant execute on function public.record_device_classification_v1(uuid, uuid, uuid, text)
 to authenticated, service_role;
+
+/**
+ * Withdraws this device's own classification.
+ *
+ * Filing must be reversible by the same reasoning that produced it. When the rule that filed a
+ * capture is disabled or edited so it no longer matches, the capture is no longer filed, and leaving
+ * the old row standing would state something the rules no longer support -- the inbox would keep
+ * showing a category no rule would produce.
+ *
+ * Withdrawal supersedes rather than deletes, so the record of what was believed, and when, survives.
+ * A server classification is returned untouched: a device may withdraw only what a device decided.
+ */
+create function public.withdraw_device_classification_v1(p_source_item_id uuid)
+returns public.classifications
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  owner_id uuid := (select auth.uid());
+  current_row public.classifications;
+begin
+  if owner_id is null then
+    raise exception 'Classification requires an authenticated tenant' using errcode = '28000';
+  end if;
+  if p_source_item_id is null then
+    raise exception 'Classification requires a capture' using errcode = '22023';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(owner_id::text || p_source_item_id::text, 41));
+
+  select * into current_row
+  from public.classifications
+  where user_id = owner_id and source_item_id = p_source_item_id and superseded_at is null
+  for update;
+
+  if current_row.id is null or current_row.origin <> 'device' then
+    return current_row;
+  end if;
+
+  update public.classifications
+  set superseded_at = now()
+  where id = current_row.id
+  returning * into current_row;
+
+  return current_row;
+end;
+$$;
+
+revoke all on function public.withdraw_device_classification_v1(uuid) from public, anon;
+grant execute on function public.withdraw_device_classification_v1(uuid) to authenticated, service_role;

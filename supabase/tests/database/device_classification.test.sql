@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(19);
+select plan(23);
 
 -- Fixtures run as the migration role. `auth.users` inserts fire `handle_new_user`, which seeds the
 -- ten system categories per tenant.
@@ -267,6 +267,56 @@ select throws_ok(
   null,
   'a second current classification for one capture is refused'
 );
+
+-- Withdrawal ------------------------------------------------------------------------------------------
+
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"70000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+set local role authenticated;
+
+select is(
+  (
+    select superseded_at is not null from public.withdraw_device_classification_v1(
+      '70100000-0000-4000-8000-000000000001'
+    )
+  ),
+  true,
+  'withdrawing supersedes the classification rather than deleting it'
+);
+
+select is(
+  (
+    select count(*)::int from public.classifications
+    where source_item_id = '70100000-0000-4000-8000-000000000001' and superseded_at is null
+  ),
+  0,
+  'a withdrawn capture has no current classification'
+);
+
+select isnt(
+  (
+    select count(*)::int from public.classifications
+    where source_item_id = '70100000-0000-4000-8000-000000000001'
+  ),
+  0,
+  'the withdrawn decision is kept as history'
+);
+
+-- The server's row is not a device's to withdraw.
+select is(
+  (
+    select origin from public.withdraw_device_classification_v1(
+      '70100000-0000-4000-8000-000000000002'
+    )
+  ),
+  'server',
+  'a device cannot withdraw a server classification'
+);
+
+reset role;
 
 select * from finish();
 rollback;
