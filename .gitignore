@@ -8,6 +8,7 @@ node_modules/
 .next/
 .open-next/
 dist/
+out/
 coverage/
 
 # Local configuration and secrets

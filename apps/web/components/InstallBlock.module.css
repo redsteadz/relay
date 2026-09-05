@@ -1,0 +1,65 @@
+.root {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: clamp(32px, 5vw, 64px);
+  align-items: start;
+  padding-top: var(--section-pad);
+  padding-bottom: clamp(40px, 5vw, 64px);
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.requirementsLabel {
+  margin-top: 8px;
+  font: 600 11px/16px var(--font-mono-stack);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.requirements {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 18px;
+  font: 400 15px/23px var(--font-body-stack);
+  color: var(--text-muted);
+}
+
+.docs {
+  align-self: flex-start;
+  font: 600 14px/20px var(--font-body-stack);
+  color: var(--accent);
+}
+
+.terminal {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+}
+
+.terminalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 10px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  font: 600 11px/16px var(--font-mono-stack);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pre {
+  padding: 18px;
+  overflow-x: auto;
+  font: 400 13px/22px var(--font-mono-stack);
+  color: var(--text);
+  white-space: pre;
+}

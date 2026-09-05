@@ -18,6 +18,7 @@ tracked as GitHub issues.
 | `apps/mobile`        | Expo Android-first client and native capability shell                    |
 | `apps/api`           | Next.js authentication and ingestion boundary on Cloudflare OpenNext     |
 | `apps/pipeline`      | Cloudflare Queue, Durable Object, Workflow, and provider dispatch        |
+| `apps/web`           | Static marketing landing page built with Next.js and exported as HTML    |
 | `packages/contracts` | Runtime-validated shared wire contracts                                  |
 | `packages/domain`    | Pure filter and deduplication logic                                      |
 | `packages/crypto`    | WebCrypto envelope encryption primitives                                 |
@@ -44,6 +45,7 @@ npx pnpm@11.23.0 supabase:start
 npx pnpm@11.23.0 --filter @relay/pipeline dev
 npx pnpm@11.23.0 --filter @relay/api dev
 npx pnpm@11.23.0 --filter @relay/mobile start
+npx pnpm@11.23.0 --filter @relay/web dev
 ```
 
 ## Verify

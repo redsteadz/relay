@@ -1,0 +1,24 @@
+.root {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-chip);
+  background: var(--surface);
+  color: var(--text);
+  font: 500 12px/30px var(--font-mono-stack);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease;
+}
+
+.root:hover {
+  border-color: var(--accent);
+}
+
+.root[data-state="copied"] {
+  color: var(--success);
+}
+
+.root[data-state="failed"] {
+  color: var(--on-danger-surface);
+  background: var(--danger-surface);
+}

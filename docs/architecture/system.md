@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-29
+last_verified: 2026-09-05
 ---
 
 # System Architecture
@@ -16,6 +16,7 @@ last_verified: 2026-08-29
 | Tenant Durable Object | Per-user/source ordering and short-lived coordination           | Sole permanent idempotency record             |
 | Cloudflare Workflow   | Approval waits, retry-safe provider steps                       | Undocumented arbitrary actions                |
 | Supabase              | Auth, RLS, encrypted durable data, audit and action ledger      | Plaintext credentials or raw payloads         |
+| Static web landing    | Public landing page as a static export; copy and links only     | Runtime, user data, credentials, API calls    |
 
 Shared wire shapes live in `packages/contracts`. Pure domain rules live in `packages/domain`.
 Envelope encryption lives in `packages/crypto`.

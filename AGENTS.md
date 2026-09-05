@@ -23,6 +23,7 @@ issue that names both conflicting sources.
 - `apps/mobile` captures with explicit OS/user permission and sends canonical envelopes.
 - `apps/api` authenticates users and connector callbacks. It does not classify or call providers.
 - `apps/pipeline` owns asynchronous processing, ordering, retries, approvals, and provider calls.
+- `apps/web` is the public landing site: a static export with no runtime, user data, or secrets.
 - `packages/contracts` owns every cross-runtime wire shape and must validate untrusted input.
 - `packages/domain` remains pure and runtime-neutral.
 - Supabase is durable system of record. Durable Objects coordinate per-user work; they are not the

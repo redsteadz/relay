@@ -1,0 +1,32 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.root:hover {
+  color: var(--text);
+}
+
+.ink {
+  stroke: currentColor;
+}
+
+.accent {
+  stroke: var(--accent);
+}
+
+.label {
+  font: 700 24px/1 var(--font-display-stack);
+  letter-spacing: -0.045em;
+}
+
+.small {
+  gap: 8px;
+}
+
+.small .label {
+  font-size: 16px;
+  letter-spacing: -0.03em;
+}
