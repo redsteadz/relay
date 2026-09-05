@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "relay",
+  "compatibility_date": "2026-08-24",
+  // Static assets only. The landing site has no server runtime, so this Worker declares no `main`,
+  // no bindings, and no secrets: there is nothing for request code to read and nothing to leak.
+  "assets": {
+    "directory": "dist",
+    // One HTML document backs every path, so an unmatched route serves it rather than a 404.
+    "not_found_handling": "single-page-application",
+  },
+  "observability": {
+    "enabled": true,
+  },
+}
