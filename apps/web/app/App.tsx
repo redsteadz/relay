@@ -13,9 +13,12 @@ import { StatusLine } from "../components/StatusLine";
 import { ThemeToggle } from "../components/theme/ThemeToggle";
 import { landing } from "../content/landing";
 
-export default function LandingPage() {
+export function App() {
   return (
     <>
+      <a className="skip-link" href="#main">
+        {landing.site.skipLink}
+      </a>
       <Nav {...landing.nav} actions={<ThemeToggle {...landing.themeToggle} />} />
       <main id="main">
         <Hero {...landing.hero} aside={<ExplainableReceipt {...landing.receipt} />} />

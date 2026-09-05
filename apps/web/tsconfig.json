@@ -1,11 +1,10 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "incremental": true,
-    "jsx": "preserve",
-    "plugins": [{ "name": "next" }],
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
     "types": ["node"]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "out"]
+  "include": ["vite-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist"]
 }
