@@ -1,9 +1,9 @@
 import type { SemanticResponseFormat } from "@relay/contracts";
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
-import { Chip, Dialog, Portal } from "react-native-paper";
+import { StyleSheet, View } from "react-native";
+import { Chip } from "react-native-paper";
 
-import { AppButton, AppText, AppTextInput, StatusMessage } from "@/components/ui";
+import { AppButton, AppDialog, AppText, AppTextInput, StatusMessage } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import {
@@ -74,125 +74,122 @@ export function OpenAiKeyDialog({
   }
 
   return (
-    <Portal>
-      <Dialog dismissable={!saving} onDismiss={onDismiss} visible={visible}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <Dialog.Title>{replacing ? "Replace key" : "Add a key"}</Dialog.Title>
-          <Dialog.ScrollArea>
-            <ScrollView contentContainerStyle={{ paddingVertical: theme.relay.spacing.md }}>
-              <View style={{ gap: theme.relay.spacing.md }}>
-                <AppText tone="muted">
-                  Relay uses this key only when deterministic filters cannot decide a rule. Any
-                  server speaking the OpenAI chat-completions protocol works.
-                </AppText>
+    <AppDialog
+      actions={
+        <>
+          <AppButton disabled={saving} label="Cancel" onPress={onDismiss} tone="secondary" />
+          <AppButton
+            label={replacing ? "Replace key" : "Save key"}
+            loading={saving}
+            onPress={() => void submit()}
+          />
+        </>
+      }
+      dismissable={!saving}
+      onDismiss={onDismiss}
+      title={replacing ? "Replace key" : "Add a key"}
+      visible={visible}
+    >
+      <View style={{ gap: theme.relay.spacing.md }}>
+        <AppText tone="muted">
+          Relay uses this key only when deterministic filters cannot decide a rule. Any server
+          speaking the OpenAI chat-completions protocol works.
+        </AppText>
 
-                <View style={{ gap: theme.relay.spacing.sm }}>
-                  <AppText variant="label">Provider</AppText>
-                  <View style={[styles.chips, { gap: theme.relay.spacing.sm }]}>
-                    {openAiEndpointPresets.map((option) => (
-                      <Chip
-                        compact
-                        key={option.id}
-                        onPress={() => setValues(openAiValuesForPreset(option.id, values))}
-                        selected={option.id === values.presetId}
-                        showSelectedCheck={false}
-                      >
-                        {option.name}
-                      </Chip>
-                    ))}
-                  </View>
-                  <AppText tone="muted" variant="caption">
-                    {preset.detail}
-                  </AppText>
-                </View>
+        <View style={{ gap: theme.relay.spacing.sm }}>
+          <AppText variant="label">Provider</AppText>
+          <View style={[styles.chips, { gap: theme.relay.spacing.sm }]}>
+            {openAiEndpointPresets.map((option) => (
+              <Chip
+                compact
+                key={option.id}
+                onPress={() => setValues(openAiValuesForPreset(option.id, values))}
+                selected={option.id === values.presetId}
+                showSelectedCheck={false}
+              >
+                {option.name}
+              </Chip>
+            ))}
+          </View>
+          <AppText tone="muted" variant="caption">
+            {preset.detail}
+          </AppText>
+        </View>
 
-                <AppTextInput
-                  autoCapitalize="none"
-                  autoComplete="off"
-                  autoCorrect={false}
-                  errorMessage={keyError}
-                  label="API key"
-                  maxLength={512}
-                  onChangeText={(apiKey) => setValues({ ...values, apiKey })}
-                  placeholder={preset.localOnly ? "Any non-empty value" : "Paste the provider key"}
-                  secureTextEntry
-                  value={values.apiKey}
-                />
+        <AppTextInput
+          autoCapitalize="none"
+          autoComplete="off"
+          autoCorrect={false}
+          errorMessage={keyError}
+          label="API key"
+          maxLength={512}
+          onChangeText={(apiKey) => setValues({ ...values, apiKey })}
+          placeholder={preset.localOnly ? "Any non-empty value" : "Paste the provider key"}
+          secureTextEntry
+          value={values.apiKey}
+        />
 
-                <AppTextInput
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  errorMessage={baseUrlError}
-                  keyboardType="url"
-                  label="Base URL"
-                  maxLength={2048}
-                  onChangeText={(baseUrl) => setValues({ ...values, baseUrl, presetId: "custom" })}
-                  placeholder="https://api.example.com/v1"
-                  value={values.baseUrl}
-                />
+        <AppTextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          errorMessage={baseUrlError}
+          keyboardType="url"
+          label="Base URL"
+          maxLength={2048}
+          onChangeText={(baseUrl) => setValues({ ...values, baseUrl, presetId: "custom" })}
+          placeholder="https://api.example.com/v1"
+          value={values.baseUrl}
+        />
 
-                <AppTextInput
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  errorMessage={modelError}
-                  label="Model (optional)"
-                  maxLength={128}
-                  onChangeText={(model) => setValues({ ...values, model })}
-                  placeholder="gpt-4.1-mini"
-                  value={values.model}
-                />
+        <AppTextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          errorMessage={modelError}
+          label="Model (optional)"
+          maxLength={128}
+          onChangeText={(model) => setValues({ ...values, model })}
+          placeholder="gpt-4.1-mini"
+          value={values.model}
+        />
 
-                <View style={{ gap: theme.relay.spacing.sm }}>
-                  <AppText variant="label">Answer format</AppText>
-                  <View style={[styles.chips, { gap: theme.relay.spacing.sm }]}>
-                    {RESPONSE_FORMATS.map((option) => (
-                      <Chip
-                        compact
-                        key={option.value}
-                        onPress={() => setValues({ ...values, responseFormat: option.value })}
-                        selected={option.value === values.responseFormat}
-                        showSelectedCheck={false}
-                      >
-                        {option.label}
-                      </Chip>
-                    ))}
-                  </View>
-                  <AppText tone="muted" variant="caption">
-                    How much the endpoint itself enforces. Relay checks every answer either way, so
-                    a looser setting never widens what it accepts. Choose a looser one if requests
-                    are refused.
-                  </AppText>
-                </View>
+        <View style={{ gap: theme.relay.spacing.sm }}>
+          <AppText variant="label">Answer format</AppText>
+          <View style={[styles.chips, { gap: theme.relay.spacing.sm }]}>
+            {RESPONSE_FORMATS.map((option) => (
+              <Chip
+                compact
+                key={option.value}
+                onPress={() => setValues({ ...values, responseFormat: option.value })}
+                selected={option.value === values.responseFormat}
+                showSelectedCheck={false}
+              >
+                {option.label}
+              </Chip>
+            ))}
+          </View>
+          <AppText tone="muted" variant="caption">
+            How much the endpoint itself enforces. Relay checks every answer either way, so a looser
+            setting never widens what it accepts. Choose a looser one if requests are refused.
+          </AppText>
+        </View>
 
-                <View style={{ gap: theme.relay.spacing.sm }}>
-                  <AppText variant="label">What can be sent</AppText>
-                  {semanticDisclosureRules.map((rule) => (
-                    <AppText key={rule} tone="muted" variant="caption">
-                      {rule}
-                    </AppText>
-                  ))}
-                  <AppText tone="muted" variant="caption">
-                    Removed before sending: {semanticRedactionClasses.join(", ").toLowerCase()}.
-                  </AppText>
-                </View>
+        <View style={{ gap: theme.relay.spacing.sm }}>
+          <AppText variant="label">What can be sent</AppText>
+          {semanticDisclosureRules.map((rule) => (
+            <AppText key={rule} tone="muted" variant="caption">
+              {rule}
+            </AppText>
+          ))}
+          <AppText tone="muted" variant="caption">
+            Removed before sending: {semanticRedactionClasses.join(", ").toLowerCase()}.
+          </AppText>
+        </View>
 
-                {errorMessage === undefined ? null : (
-                  <StatusMessage tone="error">{errorMessage}</StatusMessage>
-                )}
-              </View>
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <AppButton disabled={saving} label="Cancel" onPress={onDismiss} tone="secondary" />
-            <AppButton
-              label={replacing ? "Replace key" : "Save key"}
-              loading={saving}
-              onPress={() => void submit()}
-            />
-          </Dialog.Actions>
-        </KeyboardAvoidingView>
-      </Dialog>
-    </Portal>
+        {errorMessage === undefined ? null : (
+          <StatusMessage tone="error">{errorMessage}</StatusMessage>
+        )}
+      </View>
+    </AppDialog>
   );
 }
 
