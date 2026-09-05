@@ -1,6 +1,7 @@
 export { AppButton } from "./AppButton";
 export type { ButtonTone } from "./component-state";
 export { ActionRow } from "./ActionRow";
+export { AnimatedListItem } from "./AnimatedListItem";
 export { AppCheckbox } from "./AppCheckbox";
 export { AppDialog } from "./AppDialog";
 export { AppIconButton } from "./AppIconButton";

@@ -665,3 +665,107 @@ export function inboxRetention(rawExpiresAt: string | null, now: string): InboxR
     rawExpiresAt: rawExpiresAt ?? undefined,
   };
 }
+
+/** Everything the inbox needs to show one category without reading its items again. */
+export type InboxCategorySummary = {
+  /** Items still waiting on a decision, so a busy category cannot hide one urgent item. */
+  actionable: number;
+  /** Total items filed here. */
+  captures: number;
+  /** Stable identity the category is addressed by. `unfiled` for the bucket with no category. */
+  key: string;
+  /** Newest arrival, for ordering and for saying how recent the category is. */
+  latestOccurredAt: string;
+  name: string;
+  needsReview: number;
+  /** True for Relay's own protected vocabulary rather than a category the tenant created. */
+  system: boolean;
+};
+
+/** The bucket for items Relay filed without naming a category. Never a real category's slug. */
+export const UNFILED_CATEGORY_KEY = "unfiled";
+
+/**
+ * Summarises the categories a set of items was filed into.
+ *
+ * Driven by the tenant's own category list rather than by what the items happen to mention, so a
+ * category that has matched nothing yet still appears with a zero. A category a person created and
+ * cannot find is indistinguishable from one that was never saved, and the second is the failure
+ * this screen exists to rule out.
+ *
+ * Items are matched by category name because that is what a classification carries onto an inbox
+ * item; the id stays behind in the database. An item whose category was archived or renamed after
+ * it was filed therefore lands in the unfiled bucket rather than under a name that no longer means
+ * what it did -- stated, not hidden.
+ */
+export function summariseByCategory(
+  items: readonly InboxItem[],
+  categories: readonly { isSystem: boolean; name: string; slug: string }[],
+): readonly InboxCategorySummary[] {
+  const known = new Map(categories.map((category) => [category.name, category]));
+  const groups = new Map<string, InboxItem[]>();
+  for (const item of items) {
+    const name = item.category?.name;
+    const key = name !== undefined && known.has(name) ? name : UNFILED_CATEGORY_KEY;
+    const existing = groups.get(key);
+    if (existing === undefined) groups.set(key, [item]);
+    else existing.push(item);
+  }
+
+  const summaries: InboxCategorySummary[] = categories.map((category) => {
+    const grouped = groups.get(category.name) ?? [];
+    return {
+      actionable: grouped.filter((item) => item.group === "actionable").length,
+      captures: grouped.length,
+      key: category.slug,
+      latestOccurredAt: grouped.reduce(
+        (latest, item) => (item.occurredAt > latest ? item.occurredAt : latest),
+        "",
+      ),
+      name: category.name,
+      needsReview: grouped.filter((item) => item.group === "needs-review").length,
+      system: category.isSystem,
+    };
+  });
+
+  const unfiled = groups.get(UNFILED_CATEGORY_KEY) ?? [];
+  if (unfiled.length > 0) {
+    summaries.push({
+      actionable: unfiled.filter((item) => item.group === "actionable").length,
+      captures: unfiled.length,
+      key: UNFILED_CATEGORY_KEY,
+      latestOccurredAt: unfiled.reduce(
+        (latest, item) => (item.occurredAt > latest ? item.occurredAt : latest),
+        "",
+      ),
+      name: "Unfiled",
+      needsReview: unfiled.filter((item) => item.group === "needs-review").length,
+      system: false,
+    });
+  }
+
+  return summaries.sort(
+    (left, right) =>
+      // Anything waiting on a person outranks volume, then volume, then name for stability.
+      right.actionable + right.needsReview - (left.actionable + left.needsReview) ||
+      right.captures - left.captures ||
+      left.name.localeCompare(right.name),
+  );
+}
+
+/** Items filed into one category, addressed by the slug the summary carries. */
+export function filterByCategory(
+  items: readonly InboxItem[],
+  slug: string,
+  categories: readonly { name: string; slug: string }[],
+): readonly InboxItem[] {
+  if (slug === UNFILED_CATEGORY_KEY) {
+    const names = new Set(categories.map((category) => category.name));
+    return items.filter(
+      (item) => item.category?.name === undefined || !names.has(item.category.name),
+    );
+  }
+  const name = categories.find((category) => category.slug === slug)?.name;
+  if (name === undefined) return [];
+  return items.filter((item) => item.category?.name === name);
+}

@@ -1,11 +1,10 @@
-import Constants from "expo-constants";
-import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
+  AnimatedListItem,
   AppButton,
   AppText,
   AppTextInput,
@@ -20,6 +19,8 @@ import {
   type OutcomeTab,
 } from "@/components/ui";
 import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
+import { useCategoryManagement } from "@/features/categories/hooks/useCategoryManagement";
+import { CategoryRow } from "@/features/inbox/components/CategoryRow";
 import { QuietSourceRow } from "@/features/inbox/components/QuietSourceRow";
 import { ReceiptCard } from "@/features/inbox/components/ReceiptCard";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
@@ -27,19 +28,12 @@ import { useInbox } from "@/features/inbox/hooks/useInbox";
 import {
   groupByThread,
   summariseByApp,
+  summariseByCategory,
   type InboxGroup,
   type InboxItem,
 } from "@/features/inbox/models/inboxPresentation";
 import { useAuth } from "@/lib/auth-context";
-import { demoIngress, sendDemoIngress } from "@/lib/demo";
-import {
-  localDevelopmentAccessEnabled,
-  localDiagnosticsDisabled,
-  notificationCaptureTenantId,
-} from "@/lib/development-access";
-import { registerInstallation } from "@/lib/device";
 import { logMobileError } from "@/lib/observability";
-import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { useRelayTheme } from "@/theme";
 
 /**
@@ -51,14 +45,25 @@ import { useRelayTheme } from "@/theme";
  * mattered below eighteen that did not; as tabs, every count is legible at once and a person can
  * stay inside one outcome.
  */
-const TAB_FOR_GROUP: Readonly<Record<InboxGroup, string>> = {
+/**
+ * The tabs, and what each one answers.
+ *
+ * The first three are outcomes -- what happened to a capture. "Categories" is a different axis: it
+ * is the taxonomy the reader themselves defined, and it belongs here because the question "where
+ * did that go" is asked of the inbox rather than of Settings, which is where categories are edited.
+ */
+type InboxTab = InboxGroup | "categories";
+
+const TAB_LABEL: Readonly<Record<InboxTab, string>> = {
   actionable: "Needs you",
+  categories: "Categories",
   quiet: "Quiet",
   "needs-review": "Review",
 };
 
-const EMPTY_DETAIL: Readonly<Record<InboxGroup, string>> = {
+const EMPTY_DETAIL: Readonly<Record<InboxTab, string>> = {
   actionable: "Nothing is waiting on a decision from you.",
+  categories: "You have no categories yet. Create one from Settings.",
   quiet: "Nothing has been filed quietly yet.",
   "needs-review": "Relay resolved everything it read.",
 };
@@ -69,21 +74,27 @@ export default function InboxScreen() {
   const theme = useRelayTheme();
   const inbox = useInbox();
   const proposals = useProposedActions(client, session?.user.id);
-  const [tab, setTab] = useState<InboxGroup>("actionable");
+  const categories = useCategoryManagement(client, session?.user.id);
+  const [tab, setTab] = useState<InboxTab>("actionable");
   const [searching, setSearching] = useState(false);
   const [hideError, setHideError] = useState<string | undefined>();
 
   const sectionFor = (group: InboxGroup) =>
     inbox.sections.find((section) => section.group === group)?.items ?? [];
-  const tabs: readonly OutcomeTab<InboxGroup>[] = (
-    ["actionable", "needs-review", "quiet"] as const
-  ).map((group) => ({
-    count: sectionFor(group).length,
-    key: group,
-    label: TAB_FOR_GROUP[group],
+  const known = categories.activeCustom.concat(categories.systemCategories);
+  const summaries = summariseByCategory(
+    inbox.sections.flatMap((section) => section.items),
+    known,
+  );
+  const tabs: readonly OutcomeTab<InboxTab>[] = (
+    ["actionable", "needs-review", "quiet", "categories"] as const
+  ).map((key) => ({
+    count: key === "categories" ? summaries.length : sectionFor(key).length,
+    key,
+    label: TAB_LABEL[key],
   }));
 
-  const items = sectionFor(tab);
+  const items = tab === "categories" ? [] : sectionFor(tab);
   const labels = useApplicationLabels(
     items.flatMap((item) =>
       item.source.applicationId === undefined ? [] : [item.source.applicationId],
@@ -197,41 +208,62 @@ export default function InboxScreen() {
         />
       ) : null}
 
-      {!inbox.loading && !inbox.unavailable && inbox.total > 0 && items.length === 0 ? (
+      {tab === "categories" && !inbox.loading && summaries.length === 0 ? (
+        <AppText tone="muted" variant="caption">
+          {EMPTY_DETAIL.categories}
+        </AppText>
+      ) : null}
+
+      {tab !== "categories" &&
+      !inbox.loading &&
+      !inbox.unavailable &&
+      inbox.total > 0 &&
+      items.length === 0 ? (
         <AppText tone="muted" variant="caption">
           {inbox.query === "" ? EMPTY_DETAIL[tab] : "Nothing here matches that search."}
         </AppText>
       ) : null}
 
+      {tab === "categories"
+        ? summaries.map((category) => (
+            <CategoryRow
+              category={category}
+              key={category.key}
+              onPress={() => router.push(`/inbox/category/${encodeURIComponent(category.key)}`)}
+            />
+          ))
+        : null}
+
       {tab === "quiet" ? (
         <QuietList items={items} labels={labels} />
-      ) : (
+      ) : tab === "categories" ? null : (
         groupByThread(items).map((thread) => {
           const proposal = proposals.forEvent(thread.latest.id)[0];
           // The swipe is a shortcut, not the only route: the same removal sits on the receipt's own
           // screen as a labelled control, and SwipeableRow publishes it as an accessibility action.
           return (
-            <SwipeableRow
-              actionLabel="Remove"
-              icon="inbox-remove-outline"
-              key={thread.key}
-              onAction={() => void hide(thread.latest.id)}
-            >
-              <ReceiptCard
-                busy={proposal !== undefined && proposals.deciding === proposal.id}
-                item={thread.latest}
-                onApprove={(runId) => void proposals.approve(runId)}
-                onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
-                onSkip={(runId) => void proposals.skip(runId)}
-                proposal={proposal}
-                threadCount={thread.items.length}
-              />
-            </SwipeableRow>
+            <AnimatedListItem key={thread.key}>
+              <SwipeableRow
+                actionLabel="Remove"
+                icon="inbox-remove-outline"
+                onAction={() => void hide(thread.latest.id)}
+              >
+                <ReceiptCard
+                  busy={proposal !== undefined && proposals.deciding === proposal.id}
+                  item={thread.latest}
+                  onApprove={(runId) => void proposals.approve(runId)}
+                  onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
+                  onSkip={(runId) => void proposals.skip(runId)}
+                  proposal={proposal}
+                  threadCount={thread.items.length}
+                />
+              </SwipeableRow>
+            </AnimatedListItem>
           );
         })
       )}
 
-      {tab === "quiet" || quietCount === 0 ? null : (
+      {tab === "quiet" || tab === "categories" || quietCount === 0 ? null : (
         <AppButton
           accessibilityHint="Shows everything Relay filed without asking you"
           label={`${String(quietCount)} filed quietly →`}
@@ -239,8 +271,6 @@ export default function InboxScreen() {
           tone="secondary"
         />
       )}
-
-      {tab === "quiet" ? <LocalSkeleton onSent={inbox.refetch} /> : null}
     </ReceiptScreen>
   );
 }
@@ -270,74 +300,6 @@ function QuietList({
         />
       ))}
     </>
-  );
-}
-
-/**
- * The local walking skeleton.
- *
- * Kept at the foot of the quiet tab rather than under the receipts a person came to read. It is a
- * diagnostic, and the inbox is the one screen whose whole argument is that it shows only what
- * arrived.
- */
-function LocalSkeleton({ onSent }: { onSent: () => void }) {
-  const { session } = useAuth();
-  const [status, setStatus] = useState("Ready for local simulation");
-  const [sending, setSending] = useState(false);
-  const localDevelopmentAccess = localDevelopmentAccessEnabled(
-    __DEV__,
-    Constants.expoConfig?.extra?.relayBuildVariant,
-    localDiagnosticsDisabled(),
-  );
-  const localCaptureTenantId = notificationCaptureTenantId(
-    undefined,
-    localDevelopmentAccess,
-    Platform.OS,
-  );
-
-  async function simulate() {
-    setSending(true);
-    setStatus("Sending...");
-    try {
-      if (session === null) {
-        if (localCaptureTenantId === undefined) throw new Error("Authentication required");
-        const id = Crypto.randomUUID();
-        const capturedAt = new Date().toISOString();
-        await RelayDeviceIngress.enqueueCapture(localCaptureTenantId, {
-          ...demoIngress,
-          id,
-          occurredAt: capturedAt,
-          capturedAt,
-          source: { ...demoIngress.source, externalId: `local-development-${id}` },
-        });
-        setStatus(`Stored locally ${id.slice(0, 8)}`);
-        return;
-      }
-      const device = await registerInstallation(session.user.id, session.access_token);
-      const result = await sendDemoIngress(session.access_token, device.id);
-      setStatus(result.accepted ? `Queued ${result.id.slice(0, 8)}` : "Not accepted");
-      onSent();
-    } catch (error) {
-      logMobileError("ui.demo_ingress_failed", error, {
-        code: "DEMO_INGRESS_FAILED",
-        integration: "relay-api",
-        operation: "simulateIngress",
-      });
-      setStatus("Could not queue the simulated notification. Check your connection and retry.");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  return (
-    <EditorialSurface icon="flask-outline" meta="Development" title="Local walking skeleton">
-      <AppText tone="muted">{status}</AppText>
-      <AppButton
-        label="Send simulated notification"
-        loading={sending}
-        onPress={() => void simulate()}
-      />
-    </EditorialSurface>
   );
 }
 

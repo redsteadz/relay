@@ -4,6 +4,7 @@ import { View } from "react-native";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
+  AnimatedListItem,
   AppText,
   FeedbackState,
   LoadingState,
@@ -120,22 +121,23 @@ export default function InboxApplicationScreen() {
             {groupByThread(section.items).map((thread) => {
               const proposal = proposals.forEvent(thread.latest.id)[0];
               return (
-                <SwipeableRow
-                  actionLabel="Remove"
-                  icon="inbox-remove-outline"
-                  key={thread.key}
-                  onAction={() => void hide(thread.latest.id)}
-                >
-                  <ReceiptCard
-                    busy={proposal !== undefined && proposals.deciding === proposal.id}
-                    item={thread.latest}
-                    onApprove={(runId) => void proposals.approve(runId)}
-                    onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
-                    onSkip={(runId) => void proposals.skip(runId)}
-                    proposal={proposal}
-                    threadCount={thread.items.length}
-                  />
-                </SwipeableRow>
+                <AnimatedListItem key={thread.key}>
+                  <SwipeableRow
+                    actionLabel="Remove"
+                    icon="inbox-remove-outline"
+                    onAction={() => void hide(thread.latest.id)}
+                  >
+                    <ReceiptCard
+                      busy={proposal !== undefined && proposals.deciding === proposal.id}
+                      item={thread.latest}
+                      onApprove={(runId) => void proposals.approve(runId)}
+                      onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
+                      onSkip={(runId) => void proposals.skip(runId)}
+                      proposal={proposal}
+                      threadCount={thread.items.length}
+                    />
+                  </SwipeableRow>
+                </AnimatedListItem>
               );
             })}
           </View>
