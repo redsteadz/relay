@@ -16,6 +16,7 @@ resources already own durable state; the suffix is historical and does not imply
 | -------------------- | ------------------------------------------ |
 | API Worker           | `relay-api-production`                     |
 | Pipeline Worker      | `relay-pipeline-production`                |
+| Landing site Worker  | `relay`                                    |
 | Ingress Queue        | `relay-ingress-production`                 |
 | Dead-letter Queue    | `relay-ingress-dead-letter-production`     |
 | Tenant coordinator   | `TENANT_COORDINATOR` SQLite Durable Object |
@@ -27,6 +28,11 @@ resources already own durable state; the suffix is historical and does not imply
 Pipeline disables `workers.dev`, preview URLs, and routes. Only Queue, cron, and explicit service
 binding invocations can reach it. API disables `workers.dev` and uses the stable custom domain, which
 is also canonical hosted Auth origin.
+
+The landing site Worker serves `apps/web/dist` as static assets. It declares no `main`, no bindings,
+and no secrets, so it holds nothing an API or Pipeline compromise would reach for. It is named `relay`
+rather than `relay-web-production` because that service already exists under this name; renaming it
+would strand the Git integration rather than clarify anything.
 
 Pipeline consumes both canonical ingress and dead-letter Queues. Dead-letter consumption persists
 ciphertext and fixed failure metadata before acknowledgement; it does not decrypt source content.
@@ -54,6 +60,14 @@ release-PR gates plus ordered Pipeline-to-API automation. A no-op deploy command
 repository-controlled build code can invoke `wrangler` with the build token. If a Workers Builds check
 appears before those gates exist, disconnect the Git integration instead of refreshing its token or
 enabling another branch.
+
+A Workers Builds integration is currently connected to the `relay` landing site Worker and reports a
+check on every pull request. It predates the gates issue #49 tracks, and the reasoning above applies
+to it unchanged: a build token is account-scoped, so an integration attached to the landing site is
+not confined to the landing site. `apps/web/wrangler.jsonc` exists so that build is described by
+reviewed configuration instead of being inferred by dashboard auto-detection, which is a smaller
+attack surface than an unconfigured build but is not the gate #49 requires. Whether that integration
+stays connected before #49 closes is an operator decision, not something a repository change settles.
 
 Validate clean Worker builds locally with `pnpm --filter @relay/pipeline build` and, after loading only
 the two hosted public Supabase build values, `pnpm --filter @relay/api build:worker`. Both commands
