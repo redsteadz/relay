@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppButton, AppText, RelayMark } from "@/components/ui";
 import { sourceCatalog, type SourceId } from "@/features/device-capture/models/sourceCatalog";
-import { useOnboardingState } from "@/hooks/useOnboardingState";
+import { useOnboarding } from "@/lib/onboarding-context";
 import { useRelayTheme } from "@/theme";
 
 /**
@@ -46,7 +46,7 @@ const STEPS = [
 export default function OnboardingScreen() {
   const theme = useRelayTheme();
   const { colors, radii, sizes, spacing } = theme.relay;
-  const onboarding = useOnboardingState();
+  const onboarding = useOnboarding();
   const [step, setStep] = useState(0);
   const current = STEPS[step];
   const last = step === STEPS.length - 1;

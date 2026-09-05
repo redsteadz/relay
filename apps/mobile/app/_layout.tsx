@@ -28,8 +28,8 @@ import {
   localDiagnosticsDisabled,
   notificationCaptureMode,
 } from "@/lib/development-access";
-import { useOnboardingState } from "@/hooks/useOnboardingState";
 import { syncDeviceCaptures } from "@/lib/device-capture-sync";
+import { OnboardingProvider, useOnboarding } from "@/lib/onboarding-context";
 import { logMobileError, runInBackground } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { RelayThemeProvider, useRelayTheme } from "@/theme";
@@ -43,7 +43,7 @@ runInBackground(SplashScreen.preventAutoHideAsync(), "ui.splash_prevent_auto_hid
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
   const queryClient = useQueryClient();
-  const onboarding = useOnboardingState();
+  const onboarding = useOnboarding();
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
@@ -176,7 +176,9 @@ function ThemedRoot() {
   return (
     <AuthProvider>
       <StatusBar style={theme.dark ? "light" : "dark"} />
-      <AuthenticatedStack />
+      <OnboardingProvider>
+        <AuthenticatedStack />
+      </OnboardingProvider>
     </AuthProvider>
   );
 }
