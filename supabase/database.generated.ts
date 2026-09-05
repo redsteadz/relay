@@ -1179,44 +1179,84 @@ export type Database = {
         Args: { p_id: string; p_request_id: string; p_result: string };
         Returns: boolean;
       };
-      create_filter_rule_revision: {
-        Args: {
-          p_enabled?: boolean;
-          p_expected_version?: number;
-          p_intent: string;
-          p_name: string;
-          p_plan: Json;
-          p_series_id?: string;
-          p_supported_predicates: Json;
-          p_unsupported_clauses: Json;
-          p_user_id: string;
-        };
-        Returns: {
-          approval_mode: string;
-          category_id: string | null;
-          compiler_version: number;
-          created_at: string;
-          dismiss_source_notification: boolean;
-          dismissal_dry_run_completed_at: string | null;
-          enabled: boolean;
-          id: string;
-          intent: string;
-          name: string;
-          plan: Json;
-          series_id: string;
-          supported_predicates: Json;
-          unsupported_clauses: Json;
-          updated_at: string;
-          user_id: string;
-          version: number;
-        };
-        SetofOptions: {
-          from: "*";
-          to: "filter_rules";
-          isOneToOne: true;
-          isSetofReturn: false;
-        };
-      };
+      create_filter_rule_revision:
+        | {
+            Args: {
+              p_enabled?: boolean;
+              p_expected_version?: number;
+              p_intent: string;
+              p_name: string;
+              p_plan: Json;
+              p_series_id?: string;
+              p_supported_predicates: Json;
+              p_unsupported_clauses: Json;
+              p_user_id: string;
+            };
+            Returns: {
+              approval_mode: string;
+              category_id: string | null;
+              compiler_version: number;
+              created_at: string;
+              dismiss_source_notification: boolean;
+              dismissal_dry_run_completed_at: string | null;
+              enabled: boolean;
+              id: string;
+              intent: string;
+              name: string;
+              plan: Json;
+              series_id: string;
+              supported_predicates: Json;
+              unsupported_clauses: Json;
+              updated_at: string;
+              user_id: string;
+              version: number;
+            };
+            SetofOptions: {
+              from: "*";
+              to: "filter_rules";
+              isOneToOne: true;
+              isSetofReturn: false;
+            };
+          }
+        | {
+            Args: {
+              p_category_id?: string;
+              p_enabled?: boolean;
+              p_expected_version?: number;
+              p_intent: string;
+              p_name: string;
+              p_plan: Json;
+              p_series_id?: string;
+              p_supported_predicates: Json;
+              p_unsupported_clauses: Json;
+              p_user_id: string;
+            };
+            Returns: {
+              approval_mode: string;
+              category_id: string | null;
+              compiler_version: number;
+              created_at: string;
+              dismiss_source_notification: boolean;
+              dismissal_dry_run_completed_at: string | null;
+              enabled: boolean;
+              id: string;
+              intent: string;
+              name: string;
+              plan: Json;
+              series_id: string;
+              supported_predicates: Json;
+              unsupported_clauses: Json;
+              updated_at: string;
+              user_id: string;
+              version: number;
+            };
+            SetofOptions: {
+              from: "*";
+              to: "filter_rules";
+              isOneToOne: true;
+              isSetofReturn: false;
+            };
+          };
       create_gmail_connection_v1: {
         Args: {
           p_credential_ciphertext: string;

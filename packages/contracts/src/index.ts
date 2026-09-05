@@ -1000,6 +1000,14 @@ const filterCompileRevisionShape = {
   enabled: z.boolean().optional(),
   seriesId: canonicalUuidSchema.optional(),
   expectedVersion: postgresIntegerSchema.optional(),
+  /**
+   * Category a matching capture is filed into.
+   *
+   * Optional because a rule may decide without naming a destination, and `null` is how a rule that
+   * had one has it cleared -- an absent field means "unchanged" to a caller, which is a different
+   * statement from "file this nowhere".
+   */
+  categoryId: canonicalUuidSchema.nullish(),
 };
 
 function validateFilterRevisionPair(
@@ -1078,6 +1086,8 @@ export const filterRuleVersionSchema = z
     plan: filterPlanSchema,
     version: postgresIntegerSchema,
     enabled: z.boolean(),
+    /** Category a matching capture is filed into, when the rule names one. */
+    categoryId: canonicalUuidSchema.optional(),
     createdAt: z.iso.datetime({ offset: true }),
   })
   .strict();

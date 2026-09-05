@@ -292,6 +292,8 @@ export function filterRevisionHistory(
 }
 
 export type FilterDraft = {
+  /** Category a matching capture is filed into. Undefined files it without naming one. */
+  categoryId: string | undefined;
   enabled: boolean;
   intent: string;
   name: string;
@@ -301,9 +303,10 @@ export type FilterDraft = {
 
 export function filterDraftFor(revision: FilterRuleVersion | undefined): FilterDraft {
   if (revision === undefined) {
-    return { enabled: true, intent: "", name: "", series: undefined };
+    return { categoryId: undefined, enabled: true, intent: "", name: "", series: undefined };
   }
   return {
+    categoryId: revision.categoryId,
     enabled: revision.enabled,
     intent: revision.intent,
     name: revision.name,
@@ -320,6 +323,9 @@ export function filterDraftFor(revision: FilterRuleVersion | undefined): FilterD
  */
 export function filterSaveRequest(draft: FilterDraft): FilterCompileRequest {
   return {
+    // Sent explicitly as null when cleared, because an absent field reads as "unchanged" and would
+    // leave a rule pointed at a category the editor no longer shows as selected.
+    categoryId: draft.categoryId ?? null,
     enabled: draft.enabled,
     intent: draft.intent.trim(),
     name: draft.name.trim(),
