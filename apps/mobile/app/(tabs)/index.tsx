@@ -170,7 +170,26 @@ export default function InboxScreen() {
         />
       ) : null}
 
-      {!inbox.loading && !inbox.unavailable && inbox.total === 0 ? (
+      {/*
+       * A signed-out reader is told so, rather than told nothing has been captured. The inbox is
+       * account-owned, so "nothing captured yet" would be a claim Relay cannot make without a
+       * session to read -- and a development build lets a person reach this screen without one.
+       */}
+      {!inbox.loading && !inbox.unavailable && inbox.total === 0 && session === null ? (
+        <EditorialSurface icon="inbox-outline" meta="Sign-in required" title="Inbox">
+          <AppText tone="muted">
+            Your inbox is account-owned. Sign in to see what Relay captured, what it filed, and what
+            it is waiting on you to decide.
+          </AppText>
+          <AppButton
+            label="Sign in to see your inbox"
+            onPress={() => router.push({ params: { reason: "inbox" }, pathname: "/sign-in" })}
+            tone="secondary"
+          />
+        </EditorialSurface>
+      ) : null}
+
+      {!inbox.loading && !inbox.unavailable && inbox.total === 0 && session !== null ? (
         <FeedbackState
           detail="Once a connected source is captured, what matters appears here and the rest stays quietly searchable."
           kind="empty"

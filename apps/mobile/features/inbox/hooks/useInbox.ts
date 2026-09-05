@@ -23,7 +23,13 @@ export type InboxState = {
   hide: (eventId: string) => Promise<void>;
   /** The item just removed, while the offer to put it back still stands. */
   lastHidden: InboxItem | undefined;
-  /** True only for the first load, so a refresh never replaces the list with a spinner. */
+  /**
+   * True only for the first load, so a refresh never replaces the list with a spinner.
+   *
+   * False when there is no session to read for: a disabled query stays `pending` indefinitely in
+   * react-query, and reporting that as loading left a signed-out reader watching a spinner that
+   * could never resolve.
+   */
   loading: boolean;
   query: string;
   refetch: () => void;
@@ -123,7 +129,7 @@ export function useInbox(): InboxState {
       setLastHidden(removed);
     },
     lastHidden,
-    loading: inbox.isPending,
+    loading: inbox.isPending && inbox.fetchStatus !== "idle",
     query,
     refetch: () => void inbox.refetch(),
     refreshing: inbox.isFetching && !inbox.isPending,
