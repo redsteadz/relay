@@ -1,8 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback } from "react";
 
-import { AppScreen } from "@/components/AppScreen";
-import { ContextualNotice, FeedbackState, LoadingState } from "@/components/ui";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
+import { AppText, ContextualNotice, FeedbackState, LoadingState } from "@/components/ui";
 import { QueueItemDetails } from "@/features/device-capture/components/queue/QueueItemDetails";
 import { useCapturePreviewSecurity } from "@/features/device-capture/context/CapturePreviewSecurity";
 import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
@@ -39,21 +39,17 @@ export default function NotificationQueueItemScreen() {
     previews.error;
 
   return (
-    <AppScreen
-      backLabel="Back to notification queue"
-      detail="Permitted metadata decrypted only while this secure local screen is visible."
-      onBack={() => router.back()}
-      title="Notification details"
-      titleAccessory={
-        <ContextualNotice
-          accessibilityLabel="How sensitive notification previews are protected"
-          tone="warning"
-        >
-          Sensitive preview fields are protected from screenshots and cleared when this screen loses
-          focus.
-        </ContextualNotice>
-      }
-    >
+    <ReceiptScreen onBack={() => router.back()} title="Notification details">
+      <AppText tone="muted" variant="caption">
+        Permitted metadata decrypted only while this secure local screen is visible.
+      </AppText>
+      <ContextualNotice
+        accessibilityLabel="How sensitive notification previews are protected"
+        tone="warning"
+      >
+        Sensitive preview fields are protected from screenshots and cleared when this screen loses
+        focus.
+      </ContextualNotice>
       {error !== undefined ? (
         <FeedbackState detail={error} kind="error" title="Could not read this item" />
       ) : !enabled || previews.refreshing ? (
@@ -77,6 +73,6 @@ export default function NotificationQueueItemScreen() {
           ]}
         />
       )}
-    </AppScreen>
+    </ReceiptScreen>
   );
 }

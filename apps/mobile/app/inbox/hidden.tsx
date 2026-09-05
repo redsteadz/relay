@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { AccessibilityInfo, View } from "react-native";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
   AppButton,
   AppText,
@@ -51,13 +51,7 @@ export default function HiddenInboxScreen() {
   }
 
   return (
-    <AppScreen
-      backLabel="Back to inbox"
-      detail="Removed from your inbox only. Nothing was deleted and no device notification was cleared."
-      eyebrow="Reversible"
-      onBack={() => router.back()}
-      title="Removed"
-    >
+    <ReceiptScreen onBack={() => router.back()} title="Removed">
       {hidden.loading ? <LoadingState label="Reading removed captures..." /> : null}
 
       {hidden.unavailable ? (
@@ -105,6 +99,6 @@ export default function HiddenInboxScreen() {
           ))}
         </View>
       )}
-    </AppScreen>
+    </ReceiptScreen>
   );
 }

@@ -23,7 +23,6 @@ export { StatusPill } from "./StatusPill";
 export type { StatusPillTone } from "./StatusPill";
 export { SwipeableRow } from "./SwipeableRow";
 export { UndoBar } from "./UndoBar";
-export { ScreenHeader } from "./ScreenHeader";
 export { OutcomeTabs } from "./OutcomeTabs";
 export type { OutcomeTab } from "./OutcomeTabs";
 export { RelayIcon, RelayMark } from "./RelayIcon";

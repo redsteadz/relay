@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import { AppText, EditorialSurface } from "@/components/ui";
 import { validCallbackCode } from "@/lib/auth";
 import { useAuth } from "@/lib/auth-context";
@@ -26,11 +26,7 @@ export default function AuthCallbackScreen() {
   }, [code, completeMagicLink, configurationError, router]);
 
   return (
-    <AppScreen
-      eyebrow="Identity boundary"
-      title="Signing in"
-      detail="Relay exchanges this one-time callback without logging or retaining its code."
-    >
+    <ReceiptScreen title="Signing in">
       <EditorialSurface
         icon="shield-key-outline"
         title="Magic-link exchange"
@@ -41,6 +37,6 @@ export default function AuthCallbackScreen() {
           Completing secure sign-in...
         </AppText>
       </EditorialSurface>
-    </AppScreen>
+    </ReceiptScreen>
   );
 }

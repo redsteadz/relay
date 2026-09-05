@@ -1,14 +1,15 @@
 import { router } from "expo-router";
-import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { FlatList, RefreshControl, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
   ActionRow,
   AppButton,
+  AppText,
   EmptyState,
   FeedbackState,
   LoadingState,
-  ScreenHeader,
   StatusMessage,
 } from "@/components/ui";
 import { DisclosureCard } from "@/features/privacy/components/DisclosureCard";
@@ -24,10 +25,7 @@ export default function DisclosuresScreen() {
   const disclosures = useDisclosureHistory(session?.user.id, session?.access_token);
 
   return (
-    <SafeAreaView
-      edges={["top", "left", "right"]}
-      style={[styles.safeArea, { backgroundColor: theme.relay.colors.background }]}
-    >
+    <ReceiptScreen onBack={() => router.back()} scroll={false} title="Disclosure history">
       <FlatList
         ListEmptyComponent={
           session === null ? (
@@ -47,13 +45,10 @@ export default function DisclosuresScreen() {
         }
         ListHeaderComponent={
           <View style={{ gap: theme.relay.spacing.lg, marginBottom: theme.relay.spacing.sm }}>
-            <ScreenHeader
-              backLabel="Back to settings"
-              detail="Inspect which field names were disclosed, to which model, and why. Raw prompts and source content are never shown or retained here."
-              eyebrow="Explainable AI"
-              onBack={() => router.back()}
-              title="Disclosure history"
-            />
+            <AppText tone="muted" variant="caption">
+              Which field names were disclosed, to which model, and why. Raw prompts and source
+              content are never shown or retained here.
+            </AppText>
             {disclosures.error === null ? null : (
               <View style={{ gap: theme.relay.spacing.sm }}>
                 <StatusMessage tone="error">{privacyErrorMessage(disclosures.error)}</StatusMessage>
@@ -70,7 +65,6 @@ export default function DisclosuresScreen() {
         }
         contentContainerStyle={{
           gap: theme.relay.spacing.md,
-          padding: theme.relay.spacing.lg,
           paddingBottom: theme.relay.layout.screenBottom + insets.bottom,
         }}
         data={disclosures.data ?? []}
@@ -90,10 +84,6 @@ export default function DisclosuresScreen() {
         }
         renderItem={({ item }) => <DisclosureCard disclosure={item} />}
       />
-    </SafeAreaView>
+    </ReceiptScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
-});

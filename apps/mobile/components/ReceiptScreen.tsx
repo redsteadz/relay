@@ -1,9 +1,18 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenTopBar } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
+
+import { getPageLayout } from "./page-layout";
 
 type ReceiptScreenProps = PropsWithChildren<{
   /** A single control in the header's trailing slot. */
@@ -47,13 +56,18 @@ export function ReceiptScreen({
   title,
 }: ReceiptScreenProps) {
   const theme = useRelayTheme();
-  const { colors, layout, spacing } = theme.relay;
+  const { colors, layout, sizes, spacing } = theme.relay;
+  // A phone gets the compact gutter; a tablet or a browser gets the wider one and stops the column
+  // growing past a readable measure. A receipt list stretched edge to edge on a desktop viewport is
+  // unreadable in exactly the way the old shell already knew how to avoid.
+  const { pagePadding } = getPageLayout(useWindowDimensions().width);
   const contentStyle = [
     styles.content,
     {
       gap: spacing.md,
+      maxWidth: sizes.contentMaxWidth,
       paddingBottom: layout.screenBottom,
-      paddingHorizontal: layout.compactGutter,
+      paddingHorizontal: pagePadding,
       paddingTop: spacing.md,
     },
   ];
@@ -87,7 +101,7 @@ export function ReceiptScreen({
 }
 
 const styles = StyleSheet.create({
-  content: { width: "100%" },
+  content: { alignSelf: "center", width: "100%" },
   keyboard: { flex: 1 },
   safeArea: { flex: 1 },
   scroll: { flex: 1 },
