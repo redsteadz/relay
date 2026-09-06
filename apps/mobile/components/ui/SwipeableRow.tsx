@@ -1,104 +1,59 @@
 import type { PropsWithChildren } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { StyleSheet, View } from "react-native";
+import ReanimatedSwipeable, {
+  SwipeDirection,
+} from "react-native-gesture-handler/ReanimatedSwipeable";
 import { Icon } from "react-native-paper";
-import Animated, {
-  interpolate,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { interpolate, useAnimatedStyle, type SharedValue } from "react-native-reanimated";
 
-import { useAppMotion } from "@/hooks/useAppMotion";
 import { useRelayTheme } from "@/theme";
 
 import { AppText } from "./AppText";
 
 /**
- * How far the row must travel, as a share of screen width, before releasing dismisses it.
+ * How far the row must travel before releasing commits the action.
  *
- * Matched to the platform's own notification shade rather than chosen: a person arrives with that
- * gesture already in their hands, and a row that demands a longer drag than the shade does reads as
- * stiff even when nothing is technically wrong.
+ * Expressed in points rather than a share of the screen because `ReanimatedSwipeable` measures the
+ * action panel itself; the threshold only has to be shorter than the panel is wide.
  */
-const DISMISS_RATIO = 0.35;
+const COMMIT_THRESHOLD = 96;
 
-/** A flick dismisses regardless of distance, which is what makes the shade feel effortless. */
-const DISMISS_VELOCITY = 800;
+/**
+ * Resistance applied to the drag.
+ *
+ * 1 is one-to-one with the finger. Anything higher makes the row lag the hand, which reads as the
+ * gesture failing rather than resisting.
+ */
+const DRAG_FRICTION = 1;
 
 type SwipeableRowProps = PropsWithChildren<{
   /** Spoken description of what the action does, used for the assistive-technology equivalent. */
   actionLabel: string;
   /** Icon shown behind the row as it travels. */
   icon: string;
-  /** Runs once the row has left. */
+  /** Runs as the row commits, before it has finished leaving. */
   onAction: () => void;
 }>;
 
 /**
- * A row that is swiped away, the way a notification is.
+ * A row that is swiped away.
  *
- * The row tracks the finger for the whole gesture and leaves the screen when released past the
- * threshold or flicked. It is deliberately not a reveal: an action drawn under a row that stops at
- * a fixed open position hits a wall mid-drag, and that wall is what makes a swipe feel rigid no
- * matter how the friction is tuned. Here there is nothing to stop against.
+ * Built on `ReanimatedSwipeable` from gesture-handler rather than on a hand-rolled pan. The
+ * hand-rolled version tracked the finger correctly but owned its own exit animation, so the row
+ * finished travelling, *then* the item was removed, and the list closed the gap in a separate
+ * uncoordinated frame. Every part of the gesture now runs on the UI thread inside one maintained
+ * component, and the closing of the gap is a layout animation on the list rather than this row's
+ * business.
  *
- * What is drawn behind is a hint rather than a control -- it fades in with the drag to say what
- * releasing will do, and needs no press of its own.
- *
- * The gesture claims horizontal movement only, and yields outright once a drag turns vertical, so
- * the list underneath still scrolls. Movement is one-to-one; damping it makes the row lag the hand
- * and reads as the gesture failing rather than resisting.
+ * The action commits on `onSwipeableWillOpen` -- as the release animation begins, not after it
+ * lands. The caller removes the item at that moment and its exit animation and the row's own
+ * travel become the same motion instead of two consecutive ones.
  *
  * A swipe is invisible to a screen reader and impossible for some motor abilities, so the same
  * action is always published as an accessibility action. Nothing here is reachable only by dragging.
  */
 export function SwipeableRow({ actionLabel, children, icon, onAction }: SwipeableRowProps) {
   const theme = useRelayTheme();
-  const { duration, reducedMotion } = useAppMotion();
-  const { width } = useWindowDimensions();
-  const translateX = useSharedValue(0);
-
-  const threshold = width * DISMISS_RATIO;
-  // Resolved here rather than inside the gesture: `duration` is an ordinary function on the React
-  // side, and the gesture callbacks run as worklets on the UI runtime, which cannot call into it.
-  const exitDuration = duration(200);
-
-  const pan = Gesture.Pan()
-    // Horizontal intent has to be established before the row moves, and a vertical drag fails the
-    // gesture outright, so the scroll view keeps every gesture that was meant for it.
-    .activeOffsetX([-12, 12])
-    .failOffsetY([-10, 10])
-    .onUpdate((event) => {
-      // Rows travel one way. Dragging back toward rest is allowed; dragging past it is not.
-      translateX.value = Math.min(0, event.translationX);
-    })
-    .onEnd((event) => {
-      const travelled = -translateX.value;
-      const flicked = event.velocityX < -DISMISS_VELOCITY;
-      if (travelled < threshold && !flicked) {
-        translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
-        return;
-      }
-      if (reducedMotion) {
-        translateX.value = 0;
-        runOnJS(onAction)();
-        return;
-      }
-      translateX.value = withTiming(-width, { duration: exitDuration }, (finished) => {
-        if (finished === true) runOnJS(onAction)();
-      });
-    });
-
-  const rowStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
-
-  const hintStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(-translateX.value, [0, threshold], [0, 1], "clamp"),
-  }));
 
   return (
     <View
@@ -106,38 +61,77 @@ export function SwipeableRow({ actionLabel, children, icon, onAction }: Swipeabl
       onAccessibilityAction={(action) => {
         if (action.nativeEvent.actionName === "hide") onAction();
       }}
-      style={styles.container}
     >
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.hint,
-          hintStyle,
-          { gap: theme.relay.spacing.xxs, paddingRight: theme.relay.spacing.lg },
-        ]}
+      <ReanimatedSwipeable
+        // Horizontal intent has to be established before the row moves, so a drag meant for the
+        // scroll view stays with it.
+        dragOffsetFromRightEdge={theme.relay.spacing.md}
+        friction={DRAG_FRICTION}
+        onSwipeableWillOpen={(direction) => {
+          // Right-side actions open on a negative translation, which the component reports as
+          // LEFT: the direction names the way the row travelled, not the side that was revealed.
+          if (direction === SwipeDirection.LEFT) onAction();
+        }}
+        // The row travels one way and does not rebound past rest: it is leaving, not opening a
+        // drawer to be read.
+        overshootRight={false}
+        renderRightActions={(progress) => (
+          <SwipeHint actionLabel={actionLabel} icon={icon} progress={progress} />
+        )}
+        rightThreshold={COMMIT_THRESHOLD}
       >
-        <Icon color={theme.relay.colors.danger} size={theme.relay.sizes.icon.md} source={icon} />
-        <AppText style={{ color: theme.relay.colors.danger }} variant="caption">
+        {children}
+      </ReanimatedSwipeable>
+    </View>
+  );
+}
+
+/**
+ * What is drawn behind the row as it travels.
+ *
+ * A hint rather than a control: it says what releasing will do and needs no press of its own. It
+ * fades and settles into place with the drag, so the row never hits a wall at a fixed open
+ * position -- the thing that makes a reveal-style swipe feel rigid however the friction is tuned.
+ */
+function SwipeHint({
+  actionLabel,
+  icon,
+  progress,
+}: {
+  actionLabel: string;
+  icon: string;
+  progress: SharedValue<number>;
+}) {
+  const theme = useRelayTheme();
+  const { colors, radii, sizes, spacing } = theme.relay;
+
+  const style = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 1], [0, 1], "clamp"),
+    transform: [{ scale: interpolate(progress.value, [0, 1], [0.85, 1], "clamp") }],
+  }));
+
+  return (
+    <View
+      style={[
+        styles.hint,
+        {
+          backgroundColor: colors.dangerSurface,
+          borderRadius: radii.md,
+          paddingHorizontal: spacing.lg,
+        },
+      ]}
+    >
+      <Animated.View style={[styles.hintContent, style, { gap: spacing.xs }]}>
+        <Icon color={colors.onDangerSurface} size={sizes.icon.md} source={icon} />
+        <AppText style={{ color: colors.onDangerSurface }} variant="label">
           {actionLabel}
         </AppText>
       </Animated.View>
-      <GestureDetector gesture={pan}>
-        <Animated.View style={rowStyle}>{children}</Animated.View>
-      </GestureDetector>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { justifyContent: "center" },
-  hint: {
-    alignItems: "center",
-    bottom: 0,
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-  },
+  hint: { alignItems: "flex-end", justifyContent: "center" },
+  hintContent: { alignItems: "center", flexDirection: "row" },
 });

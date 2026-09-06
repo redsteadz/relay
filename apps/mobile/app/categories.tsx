@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
   ActionRow,
   AppButton,
@@ -77,33 +77,32 @@ export default function CategoriesScreen() {
       : categoryErrorMessage(categories.operationError);
 
   return (
-    <AppScreen
+    <ReceiptScreen
       action={
         <AppButton
+          accessibilityLabel="New category"
           disabled={session === null}
-          label="New category"
+          label="New"
           onPress={() => {
             categories.clearError();
             setEditorCategory(null);
           }}
         />
       }
-      backLabel="Back to settings"
-      detail="Shape your own taxonomy without changing Relay's stable system vocabulary."
-      eyebrow="Tenant-owned taxonomy"
       onBack={() => router.back()}
       title="Categories"
-      titleAccessory={
-        session === null ? (
-          <ContextualNotice
-            accessibilityLabel="Why category management is unavailable"
-            tone="warning"
-          >
-            Sign in to manage account categories.
-          </ContextualNotice>
-        ) : undefined
-      }
     >
+      <AppText tone="muted" variant="caption">
+        Shape your own taxonomy without changing Relay's stable system vocabulary.
+      </AppText>
+      {session === null ? (
+        <ContextualNotice
+          accessibilityLabel="Why category management is unavailable"
+          tone="warning"
+        >
+          Sign in to manage account categories.
+        </ContextualNotice>
+      ) : null}
       {errorMessage === undefined || editorCategory !== undefined ? null : (
         <View style={{ gap: theme.relay.spacing.sm }}>
           <StatusMessage tone="error">{errorMessage}</StatusMessage>
@@ -256,6 +255,6 @@ export default function CategoriesScreen() {
         title="Delete archived category?"
         visible={deleteTarget !== undefined}
       />
-    </AppScreen>
+    </ReceiptScreen>
   );
 }

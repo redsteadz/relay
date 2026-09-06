@@ -1,8 +1,7 @@
 import type { FilterCompilation } from "@relay/contracts";
 import { StyleSheet, View } from "react-native";
-import { Chip } from "react-native-paper";
 
-import { AppText, StatusMessage } from "@/components/ui";
+import { AppText, MonoChip, StatusMessage } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import {
@@ -37,14 +36,16 @@ export function FilterPlanSummary({ compilation }: FilterPlanSummaryProps) {
             None. This rule is decided entirely by the semantic clause below.
           </AppText>
         ) : (
+          // Predicates are set in mono and group connectives in the eyebrow style: the connective is
+          // structure, the predicate is the compiled text a person is checking word for word.
           lines.map((line, index) => (
             <AppText
               key={`${index.toString()}-${line.text}`}
-              style={{ paddingLeft: line.depth * theme.relay.spacing.md }}
+              style={{ paddingLeft: line.depth * theme.relay.spacing.lg }}
               tone={line.kind === "group" ? "muted" : "default"}
-              variant={line.kind === "group" ? "caption" : "body"}
+              variant={line.kind === "group" ? "eyebrow" : "monoBody"}
             >
-              {line.text}
+              {line.kind === "group" ? line.text.toUpperCase() : line.text}
             </AppText>
           ))
         )}
@@ -69,9 +70,7 @@ export function FilterPlanSummary({ compilation }: FilterPlanSummaryProps) {
             <AppText variant="label">Fields this clause may read</AppText>
             <View style={[styles.chips, { gap: theme.relay.spacing.sm }]}>
               {plan.semantic.allowedFields.map((field) => (
-                <Chip compact key={field}>
-                  {filterFieldLabel(field)}
-                </Chip>
+                <MonoChip key={field} value={filterFieldLabel(field)} />
               ))}
             </View>
             <AppText tone="muted" variant="caption">

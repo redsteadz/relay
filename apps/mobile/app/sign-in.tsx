@@ -2,7 +2,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { StyleSheet } from "react-native";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
   AppButton,
   AppText,
@@ -56,11 +56,11 @@ export default function SignInScreen() {
   }
 
   return (
-    <AppScreen
-      eyebrow="Private by default"
-      title="Sign in to Relay"
-      detail="Use an approved Relay account. Relay stores the refreshable session in device-secure storage."
-    >
+    <ReceiptScreen title="Sign in">
+      <AppText tone="muted" variant="caption">
+        Use an approved Relay account. Relay stores the refreshable session in device-secure
+        storage.
+      </AppText>
       <EditorialSurface
         icon="email-fast-outline"
         title="Email magic link"
@@ -99,7 +99,7 @@ export default function SignInScreen() {
       <AppText style={styles.note} tone="muted" variant="caption">
         Account enrollment remains operator controlled.
       </AppText>
-    </AppScreen>
+    </ReceiptScreen>
   );
 }
 

@@ -2,9 +2,18 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
 
-import { AppScreen } from "@/components/AppScreen";
-import { AppText, FeedbackState, LoadingState, StatusMessage, UndoBar } from "@/components/ui";
-import { InboxItemCard } from "@/features/inbox/components/InboxItemCard";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
+import {
+  AnimatedListItem,
+  AppText,
+  FeedbackState,
+  LoadingState,
+  StatusMessage,
+  SwipeableRow,
+  UndoBar,
+} from "@/components/ui";
+import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
+import { ReceiptCard } from "@/features/inbox/components/ReceiptCard";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
 import {
@@ -13,28 +22,30 @@ import {
   inboxSections,
   type InboxGroup,
 } from "@/features/inbox/models/inboxPresentation";
+import { useAuth } from "@/lib/auth-context";
 import { logMobileError } from "@/lib/observability";
 import { useRelayTheme } from "@/theme";
 
 const GROUP_HEADING: Record<InboxGroup, string> = {
-  actionable: "Needs doing",
-  "needs-review": "Needs your review",
+  actionable: "Needs you",
+  "needs-review": "Review",
   quiet: "Filed quietly",
 };
 
 /**
  * Everything one application sent, in the same order of importance as the inbox itself.
  *
- * The three groups are kept rather than flattened, so narrowing to one source never costs a reader
- * the distinction between what needs doing and what was merely recorded. Grouping applies to every
- * group here, which is what the main inbox deliberately does not do: there, a handful of items
- * needing attention stay flat so a busy application cannot bury them under its own heading.
+ * The three outcomes are kept as headings rather than tabs here: this list is already narrowed to
+ * one source, so it is short enough to read in one pass, and a tab strip over a handful of rows
+ * would ask for a choice where scrolling is cheaper.
  */
 export default function InboxApplicationScreen() {
   const router = useRouter();
   const theme = useRelayTheme();
   const { applicationId } = useLocalSearchParams<{ applicationId: string }>();
+  const { client, session } = useAuth();
   const inbox = useInbox();
+  const proposals = useProposedActions(client, session?.user.id);
   const [hideError, setHideError] = useState<string | undefined>();
 
   const key = decodeURIComponent(applicationId ?? "");
@@ -70,10 +81,7 @@ export default function InboxApplicationScreen() {
   }
 
   return (
-    <AppScreen
-      backLabel="Back to applications"
-      detail="Only what this source sent, ordered the way your inbox is."
-      eyebrow="One source"
+    <ReceiptScreen
       onBack={() => router.back()}
       overlay={
         inbox.lastHidden === undefined ? undefined : (
@@ -92,6 +100,9 @@ export default function InboxApplicationScreen() {
       {inbox.loading ? <LoadingState label="Reading captures..." /> : null}
 
       {hideError === undefined ? null : <StatusMessage tone="error">{hideError}</StatusMessage>}
+      {proposals.error === undefined ? null : (
+        <StatusMessage tone="error">{proposals.error}</StatusMessage>
+      )}
 
       {!inbox.loading && items.length === 0 ? (
         <FeedbackState
@@ -103,22 +114,35 @@ export default function InboxApplicationScreen() {
 
       {inboxSections(items).map((section) =>
         section.items.length === 0 ? null : (
-          <View key={section.group} style={{ gap: theme.relay.spacing.sm }}>
+          <View key={section.group} style={{ gap: theme.relay.spacing.md }}>
             <AppText accessibilityRole="header" variant="eyebrow">
               {GROUP_HEADING[section.group]}
             </AppText>
-            {groupByThread(section.items).map((thread) => (
-              <InboxItemCard
-                item={thread.latest}
-                key={thread.key}
-                onHide={() => void hide(thread.latest.id)}
-                onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
-                threadCount={thread.items.length}
-              />
-            ))}
+            {groupByThread(section.items).map((thread) => {
+              const proposal = proposals.forEvent(thread.latest.id)[0];
+              return (
+                <AnimatedListItem key={thread.key}>
+                  <SwipeableRow
+                    actionLabel="Remove"
+                    icon="inbox-remove-outline"
+                    onAction={() => void hide(thread.latest.id)}
+                  >
+                    <ReceiptCard
+                      busy={proposal !== undefined && proposals.deciding === proposal.id}
+                      item={thread.latest}
+                      onApprove={(runId) => void proposals.approve(runId)}
+                      onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
+                      onSkip={(runId) => void proposals.skip(runId)}
+                      proposal={proposal}
+                      threadCount={thread.items.length}
+                    />
+                  </SwipeableRow>
+                </AnimatedListItem>
+              );
+            })}
           </View>
         ),
       )}
-    </AppScreen>
+    </ReceiptScreen>
   );
 }

@@ -1,17 +1,16 @@
 import type { FilterPlan } from "@relay/contracts";
 import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import { Chip } from "react-native-paper";
 
 import { AppText } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import {
-  decisionLabel,
   filterFieldLabel,
   previewFilterOutcomes,
   type PreviewItem,
 } from "../models/filterPresentation";
+import { DecisionPill } from "./DecisionPill";
 
 type FilterPreviewPanelProps = {
   items: readonly PreviewItem[];
@@ -39,8 +38,10 @@ export function FilterPreviewPanel({ items, plan }: FilterPreviewPanelProps) {
       {outcomes.map((outcome) => (
         <View key={outcome.id} style={{ gap: theme.relay.spacing.sm }}>
           <View style={[styles.heading, { gap: theme.relay.spacing.sm }]}>
-            <AppText style={styles.label}>{outcome.label}</AppText>
-            <Chip compact>{decisionLabel(outcome.decision)}</Chip>
+            <AppText style={styles.label} variant="bodyStrong">
+              {outcome.label}
+            </AppText>
+            <DecisionPill decision={outcome.decision} />
           </View>
           {outcome.matchedFields.length === 0 ? null : (
             <AppText tone="muted" variant="caption">
@@ -53,7 +54,7 @@ export function FilterPreviewPanel({ items, plan }: FilterPreviewPanelProps) {
                 If you resolve this with a model, exactly this would be sent:
               </AppText>
               {outcome.disclosure.fields.map((field) => (
-                <AppText key={field.field} tone="muted" variant="caption">
+                <AppText key={field.field} tone="muted" variant="mono">
                   {filterFieldLabel(field.field)}: {field.value}
                   {field.truncated ? " …(cut)" : ""}
                 </AppText>

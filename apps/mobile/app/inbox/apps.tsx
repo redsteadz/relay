@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { View } from "react-native";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import { AppText, EditorialSurface, FeedbackState, LoadingState } from "@/components/ui";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
@@ -30,13 +30,7 @@ export default function InboxApplicationsScreen() {
   const applications = summariseByApp(items, labels);
 
   return (
-    <AppScreen
-      backLabel="Back to inbox"
-      detail="Sources that have sent captures, with what each is still waiting on."
-      eyebrow="By source"
-      onBack={() => router.back()}
-      title="Applications"
-    >
+    <ReceiptScreen onBack={() => router.back()} title="Applications">
       {inbox.loading ? <LoadingState label="Reading your inbox..." /> : null}
 
       {!inbox.loading && applications.length === 0 ? (
@@ -83,6 +77,6 @@ export default function InboxApplicationsScreen() {
           </EditorialSurface>
         );
       })}
-    </AppScreen>
+    </ReceiptScreen>
   );
 }
