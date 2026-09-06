@@ -49,7 +49,13 @@ class RelayNotificationListenerService : NotificationListenerService() {
    */
   private fun captureAlreadyPosted() {
     synchronized(NotificationCaptureStateLock) {
-      val configuration = enabledConfiguration() ?: return
+      // Being called is the system's own statement that access was granted -- it does not bind a
+      // listener it has not authorized -- so this path does not re-read the setting. Reading it did
+      // not merely duplicate the guarantee, it broke the sweep exactly where it matters most: on a
+      // fresh grant the binding arrives before `Settings.Secure` reflects it, so the sweep declined
+      // for want of a permission it was holding, and the shade a person had just given Relay access
+      // to went uncaptured.
+      val configuration = captureConfiguration() ?: return
       // Android refuses this until the binding it has just announced is fully established. A
       // listener that cannot yet read the shade has nothing to sweep, which is a state to record
       // rather than a failure to report: the next connection sweeps.
@@ -83,17 +89,20 @@ class RelayNotificationListenerService : NotificationListenerService() {
   }
 
   /**
-   * The capture configuration when capture is actually enabled, or nothing.
+   * The capture configuration when capture is enabled and the tenant still grants access.
    *
    * Every reason to decline is reported, because a capture that silently does not happen is the
    * failure this service is hardest to diagnose from the outside.
    */
   private fun enabledConfiguration(): NotificationCaptureConfiguration? {
-    val settings = NotificationCaptureSettings(applicationContext)
-    val accessGranted = settings.listenerAccessGranted()
+    val accessGranted = NotificationCaptureSettings(applicationContext).listenerAccessGranted()
     NotificationDebugDiagnostics.event("listener access granted=$accessGranted")
-    if (!accessGranted) return null
-    val configuration = settings.read()
+    return if (accessGranted) captureConfiguration() else null
+  }
+
+  /** What the tenant asked Relay to capture, when capture is on. */
+  private fun captureConfiguration(): NotificationCaptureConfiguration? {
+    val configuration = NotificationCaptureSettings(applicationContext).read()
     NotificationDebugDiagnostics.event("configuration found=${configuration != null}")
     if (configuration == null) return null
     NotificationDebugDiagnostics.event(
