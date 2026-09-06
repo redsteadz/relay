@@ -85,7 +85,15 @@ function errorCode(value: unknown): string | undefined {
   return typeof error.code === "string" ? error.code : undefined;
 }
 
-function configuredBaseUrl(): string {
+/**
+ * The configured Relay API origin.
+ *
+ * Shared with device registration and capture upload, which each used to resolve this variable
+ * themselves and fall back to `http://localhost:3000`. On a phone that address is the phone, so the
+ * fallback could not reach Relay and turned a missing variable into a network error at a point where
+ * nothing retried it. A missing origin is a configuration fault and says so.
+ */
+export function relayApiBaseUrl(): string {
   const candidate = process.env.EXPO_PUBLIC_API_URL?.trim();
   if (candidate === undefined || candidate.length === 0) {
     throw new RelayApiError("not-configured");
@@ -116,7 +124,7 @@ export async function requestRelayApi(
   const startedAt = Date.now();
   let baseUrl: string;
   try {
-    baseUrl = configuredBaseUrl();
+    baseUrl = relayApiBaseUrl();
   } catch (error: unknown) {
     const normalized =
       error instanceof RelayApiError

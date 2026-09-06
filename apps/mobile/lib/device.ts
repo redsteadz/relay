@@ -8,6 +8,7 @@ import { AppError, categoryForHttpStatus } from "@relay/observability";
 import { Platform } from "react-native";
 import RelayDeviceIngress from "../modules/relay-device-ingress";
 import { mobileRequestId } from "./observability";
+import { relayApiBaseUrl } from "./relay-api";
 
 const volatileWebIds = new Map<string, string>();
 
@@ -36,7 +37,7 @@ export async function registerInstallation(
   accessToken: string,
 ): Promise<DeviceRegistrationResponse> {
   const id = await installationId(userId);
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+  const baseUrl = relayApiBaseUrl();
   const operationRequestId = mobileRequestId();
   try {
     const response = await fetch(`${baseUrl}/api/devices/register`, {
@@ -75,7 +76,7 @@ export async function revokeInstallation(
   accessToken: string,
   deviceId: string,
 ): Promise<void> {
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+  const baseUrl = relayApiBaseUrl();
   const operationRequestId = mobileRequestId();
   try {
     const response = await fetch(`${baseUrl}/api/devices/revoke`, {

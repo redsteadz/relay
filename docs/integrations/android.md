@@ -65,11 +65,23 @@ The native capture queue stores only AES-256-GCM ciphertext in SQLite. Its per-t
 non-exportable Android Keystore material, and tenant/envelope identity is authenticated as associated
 data. Capture adapters assign the envelope UUID once before enqueueing. The queue retains that UUID
 across process restarts and retries, expires items seven days after capture, and enters an explicit
-failed state for terminal responses or exhausted retries. It is bounded to 500 items and 2 MiB per
+failed state when Relay refuses the payload itself. It is bounded to 500 items and 2 MiB per
 tenant. A device item is deleted only when `/api/ingest` returns `202` with a validated
 `{ accepted: true, durable: true, id }` acknowledgement for the same envelope. Sign-out and device
 revocation delete the Keystore key before deleting tenant rows, so an interrupted clear cannot leave
 decryptable source data.
+
+Only `400` and `413` retire a capture, along with a stored envelope this build cannot read. Every
+other answer — an expired token, a device not yet active, a rate limit, an outage, a `404` from an
+origin that is not Relay — describes the environment rather than the capture, so the capture stays
+queued until it is delivered or expires. Counting those toward a retry budget discarded captures for
+conditions certain to resolve on their own; seven-day expiry is the only bound on how long an
+undeliverable capture is held.
+
+An upload pass stops at the first such answer instead of continuing through the queue, so an outage
+costs one attempt rather than one per queued capture. Uploading is not gated on a source being
+active: those captures were taken under the consent that applied when they were taken, and it is
+pausing that stops new reads while deleting queued captures is its own explicit action.
 
 `READ_SMS` and `RECEIVE_SMS` are sensitive Google Play permissions. Google documents possible
 exceptions for device automation and SMS-based money management, subject to review. MVP therefore

@@ -53,6 +53,22 @@ function parseRetainedContent(raw: string): RetainedCaptureContent | undefined {
   return { ...(body === undefined ? {} : { body }), ...(subject === undefined ? {} : { subject }) };
 }
 
+/**
+ * A stored envelope, returned for validation rather than validated here.
+ *
+ * This read used to parse each row against the envelope schema as it mapped, so one row the current
+ * build could not read threw out of the whole call. Every queued capture was then stranded by a
+ * single bad neighbour, no upload was attempted, and the queue's own per-row guard -- which retires
+ * exactly such a row -- was unreachable because nothing ever got past this point.
+ */
+function decodeQueuedEnvelope(envelopeJson: string): unknown {
+  try {
+    return JSON.parse(envelopeJson);
+  } catch {
+    return undefined;
+  }
+}
+
 let preparedCaptureGeneration: number | undefined;
 
 function currentCaptureGeneration(): number {
@@ -219,7 +235,8 @@ const RelayDeviceIngress = {
     );
     return rows.map((row) => ({
       attempts: row.attempts,
-      envelope: ingressEnvelopeSchema.parse(JSON.parse(row.envelopeJson)),
+      envelope: decodeQueuedEnvelope(row.envelopeJson),
+      envelopeId: row.envelopeId,
     }));
   },
   async getNotificationCapturePreviews(

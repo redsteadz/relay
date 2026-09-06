@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const storage = vi.hoisted(() => new Map<string, string>());
 const installationId = "19784902-e7a4-4f7f-b04d-e3a78c876629";
@@ -44,6 +44,11 @@ describe("registerInstallation", () => {
   beforeEach(() => {
     storage.clear();
     vi.unstubAllGlobals();
+    vi.stubEnv("EXPO_PUBLIC_API_URL", "https://api.relay.test");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("persists one native installation ID per user and registers without source content", async () => {
@@ -63,7 +68,7 @@ describe("registerInstallation", () => {
       installationId,
     );
     const [, init] = fetchMock.mock.lastCall ?? [];
-    expect(fetchMock.mock.lastCall?.[0]).toBe("http://localhost:3000/api/devices/register");
+    expect(fetchMock.mock.lastCall?.[0]).toBe("https://api.relay.test/api/devices/register");
     expect(init).toMatchObject({
       method: "POST",
       headers: {
@@ -73,6 +78,20 @@ describe("registerInstallation", () => {
       body: JSON.stringify({ id: installationId, platform: "android" }),
     });
     expect(new Headers(init?.headers).get("x-relay-request-id")).toMatch(/^[0-9a-f-]+$/i);
+  });
+
+  // Registering used to address `http://localhost:3000` when this was unset. On a phone that is the
+  // phone, so a build with no origin configured reported a network failure from the device itself
+  // rather than the configuration fault it was.
+  it("reports a missing origin as configuration rather than reaching for localhost", async () => {
+    vi.stubEnv("EXPO_PUBLIC_API_URL", "");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      registerInstallation("638ce145-a77d-4c32-b798-cb398e881fc9", "synthetic-token"),
+    ).rejects.toMatchObject({ category: "configuration" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("clears encrypted tenant data after device revocation", async () => {
