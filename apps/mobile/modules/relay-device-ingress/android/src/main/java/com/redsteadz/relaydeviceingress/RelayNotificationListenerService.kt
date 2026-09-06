@@ -1,12 +1,12 @@
 package com.redsteadz.relaydeviceingress
 
-import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
 class RelayNotificationListenerService : NotificationListenerService() {
   override fun onListenerConnected() {
     NotificationDebugDiagnostics.event("listener connected")
+    captureAlreadyPosted()
   }
 
   override fun onListenerDisconnected() {
@@ -16,57 +16,145 @@ class RelayNotificationListenerService : NotificationListenerService() {
   override fun onNotificationPosted(notification: StatusBarNotification) {
     synchronized(NotificationCaptureStateLock) {
       NotificationDebugDiagnostics.event("notification posted package=${notification.packageName}")
-      val settings = NotificationCaptureSettings(applicationContext)
-      val accessGranted = settings.listenerAccessGranted()
-      NotificationDebugDiagnostics.event("listener access granted=$accessGranted")
-      if (!accessGranted) return
-      val configuration = settings.read()
-      NotificationDebugDiagnostics.event("configuration found=${configuration != null}")
-      if (configuration == null) return
-      NotificationDebugDiagnostics.event(
-        "capture paused=${configuration.paused} allowlistSize=${configuration.allowedPackages.size}"
-      )
-      if (configuration.paused) return
-      if (notification.packageName == packageName) {
-        NotificationDebugDiagnostics.event("skipped relay's own notification")
-        return
-      }
-      // A grouped app must post a summary alongside its children. The summary only aggregates
-      // content the children already carry, and it is rewritten on every new child, so capturing it
-      // duplicates observations and churns identity for no added signal.
-      if (notification.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) {
-        NotificationDebugDiagnostics.event("skipped group summary")
-        return
-      }
-      val allowed = notification.packageName in configuration.allowedPackages
-      NotificationDebugDiagnostics.event(
-        "package allowed=$allowed package=${notification.packageName}"
-      )
-      if (!allowed) return
-
+      val configuration = enabledConfiguration() ?: return
+      if (!capturable(notification, configuration)) return
       try {
-        val capture = NotificationEnvelopeFactory.create(notification, System.currentTimeMillis())
         CaptureQueueStore(applicationContext).use { queue ->
-          queue.enqueue(
-            configuration.tenantId,
-            capture.envelopeId,
-            "notification",
-            capture.capturedAt,
-            capture.json
-          )
-          // Kept separately from the outbox so acknowledging an upload does not also remove the
-          // tenant's own ability to read what was captured.
-          queue.retainContent(
-            configuration.tenantId,
-            capture.envelopeId,
-            capture.capturedAt,
-            capture.content
-          )
+          capture(queue, configuration.tenantId, notification)
         }
         NotificationDebugDiagnostics.event("capture enqueued")
       } catch (error: RuntimeException) {
         NotificationDebugDiagnostics.failure("capture enqueue threw an exception", error)
       }
     }
+  }
+
+  /**
+   * Captures what was already on screen when this listener connected.
+   *
+   * `onNotificationPosted` fires only for a notification posted while the listener is bound, and
+   * nothing else reads the shade. A notification that arrived while the listener was unbound -- an
+   * app update, a reboot, process death, the system rebinding the service -- was therefore lost
+   * permanently while still sitting visible on the device. An unbind should cost a delay, not the
+   * capture.
+   *
+   * Re-offering a capture is safe by construction rather than by luck. The envelope UUID is derived
+   * from the posting package, Android's notification key, and a fingerprint of the visible content,
+   * so an unchanged notification produces the identity it produced before: the queue keeps the
+   * original row and its retry history, and the pipeline recognises a redelivery instead of storing
+   * a second capture.
+   *
+   * The gates are the live path's gates, applied by the same functions. A sweep that decided for
+   * itself what to capture would be a second capture policy to keep in step with the first.
+   */
+  private fun captureAlreadyPosted() {
+    synchronized(NotificationCaptureStateLock) {
+      val configuration = enabledConfiguration() ?: return
+      // Android refuses this until the binding it has just announced is fully established. A
+      // listener that cannot yet read the shade has nothing to sweep, which is a state to record
+      // rather than a failure to report: the next connection sweeps.
+      val active =
+        try {
+          activeNotifications
+        } catch (error: RuntimeException) {
+          NotificationDebugDiagnostics.failure("active notifications unavailable", error)
+          return
+        } ?: return
+
+      var captured = 0
+      try {
+        CaptureQueueStore(applicationContext).use { queue ->
+          // Oldest first, so a sweep enqueues in the order the notifications arrived rather than in
+          // whatever order Android happens to return them.
+          for (notification in active.sortedBy { it.postTime }) {
+            if (!capturable(notification, configuration)) continue
+            if (capture(queue, configuration.tenantId, notification, skipRecorded = true)) {
+              captured += 1
+            }
+          }
+        }
+      } catch (error: RuntimeException) {
+        NotificationDebugDiagnostics.failure("active notification sweep threw an exception", error)
+      }
+      NotificationDebugDiagnostics.event(
+        "swept already-posted notifications found=${active.size} captured=$captured"
+      )
+    }
+  }
+
+  /**
+   * The capture configuration when capture is actually enabled, or nothing.
+   *
+   * Every reason to decline is reported, because a capture that silently does not happen is the
+   * failure this service is hardest to diagnose from the outside.
+   */
+  private fun enabledConfiguration(): NotificationCaptureConfiguration? {
+    val settings = NotificationCaptureSettings(applicationContext)
+    val accessGranted = settings.listenerAccessGranted()
+    NotificationDebugDiagnostics.event("listener access granted=$accessGranted")
+    if (!accessGranted) return null
+    val configuration = settings.read()
+    NotificationDebugDiagnostics.event("configuration found=${configuration != null}")
+    if (configuration == null) return null
+    NotificationDebugDiagnostics.event(
+      "capture paused=${configuration.paused} allowlistSize=${configuration.allowedPackages.size}"
+    )
+    return if (configuration.paused) null else configuration
+  }
+
+  /**
+   * Whether this notification is one the tenant asked Relay to capture.
+   *
+   * The decision itself is `NotificationCapturePolicy`, shared with every route a notification can
+   * take into Relay. What belongs here is only reporting it.
+   */
+  private fun capturable(
+    notification: StatusBarNotification,
+    configuration: NotificationCaptureConfiguration
+  ): Boolean {
+    val decision =
+      NotificationCapturePolicy.decide(
+        notification.packageName,
+        packageName,
+        notification.notification.flags,
+        configuration.allowedPackages
+      )
+    when (decision) {
+      NotificationCaptureDecision.OWN_NOTIFICATION ->
+        NotificationDebugDiagnostics.event("skipped relay's own notification")
+      NotificationCaptureDecision.GROUP_SUMMARY ->
+        NotificationDebugDiagnostics.event("skipped group summary")
+      NotificationCaptureDecision.PACKAGE_NOT_ALLOWED,
+      NotificationCaptureDecision.CAPTURE ->
+        NotificationDebugDiagnostics.event(
+          "package allowed=${decision == NotificationCaptureDecision.CAPTURE}" +
+            " package=${notification.packageName}"
+        )
+    }
+    return decision == NotificationCaptureDecision.CAPTURE
+  }
+
+  /**
+   * Enqueues one capture and keeps the tenant's own copy of what it said.
+   *
+   * `skipRecorded` belongs to the sweep alone. A sweep re-reads notifications this device may
+   * already have captured and uploaded, and spending an upload to tell the server something it has
+   * already been told is waste the live path never incurs. The live path must not skip: a queue row
+   * that expired unsent leaves the retained content behind, and treating that as "already captured"
+   * would turn an unsent capture into one that is never sent.
+   */
+  private fun capture(
+    queue: CaptureQueueStore,
+    tenantId: String,
+    notification: StatusBarNotification,
+    skipRecorded: Boolean = false
+  ): Boolean {
+    val capture = NotificationEnvelopeFactory.create(notification, System.currentTimeMillis())
+    if (skipRecorded && queue.hasRecord(tenantId, capture.envelopeId)) return false
+    queue.enqueue(tenantId, capture.envelopeId, "notification", capture.capturedAt, capture.json)
+    // Kept separately from the outbox so acknowledging an upload does not also remove the
+    // tenant's own ability to read what was captured.
+    queue.retainContent(tenantId, capture.envelopeId, capture.capturedAt, capture.content)
+    return true
   }
 }

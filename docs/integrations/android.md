@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-08-31
+last_verified: 2026-09-06
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -32,6 +32,17 @@ existing envelope ID carrying different facts, which deduplication rejects as
 `fact_integrity_conflict`. Including content keeps an unchanged redelivery idempotent and makes an
 edit its own observation. Post time is excluded so retrying one unchanged notification cannot mint a
 second identity, and two notifications sharing a key and visible content deduplicate to one capture.
+
+A notification is captured by two routes, deciding by one policy. `onNotificationPosted` delivers
+only what is posted while the listener is bound, so anything that arrived while it was unbound -- an
+app update, a reboot, process death, the system rebinding the service -- was observable in the shade
+and never captured. On connect, Relay therefore sweeps `getActiveNotifications` and offers each one
+to the same gates. Re-offering is safe because identity ignores when a capture happened: an unchanged
+notification produces the identity it produced before, so the queue keeps the original row and its
+retry history and the pipeline recognises a redelivery. A capture the server already acknowledged has
+no queue row left to recognise it by, so the sweep also consults retained content, which is keyed by
+the same envelope UUID and outlives the queue. Losing that record is bounded and safe: the capture is
+offered again under an unchanged identity and deduplicates server-side.
 
 Extraction reads `sender` and the structured `attributes` map. It does not read `subject` or `body`,
 and [ADR-0010](../decisions/0010-fact-only-event-extraction.md) records why: those are free text no
