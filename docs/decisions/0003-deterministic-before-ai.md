@@ -34,3 +34,8 @@ constraint in this decision -- deterministic first, field allowlists, redaction,
 confidence threshold, disclosure audit -- is unchanged and applies wherever the request is sent.
 
 Related: [filter model](../architecture/filter-model.md), [privacy](../security/privacy.md).
+
+Refined by [ADR-0014](0014-device-local-classification.md). Deterministic evaluation now also runs on
+the device, which strengthens this decision rather than bending it: a device never holds the tenant's
+model credential, so it can only ever run the deterministic half. A semantic clause is reported as
+awaiting a model and files nothing.

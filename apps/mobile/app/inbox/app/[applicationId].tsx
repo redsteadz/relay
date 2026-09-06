@@ -28,16 +28,17 @@ import { useRelayTheme } from "@/theme";
 
 const GROUP_HEADING: Record<InboxGroup, string> = {
   actionable: "Needs you",
+  filed: "Filed",
   "needs-review": "Review",
-  quiet: "Filed quietly",
+  unfiled: "Not filed yet",
 };
 
 /**
  * Everything one application sent, in the same order of importance as the inbox itself.
  *
- * The three outcomes are kept as headings rather than tabs here: this list is already narrowed to
- * one source, so it is short enough to read in one pass, and a tab strip over a handful of rows
- * would ask for a choice where scrolling is cheaper.
+ * The outcomes are kept as headings rather than tabs here: this list is already narrowed to one
+ * source, so it is short enough to read in one pass, and a tab strip over a handful of rows would
+ * ask for a choice where scrolling is cheaper.
  */
 export default function InboxApplicationScreen() {
   const router = useRouter();

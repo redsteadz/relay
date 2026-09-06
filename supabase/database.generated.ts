@@ -330,36 +330,52 @@ export type Database = {
           category_id: string | null;
           confidence: number;
           created_at: string;
+          filter_rule_id: string | null;
           id: string;
           method: string;
           model: string | null;
+          origin: string;
           rationale: string | null;
           source_item_id: string;
+          superseded_at: string | null;
           user_id: string;
         };
         Insert: {
           category_id?: string | null;
           confidence: number;
           created_at?: string;
+          filter_rule_id?: string | null;
           id?: string;
           method: string;
           model?: string | null;
+          origin?: string;
           rationale?: string | null;
           source_item_id: string;
+          superseded_at?: string | null;
           user_id: string;
         };
         Update: {
           category_id?: string | null;
           confidence?: number;
           created_at?: string;
+          filter_rule_id?: string | null;
           id?: string;
           method?: string;
           model?: string | null;
+          origin?: string;
           rationale?: string | null;
           source_item_id?: string;
+          superseded_at?: string | null;
           user_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "classifications_filter_rule_fk";
+            columns: ["user_id", "filter_rule_id"];
+            isOneToOne: false;
+            referencedRelation: "filter_rules";
+            referencedColumns: ["user_id", "id"];
+          },
           {
             foreignKeyName: "classifications_user_id_category_id_fkey";
             columns: ["user_id", "category_id"];
@@ -1631,6 +1647,34 @@ export type Database = {
         };
         Returns: boolean;
       };
+      record_device_classification_v1: {
+        Args: {
+          p_category_id?: string;
+          p_filter_rule_id?: string;
+          p_rationale?: string;
+          p_source_item_id: string;
+        };
+        Returns: {
+          category_id: string | null;
+          confidence: number;
+          created_at: string;
+          filter_rule_id: string | null;
+          id: string;
+          method: string;
+          model: string | null;
+          origin: string;
+          rationale: string | null;
+          source_item_id: string;
+          superseded_at: string | null;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "classifications";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       record_gmail_terminal_message_v1: {
         Args: {
           p_connection_id: string;
@@ -1765,6 +1809,29 @@ export type Database = {
           p_user_id: string;
         };
         Returns: boolean;
+      };
+      withdraw_device_classification_v1: {
+        Args: { p_source_item_id: string };
+        Returns: {
+          category_id: string | null;
+          confidence: number;
+          created_at: string;
+          filter_rule_id: string | null;
+          id: string;
+          method: string;
+          model: string | null;
+          origin: string;
+          rationale: string | null;
+          source_item_id: string;
+          superseded_at: string | null;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "classifications";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
     };
     Enums: {

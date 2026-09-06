@@ -50,7 +50,7 @@ import { useRelayTheme } from "@/theme";
  * is the taxonomy the reader themselves defined, and it belongs here because the question "where
  * did that go" is asked of the inbox rather than of Settings, which is where categories are edited.
  */
-type InboxTab = InboxGroup | "categories";
+type InboxTab = "actionable" | "categories" | "needs-review" | "quiet";
 
 const TAB_LABEL: Readonly<Record<InboxTab, string>> = {
   actionable: "Needs you",
@@ -84,10 +84,18 @@ export default function InboxScreen() {
   // through several renders -- the optimistic write, the undo offer, the mutation settling -- and
   // recomputing all of it on each was the JS-thread work that made removal feel late.
   const sections = inbox.sections;
-  const itemsByGroup = useMemo(() => {
-    const grouped = new Map<InboxGroup, readonly InboxItem[]>();
-    for (const section of sections) grouped.set(section.group, section.items);
-    return grouped;
+  const itemsByTab = useMemo(() => {
+    const byGroup = new Map<InboxGroup, readonly InboxItem[]>();
+    for (const section of sections) byGroup.set(section.group, section.items);
+    const group = (key: InboxGroup): readonly InboxItem[] => byGroup.get(key) ?? EMPTY_ITEMS;
+    return new Map<InboxTab, readonly InboxItem[]>([
+      ["actionable", group("actionable")],
+      ["needs-review", group("needs-review")],
+      // One tab over two groups. An item a rule filed and one nothing has ever looked at are
+      // different states -- the Categories tab and each receipt's own decision line say which --
+      // but neither is waiting on the reader, so both sit behind the same tab.
+      ["quiet", [...group("filed"), ...group("unfiled")]],
+    ]);
   }, [sections]);
 
   const known = useMemo(
@@ -104,20 +112,20 @@ export default function InboxScreen() {
   );
 
   const items = useMemo(
-    () => (tab === "categories" ? EMPTY_ITEMS : (itemsByGroup.get(tab) ?? EMPTY_ITEMS)),
-    [itemsByGroup, tab],
+    () => (tab === "categories" ? EMPTY_ITEMS : (itemsByTab.get(tab) ?? EMPTY_ITEMS)),
+    [itemsByTab, tab],
   );
   const threads = useMemo(() => groupByThread(items), [items]);
-  const quietCount = itemsByGroup.get("quiet")?.length ?? 0;
+  const quietCount = itemsByTab.get("quiet")?.length ?? 0;
 
   const tabs: readonly OutcomeTab<InboxTab>[] = useMemo(
     () =>
       (["actionable", "needs-review", "quiet", "categories"] as const).map((key) => ({
-        count: key === "categories" ? summaries.length : (itemsByGroup.get(key)?.length ?? 0),
+        count: key === "categories" ? summaries.length : (itemsByTab.get(key)?.length ?? 0),
         key,
         label: TAB_LABEL[key],
       })),
-    [itemsByGroup, summaries.length],
+    [itemsByTab, summaries.length],
   );
 
   const applicationIds = useMemo(

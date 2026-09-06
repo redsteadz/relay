@@ -8,15 +8,15 @@ last_verified: 2026-09-05
 
 ## Components
 
-| Component             | Owns                                                            | Must not own                                  |
-| --------------------- | --------------------------------------------------------------- | --------------------------------------------- |
-| Expo mobile           | Consent, source settings, local capture queue, inbox UI         | Service credentials, classification authority |
-| Next API              | User auth, recovery auth, validation, connector setup           | Long processing, provider effects             |
-| Pipeline Worker       | Queue/DLQ processing, orchestration, filters, provider dispatch | Primary user identity UI                      |
-| Tenant Durable Object | Per-user/source ordering and short-lived coordination           | Sole permanent idempotency record             |
-| Cloudflare Workflow   | Approval waits, retry-safe provider steps                       | Undocumented arbitrary actions                |
-| Supabase              | Auth, RLS, encrypted durable data, audit and action ledger      | Plaintext credentials or raw payloads         |
-| Static web landing    | Public landing page as a static Vite build; copy and links only | Runtime, user data, credentials, API calls    |
+| Component             | Owns                                                                                                                                                              | Must not own                                                                              |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Expo mobile           | Consent, source settings, local capture queue, inbox UI, device-local deterministic classification ([ADR-0014](../decisions/0014-device-local-classification.md)) | Service credentials, semantic classification, classification that gates a provider effect |
+| Next API              | User auth, recovery auth, validation, connector setup                                                                                                             | Long processing, provider effects                                                         |
+| Pipeline Worker       | Queue/DLQ processing, orchestration, filters, provider dispatch                                                                                                   | Primary user identity UI                                                                  |
+| Tenant Durable Object | Per-user/source ordering and short-lived coordination                                                                                                             | Sole permanent idempotency record                                                         |
+| Cloudflare Workflow   | Approval waits, retry-safe provider steps                                                                                                                         | Undocumented arbitrary actions                                                            |
+| Supabase              | Auth, RLS, encrypted durable data, audit and action ledger                                                                                                        | Plaintext credentials or raw payloads                                                     |
+| Static web landing    | Public landing page as a static Vite build; copy and links only                                                                                                   | Runtime, user data, credentials, API calls                                                |
 
 Shared wire shapes live in `packages/contracts`. Pure domain rules live in `packages/domain`.
 Envelope encryption lives in `packages/crypto`.

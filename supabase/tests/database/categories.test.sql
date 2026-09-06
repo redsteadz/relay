@@ -42,6 +42,17 @@ insert into public.classifications (
   'deterministic', 0.900
 );
 
+-- A capture kept deliberately unclassified. One current classification is allowed per capture, so
+-- the cross-tenant assertion below needs somewhere the unique index is not already satisfied --
+-- otherwise uniqueness would refuse the row before the foreign key could.
+insert into public.source_items (
+  id, user_id, source, external_id, occurred_at, captured_at, content_fingerprint
+) values (
+  '61100000-0000-4000-8000-000000000002',
+  '60000000-0000-4000-8000-000000000001',
+  'email', 'synthetic-category-unclassified', now(), now(), repeat('d', 64)
+);
+
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -207,7 +218,7 @@ select throws_ok(
       (user_id, source_item_id, category_id, method, confidence)
     values (
       '60000000-0000-4000-8000-000000000001',
-      '61100000-0000-4000-8000-000000000001',
+      '61100000-0000-4000-8000-000000000002',
       (select id from public.categories
         where user_id = '60000000-0000-4000-8000-000000000002' and slug = 'task'),
       'deterministic', 0.900

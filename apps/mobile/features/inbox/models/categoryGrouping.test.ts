@@ -20,7 +20,8 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
     confidence: undefined,
     content: undefined,
     evidence: [],
-    group: "quiet",
+    factValues: {},
+    group: "filed",
     id: "e1",
     kind: "fact",
     occurredAt: "2026-09-04T09:00:00.000Z",
@@ -47,7 +48,14 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
 
 function filed(name: string, overrides: Partial<InboxItem> = {}): InboxItem {
   return item({
-    category: { confidence: 0.9, method: "deterministic", name, rationale: undefined },
+    category: {
+      confidence: 0.9,
+      filterRuleId: undefined,
+      method: "deterministic",
+      name,
+      origin: "server",
+      rationale: undefined,
+    },
     ...overrides,
   });
 }
@@ -77,7 +85,7 @@ describe("summarising by category", () => {
       [
         filed("Finance", { group: "actionable", id: "a" }),
         filed("Finance", { group: "needs-review", id: "b", reviewReasons: ["Conflicting."] }),
-        filed("Finance", { group: "quiet", id: "c" }),
+        filed("Finance", { group: "filed", id: "c" }),
       ],
       known,
     );

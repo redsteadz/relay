@@ -81,6 +81,10 @@ export function receiptDecision(
   }
   const method = METHOD_LABEL[category.method] ?? category.method;
   const parts = [category.name ?? "Unfiled", method];
+  // Who decided is part of the claim, not decoration. A device decides from what it can read; the
+  // server decides from the raw payload as well, and only a server decision may ever gate a
+  // provider effect. A reader is entitled to know which one they are looking at.
+  if (category.origin === "device") parts.push("on this device");
   if (unresolved) parts.push("unresolved");
   else if (category.confidence !== undefined) {
     parts.push(`${Math.round(category.confidence * 100).toString()}%`);

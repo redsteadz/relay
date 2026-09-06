@@ -1,6 +1,7 @@
 import type { IngressEnvelope } from "@relay/contracts";
 
 export * from "./action-ledger.js";
+export * from "./classification.js";
 export * from "./events.js";
 export * from "./facts.js";
 export * from "./field-access.js";

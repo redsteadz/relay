@@ -21,6 +21,7 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
     confidence: undefined,
     content: undefined,
     evidence: [],
+    factValues: {},
     group: "actionable",
     id: "event-1",
     kind: "fact",
@@ -49,8 +50,10 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
 function category(overrides: Partial<InboxCategory> = {}): InboxCategory {
   return {
     confidence: 0.92,
+    filterRuleId: undefined,
     method: "deterministic",
     name: "Finance",
+    origin: "server",
     rationale: undefined,
     ...overrides,
   };
@@ -150,6 +153,14 @@ describe("receipt decision", () => {
 
   it("passes an unrecognized method through rather than dropping the line", () => {
     expect(receiptDecision(category({ method: "oracle" }), false)?.text).toContain("oracle");
+  });
+
+  // A device decides from what it can read and may never gate a provider effect, so the line says
+  // which kind of decision it is rather than leaving the reader to assume the stronger one.
+  it("says when this device decided it rather than the server", () => {
+    expect(receiptDecision(category({ origin: "device" }), false)?.text).toBe(
+      "Finance · Deterministic · on this device · 92%",
+    );
   });
 
   it("omits confidence the classifier did not record", () => {
