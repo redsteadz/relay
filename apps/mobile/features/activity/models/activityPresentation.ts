@@ -70,7 +70,116 @@ export type DisclosureActivityEntry = {
   title: string;
 };
 
-export type ActivityEntry = ActionActivityEntry | DisclosureActivityEntry;
+/** One `audit_log` row, with the bounded metadata keys a timeline names it by. */
+export type AuditEntryInput = {
+  action: string;
+  createdAt: string;
+  id: string;
+  provider: string | null;
+  purgedCount: string | null;
+  version: string | null;
+};
+
+/**
+ * A record from the audit trail: a rule saved, a retention sweep, a connection removed.
+ *
+ * Distinct from an action entry because nothing here was ever proposed to the user or decided by
+ * them. These already happened, and the timeline says so rather than offering a decision.
+ */
+export type AuditActivityEntry = {
+  detail: string;
+  icon: string;
+  id: string;
+  kind: "retention" | "rule" | "source";
+  occurredAt: string;
+  title: string;
+};
+
+export type ActivityEntry = ActionActivityEntry | AuditActivityEntry | DisclosureActivityEntry;
+
+/** The kinds a reader can narrow the timeline to. `all` is not a kind, it is the absence of one. */
+export type ActivityFilter = "action" | "all" | "disclosure" | "retention" | "rule" | "source";
+
+export const activityFilters: readonly { key: ActivityFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "action", label: "Actions" },
+  { key: "disclosure", label: "Disclosures" },
+  { key: "rule", label: "Rules" },
+  { key: "retention", label: "Retention" },
+  { key: "source", label: "Sources" },
+];
+
+/**
+ * How each audit action reads on the timeline.
+ *
+ * Closed rather than derived from the slug, because these lines are the ledger's own prose and a
+ * mechanically un-hyphenated action name would be a worse sentence than a written one. An action
+ * absent from this table is dropped by `auditEntry` rather than guessed at.
+ */
+const AUDIT_DESCRIPTIONS: Readonly<
+  Record<string, { icon: string; kind: AuditActivityEntry["kind"]; title: string }>
+> = {
+  "connector.disconnected": {
+    icon: "link-variant-off",
+    kind: "source",
+    title: "Connection removed",
+  },
+  "connector.revoked": { icon: "link-variant-off", kind: "source", title: "Connection revoked" },
+  "filter.revision_compiled": { icon: "tune-variant", kind: "rule", title: "Rule saved" },
+  "privacy.account_deletion_finalized": {
+    icon: "delete-outline",
+    kind: "retention",
+    title: "Account deletion completed",
+  },
+  "privacy.account_deletion_requested": {
+    icon: "delete-clock-outline",
+    kind: "retention",
+    title: "Account deletion requested",
+  },
+  "privacy.raw_payloads_purged": {
+    icon: "timer-sand-complete",
+    kind: "retention",
+    title: "Raw copies deleted",
+  },
+};
+
+/**
+ * Describes one audit row, or nothing when this build has no name for its action.
+ *
+ * The detail is assembled only from metadata keys the routine is known to write. A key that is
+ * absent is left out of the sentence rather than rendered as an empty value, so a row never claims
+ * a count or a version it does not carry.
+ */
+export function auditEntry(row: AuditEntryInput): AuditActivityEntry | undefined {
+  const described = AUDIT_DESCRIPTIONS[row.action];
+  if (described === undefined) return undefined;
+
+  const parts: string[] = [];
+  if (row.version !== null && row.version !== "") parts.push(`v${row.version}`);
+  if (row.provider !== null && row.provider !== "") parts.push(actionProviderLabel(row.provider));
+  if (row.purgedCount !== null && row.purgedCount !== "") {
+    parts.push(
+      row.purgedCount === "1" ? "1 payload deleted" : `${row.purgedCount} payloads deleted`,
+    );
+  }
+
+  return {
+    detail: parts.length === 0 ? "Recorded by Relay" : parts.join(" · "),
+    icon: described.icon,
+    id: `audit-${row.id}`,
+    kind: described.kind,
+    occurredAt: row.createdAt,
+    title: described.title,
+  };
+}
+
+/** Narrows the timeline to one kind. `all` returns it unchanged rather than filtering to nothing. */
+export function filterActivity(
+  entries: readonly ActivityEntry[],
+  filter: ActivityFilter,
+): readonly ActivityEntry[] {
+  return filter === "all" ? entries : entries.filter((entry) => entry.kind === filter);
+}
 
 const statusLabels: Readonly<Record<ActionRunStatus, string>> = {
   approved: "Approved",
@@ -212,6 +321,7 @@ function disclosureEntry(disclosure: PrivacyDisclosure): DisclosureActivityEntry
  * must not take the whole screen down.
  */
 export function activityTimeline(input: {
+  audit?: readonly AuditEntryInput[];
   disclosures: readonly PrivacyDisclosure[];
   events: readonly ActivityEventInput[];
   rules: readonly ActionRuleInput[];
@@ -226,6 +336,10 @@ export function activityTimeline(input: {
     if (entry !== undefined) entries.push(entry);
   }
   for (const disclosure of input.disclosures) entries.push(disclosureEntry(disclosure));
+  for (const row of input.audit ?? []) {
+    const entry = auditEntry(row);
+    if (entry !== undefined) entries.push(entry);
+  }
 
   return entries.sort((left, right) => {
     const leftTime = Date.parse(left.occurredAt);
@@ -251,6 +365,50 @@ export function activityTimeline(input: {
 export function pendingDecisionCount(entries: readonly ActivityEntry[]): number {
   return entries.filter((entry) => entry.kind === "action" && isAwaitingDecision(entry.status))
     .length;
+}
+
+export type ActivityDay = { day: string; entries: readonly ActivityEntry[] };
+
+/**
+ * Groups an ordered timeline into days.
+ *
+ * Today and yesterday are named rather than dated, because that is how a person refers to them and
+ * a date beside "12:41" adds nothing they did not already know. Anything older keeps its date. The
+ * input is assumed already sorted, so grouping preserves order rather than re-deriving it.
+ */
+export function groupActivityByDay(
+  entries: readonly ActivityEntry[],
+  now: Date = new Date(),
+): readonly ActivityDay[] {
+  const days: ActivityDay[] = [];
+  for (const entry of entries) {
+    const day = activityDayLabel(entry.occurredAt, now);
+    const current = days[days.length - 1];
+    if (current !== undefined && current.day === day) {
+      (current.entries as ActivityEntry[]).push(entry);
+    } else {
+      days.push({ day, entries: [entry] });
+    }
+  }
+  return days;
+}
+
+function sameDay(left: Date, right: Date): boolean {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function activityDayLabel(iso: string, now: Date): string {
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return "Undated";
+  if (sameDay(value, now)) return "Today";
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(value, yesterday)) return "Yesterday";
+  return value.toDateString();
 }
 
 /** A fixed message: a read failure must not surface a database error to the user. */

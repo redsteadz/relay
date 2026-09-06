@@ -1,8 +1,8 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
 
-import { AppScreen } from "@/components/AppScreen";
-import { StatusMessage } from "@/components/ui";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
+import { ContextualNotice, StatusMessage } from "@/components/ui";
 import { SourceDisclosureDialog } from "@/features/device-capture/components/source/SourceDisclosureDialog";
 import { SourceSummaryRow } from "@/features/device-capture/components/source/SourceSummaryRow";
 import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
@@ -39,11 +39,11 @@ export default function ConnectionsScreen() {
   };
 
   return (
-    <AppScreen
-      detail="Every source is independently authorized, minimized, and revocable."
-      eyebrow="Consent boundaries"
-      title="Sources"
-    >
+    <ReceiptScreen title="Sources">
+      <ContextualNotice accessibilityLabel="What a source can do">
+        Every source is authorized on its own, reads only the fields it names, and can be revoked
+        here without touching the others.
+      </ContextualNotice>
       {error === undefined ? null : <StatusMessage tone="error">{error}</StatusMessage>}
       {(Object.keys(sourceConfigurationRoutes) as SourceId[]).map((sourceId) => (
         <SourceSummaryRow
@@ -63,6 +63,6 @@ export default function ConnectionsScreen() {
         }
         visible={disclosureSource !== undefined}
       />
-    </AppScreen>
+    </ReceiptScreen>
   );
 }

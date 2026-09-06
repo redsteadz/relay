@@ -1,8 +1,7 @@
-import type { GestureResponderEvent } from "react-native";
 import { Pressable, StyleSheet, View } from "react-native";
-import { Icon, IconButton } from "react-native-paper";
 
-import { AppText } from "@/components/ui";
+import { AppIconButton, AppText, RelayIcon } from "@/components/ui";
+import { receiptGlyph } from "@/features/inbox/models/receiptPresentation";
 import { useRelayTheme } from "@/theme";
 
 import type { SourceStatus } from "../../models/capturePresentation";
@@ -17,6 +16,14 @@ type SourceSummaryRowProps = {
   status: SourceStatus;
 };
 
+/**
+ * One connected source, as a card.
+ *
+ * Carries the same anatomy as a receipt -- a glyph for where it comes from, a name, a line of what
+ * it reads, and a state -- so the screen that lists what Relay may capture reads like the screen
+ * that lists what it captured. The privacy notice keeps its own control rather than being folded
+ * into the row's tap, because opening a boundary and changing it are different intents.
+ */
 export function SourceSummaryRow({
   disclosure = false,
   onDisclosure,
@@ -25,10 +32,7 @@ export function SourceSummaryRow({
   status,
 }: SourceSummaryRowProps) {
   const theme = useRelayTheme();
-  const handleDisclosure = (event: GestureResponderEvent) => {
-    event.stopPropagation();
-    onDisclosure?.();
-  };
+  const { borders, colors, interaction, radii, sizes, spacing } = theme.relay;
 
   return (
     <Pressable
@@ -39,67 +43,58 @@ export function SourceSummaryRow({
       style={({ pressed }) => [
         styles.row,
         {
-          borderColor: theme.relay.colors.border,
-          borderTopWidth: theme.relay.borders.emphasis,
-          gap: theme.relay.spacing.md,
-          minHeight: theme.relay.interaction.minimumTarget,
-          opacity: pressed ? theme.relay.interaction.pressedOpacity : 1,
-          paddingHorizontal: theme.relay.spacing.md,
-          paddingVertical: theme.relay.spacing.lg,
+          backgroundColor: colors.surface,
+          borderColor: colors.borderSubtle,
+          borderRadius: radii.md,
+          borderWidth: borders.hairline,
+          gap: spacing.md,
+          opacity: pressed ? interaction.pressedOpacity : 1,
+          padding: spacing.md,
         },
       ]}
     >
       <View
         importantForAccessibility="no-hide-descendants"
         style={[
-          styles.icon,
+          styles.glyph,
           {
-            backgroundColor: theme.relay.colors.accentSubtle,
-            borderRadius: theme.relay.radii.sm,
-            height: theme.relay.sizes.touchTarget,
-            width: theme.relay.sizes.touchTarget,
+            backgroundColor: colors.surfaceRaised,
+            borderRadius: radii.sm,
+            height: sizes.glyph,
+            width: sizes.glyph,
           },
         ]}
       >
-        <Icon
-          color={theme.relay.colors.accent}
-          size={theme.relay.sizes.icon.lg}
-          source={source.icon}
-        />
+        <AppText tone="muted" variant="monoGlyph">
+          {receiptGlyph(source.name)}
+        </AppText>
       </View>
-      <View style={[styles.copy, { gap: theme.relay.spacing.xs }]}>
-        <View style={[styles.heading, { gap: theme.relay.spacing.xs }]}>
-          <AppText numberOfLines={1} style={styles.name} variant="title">
+
+      <View style={[styles.copy, { gap: spacing.xs }]}>
+        <View style={[styles.heading, { gap: spacing.sm }]}>
+          <AppText numberOfLines={1} style={styles.name} variant="receiptTitle">
             {source.name}
           </AppText>
-          {!disclosure || onDisclosure === undefined ? null : (
-            <IconButton
-              accessibilityHint={`Shows the ${source.name} privacy notice`}
-              accessibilityLabel={`About ${source.name} privacy`}
-              icon="information-outline"
-              iconColor={theme.relay.colors.action}
-              onPress={handleDisclosure}
-              size={theme.relay.sizes.icon.md}
-              style={{
-                height: theme.relay.sizes.touchTarget,
-                margin: 0,
-                width: theme.relay.sizes.touchTarget,
-              }}
-            />
-          )}
+          <SourceStatusLabel status={status} />
         </View>
-        <AppText numberOfLines={1} tone="muted" variant="caption">
+        <AppText numberOfLines={2} tone="muted" variant="caption">
           {source.description}
         </AppText>
-        <SourceStatusLabel status={status} />
       </View>
-      <View importantForAccessibility="no-hide-descendants" style={styles.chevron}>
-        <Icon
-          color={theme.relay.colors.textMuted}
-          size={theme.relay.sizes.icon.md}
-          source="chevron-right"
+
+      {!disclosure || onDisclosure === undefined ? (
+        <View importantForAccessibility="no-hide-descendants" style={styles.chevron}>
+          <RelayIcon color={colors.textMuted} name="chevron" size={sizes.icon.sm} />
+        </View>
+      ) : (
+        <AppIconButton
+          accessibilityHint={`Shows the ${source.name} privacy notice`}
+          accessibilityLabel={`About ${source.name} privacy`}
+          compact
+          icon="information-outline"
+          onPress={onDisclosure}
         />
-      </View>
+      )}
     </Pressable>
   );
 }
@@ -107,8 +102,8 @@ export function SourceSummaryRow({
 const styles = StyleSheet.create({
   chevron: { alignSelf: "center" },
   copy: { flex: 1, minWidth: 0 },
-  heading: { alignItems: "center", flexDirection: "row", minHeight: 0 },
-  icon: { alignItems: "center", justifyContent: "center" },
+  glyph: { alignItems: "center", justifyContent: "center" },
+  heading: { alignItems: "center", flexDirection: "row" },
   name: { flexShrink: 1 },
-  row: { alignItems: "flex-start", flexDirection: "row" },
+  row: { alignItems: "center", flexDirection: "row" },
 });

@@ -19,11 +19,25 @@ import type { EventKind, FactKind } from "@relay/contracts";
  */
 export type InboxGroup = "actionable" | "filed" | "needs-review" | "unfiled";
 
-/** A fact that supports an event, shown as its evidence rather than as its own inbox row. */
+/**
+ * A fact that supports an event, shown as its evidence rather than as its own inbox row.
+ *
+ * Key and value are kept apart rather than joined into one label because a receipt sets them
+ * differently: the key is the quiet part and the value is the read one, and a date fact's key is the
+ * role that says which moment it describes.
+ */
 export type InboxEvidence = {
   certain: boolean;
+  /**
+   * True when `value` is an ISO instant awaiting a reader's own timezone and clock.
+   *
+   * Formatting is left to the screen so this model stays independent of the current time, which is
+   * what lets it be tested against fixed values.
+   */
+  isInstant: boolean;
+  key: string;
   kind: FactKind;
-  label: string;
+  value: string;
 };
 
 export type InboxEventInput = {
@@ -273,32 +287,49 @@ function reasonText(reason: string): string {
 }
 
 /**
- * Renders a fact value for display.
+ * Splits a stored fact into the pair a receipt shows.
  *
- * Date facts carry a role and an instant rather than a bare string, so the instant is shown with the
- * role that explains which moment it describes.
+ * Most facts are named by their kind. A date is not: it carries a role -- occurred, due, start --
+ * and that role, not the word "date", is what tells a reader which moment they are looking at.
+ *
+ * A value with no displayable form falls back to naming its kind rather than rendering an object,
+ * because a fact Relay holds but cannot show is still evidence that it holds one.
  */
-export function evidenceLabel(kind: FactKind, value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+export function evidenceParts(
+  kind: FactKind,
+  value: unknown,
+): { isInstant: boolean; key: string; value: string } {
+  if (typeof value === "string") return { isInstant: false, key: kind, value };
+  if (typeof value === "number" || typeof value === "boolean") {
+    return { isInstant: false, key: kind, value: String(value) };
+  }
   if (value !== null && typeof value === "object") {
     const record = value as Record<string, unknown>;
     const instant = record.instant;
     const role = record.role;
     if (typeof instant === "string") {
-      return typeof role === "string" ? `${role} ${instant}` : instant;
+      return {
+        isInstant: true,
+        key: typeof role === "string" ? role : kind,
+        value: instant,
+      };
     }
     const amount = record.amount;
-    if (typeof amount === "string" || typeof amount === "number") return String(amount);
+    if (typeof amount === "string" || typeof amount === "number") {
+      return { isInstant: false, key: kind, value: String(amount) };
+    }
   }
-  return kind;
+  return { isInstant: false, key: kind, value: kind };
 }
 
 export function inboxEvidence(fact: InboxFactInput): InboxEvidence {
+  const parts = evidenceParts(fact.kind, fact.value);
   return {
     certain: fact.certainty === "certain",
+    isInstant: parts.isInstant,
+    key: parts.key,
     kind: fact.kind,
-    label: evidenceLabel(fact.kind, fact.value),
+    value: parts.value,
   };
 }
 
@@ -342,7 +373,7 @@ function searchTextFor(
     context.source.applicationId,
     context.source.sender,
     context.source.subject,
-    ...evidence.map((fact) => `${fact.kind} ${fact.label}`),
+    ...evidence.map((fact) => `${fact.kind} ${fact.key} ${fact.value}`),
   ]
     .filter((part): part is string => part !== undefined && part !== "")
     .join(" ")
@@ -366,7 +397,7 @@ function displayTitle(
   if (!PLACEHOLDER_TITLES.has(event.title)) return event.title;
   const said = context.content?.subject;
   if (said !== undefined && said.length > 0) return said;
-  const sender = evidence.find((fact) => fact.kind === "sender")?.label;
+  const sender = evidence.find((fact) => fact.kind === "sender")?.value;
   if (sender !== undefined && sender.length > 0) return sender;
   return appLabel;
 }
@@ -683,31 +714,106 @@ export function inboxRetention(rawExpiresAt: string | null, now: string): InboxR
   };
 }
 
-export type InboxCategoryGroup = { categoryName: string; items: readonly InboxItem[] };
+/** Everything the inbox needs to show one category without reading its items again. */
+export type InboxCategorySummary = {
+  /** Items still waiting on a decision, so a busy category cannot hide one urgent item. */
+  actionable: number;
+  /** Total items filed here. */
+  captures: number;
+  /** Stable identity the category is addressed by. `unfiled` for the bucket with no category. */
+  key: string;
+  /** Newest arrival, for ordering and for saying how recent the category is. */
+  latestOccurredAt: string;
+  name: string;
+  needsReview: number;
+  /** True for Relay's own protected vocabulary rather than a category the tenant created. */
+  system: boolean;
+};
+
+/** The bucket for items Relay filed without naming a category. Never a real category's slug. */
+export const UNFILED_CATEGORY_KEY = "unfiled";
 
 /**
- * Collects filed items under the category they were filed into.
+ * Summarises the categories a set of items was filed into.
  *
- * A rule may file a capture without naming a category, which is a real outcome rather than a gap:
- * the classification records that a rule claimed the item and which one. Those are collected under a
- * heading that says exactly that, instead of being dropped or folded in with items nothing matched.
+ * Driven by the tenant's own category list rather than by what the items happen to mention, so a
+ * category that has matched nothing yet still appears with a zero. A category a person created and
+ * cannot find is indistinguishable from one that was never saved, and the second is the failure
+ * this screen exists to rule out.
  *
- * Ordered by size and then by name, matching `groupByApp`, so the heaviest category reads first and
- * two runs over the same items always produce the same order.
+ * Items are matched by category name because that is what a classification carries onto an inbox
+ * item; the id stays behind in the database. An item whose category was archived or renamed after
+ * it was filed therefore lands in the unfiled bucket rather than under a name that no longer means
+ * what it did -- stated, not hidden.
  */
-export function groupByCategory(items: readonly InboxItem[]): readonly InboxCategoryGroup[] {
+export function summariseByCategory(
+  items: readonly InboxItem[],
+  categories: readonly { isSystem: boolean; name: string; slug: string }[],
+): readonly InboxCategorySummary[] {
+  const known = new Map(categories.map((category) => [category.name, category]));
   const groups = new Map<string, InboxItem[]>();
   for (const item of items) {
-    const name = item.category?.name ?? "Filed without a category";
-    const existing = groups.get(name);
-    if (existing === undefined) groups.set(name, [item]);
+    const name = item.category?.name;
+    const key = name !== undefined && known.has(name) ? name : UNFILED_CATEGORY_KEY;
+    const existing = groups.get(key);
+    if (existing === undefined) groups.set(key, [item]);
     else existing.push(item);
   }
-  return [...groups.entries()]
-    .map(([categoryName, grouped]) => ({ categoryName, items: grouped }))
-    .sort(
-      (left, right) =>
-        right.items.length - left.items.length ||
-        left.categoryName.localeCompare(right.categoryName),
+
+  const summaries: InboxCategorySummary[] = categories.map((category) => {
+    const grouped = groups.get(category.name) ?? [];
+    return {
+      actionable: grouped.filter((item) => item.group === "actionable").length,
+      captures: grouped.length,
+      key: category.slug,
+      latestOccurredAt: grouped.reduce(
+        (latest, item) => (item.occurredAt > latest ? item.occurredAt : latest),
+        "",
+      ),
+      name: category.name,
+      needsReview: grouped.filter((item) => item.group === "needs-review").length,
+      system: category.isSystem,
+    };
+  });
+
+  const unfiled = groups.get(UNFILED_CATEGORY_KEY) ?? [];
+  if (unfiled.length > 0) {
+    summaries.push({
+      actionable: unfiled.filter((item) => item.group === "actionable").length,
+      captures: unfiled.length,
+      key: UNFILED_CATEGORY_KEY,
+      latestOccurredAt: unfiled.reduce(
+        (latest, item) => (item.occurredAt > latest ? item.occurredAt : latest),
+        "",
+      ),
+      name: "Unfiled",
+      needsReview: unfiled.filter((item) => item.group === "needs-review").length,
+      system: false,
+    });
+  }
+
+  return summaries.sort(
+    (left, right) =>
+      // Anything waiting on a person outranks volume, then volume, then name for stability.
+      right.actionable + right.needsReview - (left.actionable + left.needsReview) ||
+      right.captures - left.captures ||
+      left.name.localeCompare(right.name),
+  );
+}
+
+/** Items filed into one category, addressed by the slug the summary carries. */
+export function filterByCategory(
+  items: readonly InboxItem[],
+  slug: string,
+  categories: readonly { name: string; slug: string }[],
+): readonly InboxItem[] {
+  if (slug === UNFILED_CATEGORY_KEY) {
+    const names = new Set(categories.map((category) => category.name));
+    return items.filter(
+      (item) => item.category?.name === undefined || !names.has(item.category.name),
     );
+  }
+  const name = categories.find((category) => category.slug === slug)?.name;
+  if (name === undefined) return [];
+  return items.filter((item) => item.category?.name === name);
 }

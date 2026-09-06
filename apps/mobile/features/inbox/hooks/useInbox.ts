@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 
 import { listFilterRevisions } from "@/features/filters/api/filters";
@@ -27,7 +27,13 @@ export type InboxState = {
   hide: (eventId: string) => Promise<void>;
   /** The item just removed, while the offer to put it back still stands. */
   lastHidden: InboxItem | undefined;
-  /** True only for the first load, so a refresh never replaces the list with a spinner. */
+  /**
+   * True only for the first load, so a refresh never replaces the list with a spinner.
+   *
+   * False when there is no session to read for: a disabled query stays `pending` indefinitely in
+   * react-query, and reporting that as loading left a signed-out reader watching a spinner that
+   * could never resolve.
+   */
   loading: boolean;
   query: string;
   refetch: () => void;
@@ -108,8 +114,8 @@ export function useInbox(): InboxState {
       // Put back precisely what was there. An item whose removal failed must reappear rather than
       // stay gone because the screen already drew it that way.
       if (context?.previous !== undefined) queryClient.setQueryData(inboxKey, context.previous);
+      void queryClient.invalidateQueries({ queryKey: inboxKey });
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: inboxKey }),
   });
 
   // Rules are read here rather than in the filter feature's own hook because filing needs the newest
@@ -162,27 +168,45 @@ export function useInbox(): InboxState {
   }, [client, inbox.isPending, inboxKey, items, queryClient, revisions.isPending, rules]);
   const sections = useMemo(() => inboxSections(filterInbox(items, query)), [items, query]);
 
-  return {
-    clearLastHidden: () => {
-      setLastHidden(undefined);
-    },
-    hide: async (eventId: string) => {
+  // Every callback below is stable across renders. The inbox list memoizes its rows on prop
+  // identity, and a handler rebuilt each render would silently defeat that.
+  const mutate = visibility.mutateAsync;
+  const clearLastHidden = useCallback(() => {
+    setLastHidden(undefined);
+  }, []);
+
+  const hide = useCallback(
+    async (eventId: string) => {
       const removed = items.find((item) => item.id === eventId);
-      await visibility.mutateAsync({ action: "hide", eventId });
+      await mutate({ action: "hide", eventId });
       // Offered only after the write settles. Offering to undo something that never persisted
       // would be a second false statement on top of the row appearing to vanish.
       setLastHidden(removed);
     },
-    lastHidden,
-    loading: inbox.isPending,
-    query,
-    refetch: () => void inbox.refetch(),
-    refreshing: inbox.isFetching && !inbox.isPending,
-    restore: async (eventId: string) => {
+    [items, mutate],
+  );
+
+  const restore = useCallback(
+    async (eventId: string) => {
       const item = lastHidden?.id === eventId ? lastHidden : undefined;
-      await visibility.mutateAsync({ action: "restore", eventId, item });
+      await mutate({ action: "restore", eventId, item });
       setLastHidden((current) => (current?.id === eventId ? undefined : current));
     },
+    [lastHidden, mutate],
+  );
+
+  const refetchInbox = inbox.refetch;
+  const refetch = useCallback(() => void refetchInbox(), [refetchInbox]);
+
+  return {
+    clearLastHidden,
+    hide,
+    lastHidden,
+    loading: inbox.isPending && inbox.fetchStatus !== "idle",
+    query,
+    refetch,
+    refreshing: inbox.isFetching && !inbox.isPending,
+    restore,
     sections,
     setQuery,
     total: items.length,

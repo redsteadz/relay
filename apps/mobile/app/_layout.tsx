@@ -3,6 +3,8 @@ import "react-native-gesture-handler";
 import { Inter_400Regular } from "@expo-google-fonts/inter/400Regular";
 import { Inter_500Medium } from "@expo-google-fonts/inter/500Medium";
 import { Inter_700Bold } from "@expo-google-fonts/inter/700Bold";
+import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono/500Medium";
+import { JetBrainsMono_600SemiBold } from "@expo-google-fonts/jetbrains-mono/600SemiBold";
 import { SpaceGrotesk_600SemiBold } from "@expo-google-fonts/space-grotesk/600SemiBold";
 import { SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk/700Bold";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -27,6 +29,7 @@ import {
   notificationCaptureMode,
 } from "@/lib/development-access";
 import { syncDeviceCaptures } from "@/lib/device-capture-sync";
+import { OnboardingProvider, useOnboarding } from "@/lib/onboarding-context";
 import { logMobileError, runInBackground } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { RelayThemeProvider, useRelayTheme } from "@/theme";
@@ -40,6 +43,7 @@ runInBackground(SplashScreen.preventAutoHideAsync(), "ui.splash_prevent_auto_hid
 function AuthenticatedStack() {
   const { initialized, session } = useAuth();
   const queryClient = useQueryClient();
+  const onboarding = useOnboarding();
   const localDevelopmentAccess = localDevelopmentAccessEnabled(
     __DEV__,
     Constants.expoConfig?.extra?.relayBuildVariant,
@@ -92,7 +96,9 @@ function AuthenticatedStack() {
     };
   }, [captureMode.cleanupTenantId, captureMode.stateKey, captureMode.tenantId, initialized]);
 
-  if (!initialized || preparedStateKey !== captureMode.stateKey) {
+  // `seen` is undefined only while the local read is in flight. Holding the existing splash for it
+  // is what stops a returning user seeing one frame of the introduction.
+  if (!initialized || onboarding.seen === undefined || preparedStateKey !== captureMode.stateKey) {
     if (!preparationFailed) {
       return (
         <LoadingState
@@ -110,22 +116,31 @@ function AuthenticatedStack() {
   }
 
   const appAccessAllowed = canEnterApp(session !== null, localDevelopmentAccess);
+  // The introduction runs before sign-in: it explains what Relay would capture, which is what a
+  // person needs in order to decide whether to create an account at all.
+  const introduced = onboarding.seen === true;
 
   return (
     <>
       <DeviceCaptureSync />
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Protected guard={appAccessAllowed}>
+        <Stack.Protected guard={!introduced}>
+          <Stack.Screen name="onboarding" />
+        </Stack.Protected>
+        <Stack.Protected guard={introduced && appAccessAllowed}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="inbox/[id]" />
           <Stack.Screen name="inbox/hidden" />
           <Stack.Screen name="inbox/apps" />
           <Stack.Screen name="inbox/app/[applicationId]" />
+          <Stack.Screen name="inbox/category/[slug]" />
+          <Stack.Screen name="rules/editor" />
           <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
           <Stack.Screen name="disclosures" />
+          <Stack.Screen name="your-data" />
         </Stack.Protected>
-        <Stack.Protected guard={canEnterSignIn(session !== null)}>
+        <Stack.Protected guard={introduced && canEnterSignIn(session !== null)}>
           <Stack.Screen name="sign-in" />
         </Stack.Protected>
         <Stack.Protected guard={session === null}>
@@ -162,7 +177,9 @@ function ThemedRoot() {
   return (
     <AuthProvider>
       <StatusBar style={theme.dark ? "light" : "dark"} />
-      <AuthenticatedStack />
+      <OnboardingProvider>
+        <AuthenticatedStack />
+      </OnboardingProvider>
     </AuthProvider>
   );
 }
@@ -173,6 +190,8 @@ export default function RootLayout() {
     Inter_400Regular,
     Inter_500Medium,
     Inter_700Bold,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_600SemiBold,
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
   });

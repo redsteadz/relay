@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { FlatList, StyleSheet, View } from "react-native";
 import { ActivityIndicator } from "react-native-paper";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import { ActionRow, AppButton, AppText, AppTextInput, StatusMessage } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
@@ -65,18 +65,15 @@ export function SourceSelectorScreen({
   }, [items, query]);
 
   return (
-    <AppScreen
-      backLabel="Cancel selection"
-      detail={detail}
-      onBack={onBack}
-      scroll={false}
-      title={title}
-    >
+    <ReceiptScreen onBack={onBack} scroll={false} title={title}>
       <View style={[styles.controls, { gap: theme.relay.spacing.sm }]}>
+        <AppText tone="muted" variant="caption">
+          {detail}
+        </AppText>
         <View style={styles.selectionHeading}>
           <AppText variant="label">Current selection</AppText>
-          <AppText tone="accent" variant="caption">
-            {selectedCount.toString()} selected
+          <AppText tone="accent" variant="monoMeta">
+            {selectedCount.toString()} SELECTED
           </AppText>
         </View>
         <AppTextInput
@@ -132,7 +129,7 @@ export function SourceSelectorScreen({
           onPress={onConfirm}
         />
       </ActionRow>
-    </AppScreen>
+    </ReceiptScreen>
   );
 }
 

@@ -79,7 +79,9 @@ describe("listInbox", () => {
     ]);
     // Facts are evidence for the event from the same source item, not rows of their own.
     expect(items).toHaveLength(1);
-    expect(items[0]?.evidence).toEqual([{ certain: false, kind: "amount", label: "42.50" }]);
+    expect(items[0]?.evidence).toEqual([
+      { certain: false, isInstant: false, key: "amount", kind: "amount", value: "42.50" },
+    ]);
     expect(items[0]?.group).toBe("needs-review");
   });
 

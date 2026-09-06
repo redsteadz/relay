@@ -1,29 +1,36 @@
 import { router } from "expo-router";
 import { useState } from "react";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import { AppButton, AppText, EditorialSurface, StatusMessage } from "@/components/ui";
-import { PrivacySettings } from "@/features/privacy/components/PrivacySettings";
+import { ReceiptStage } from "@/features/inbox/components/ReceiptStage";
 import { ThemePreferencePanel } from "@/features/settings/components/ThemePreferencePanel";
 import { useAuth } from "@/lib/auth-context";
 import { reportUnexpectedUiError } from "@/lib/observability";
 
+/**
+ * How Relay behaves, and the account it behaves for.
+ *
+ * Everything about what Relay *holds* moved to Your data. Retention, an API key, and account
+ * deletion were the controls a person comes to Settings least often and needs most urgently, and
+ * putting them below a theme picker made them the easiest things on the screen to scroll past.
+ */
 export default function SettingsScreen() {
-  const { clearDeletedAccountSession, configurationError, session, signOut } = useAuth();
+  const { configurationError, session, signOut } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
   const signedIn = session !== null;
 
   function openSignIn() {
-    router.push({ pathname: "/sign-in", params: { reason: "settings" } });
+    router.push({ params: { reason: "settings" }, pathname: "/sign-in" });
   }
 
-  function openCategories() {
-    if (!signedIn) {
+  function openIfSignedIn(pathname: "/categories" | "/your-data") {
+    if (!signedIn && pathname === "/categories") {
       openSignIn();
       return;
     }
-    router.push("/categories");
+    router.push(pathname);
   }
 
   async function endSession() {
@@ -44,20 +51,14 @@ export default function SettingsScreen() {
   }
 
   return (
-    <AppScreen
-      eyebrow="Local control"
-      title="Settings"
-      detail="Manage categories, privacy, automation safeguards, and your Relay account."
-    >
-      <ThemePreferencePanel />
-      <EditorialSurface
-        icon="shape-outline"
-        title="Categories"
-        meta={signedIn ? "Custom + system" : "Authentication needed"}
-      >
-        <AppText tone="muted">
-          Create, reorder, quiet, and archive tenant-owned categories while stable system slugs stay
-          protected.
+    <ReceiptScreen title="Settings">
+      <ReceiptStage label="Appearance" ordinal={1}>
+        <ThemePreferencePanel />
+      </ReceiptStage>
+
+      <ReceiptStage label="Your data" ordinal={2}>
+        <AppText tone="muted" variant="caption">
+          What Relay holds, where it lives, how long it is kept, and how to take it back.
         </AppText>
         {configurationError ? (
           <StatusMessage tone="error">
@@ -65,32 +66,30 @@ export default function SettingsScreen() {
           </StatusMessage>
         ) : null}
         <AppButton
-          label={signedIn ? "Open category manager" : "Sign in to manage categories"}
-          onPress={openCategories}
+          label="Open your data"
+          onPress={() => openIfSignedIn("/your-data")}
           tone="secondary"
         />
-      </EditorialSurface>
-      <PrivacySettings
-        accessToken={session?.access_token}
-        clearDeletedAccountSession={clearDeletedAccountSession}
-        configurationError={configurationError}
-        onSignIn={openSignIn}
-        userId={session?.user.id}
-      />
-      <EditorialSurface icon="bell-off-outline" title="Automatic dismissal" meta="Off">
-        <AppText tone="muted">
-          Requires explicit source and filter rules plus dry-run evidence. A quiet category alone
-          never authorizes dismissal, and dismissed system notifications cannot be restored.
-        </AppText>
-      </EditorialSurface>
-      <EditorialSurface
-        icon="lock-outline"
-        title="Relay account"
-        meta={signedIn ? "Signed in" : "Signed out"}
-      >
-        <AppText tone="muted">
+        <AppButton
+          label={signedIn ? "Manage categories" : "Sign in to manage categories"}
+          onPress={() => openIfSignedIn("/categories")}
+          tone="secondary"
+        />
+      </ReceiptStage>
+
+      <ReceiptStage label="Safeguards" ordinal={3}>
+        <EditorialSurface icon="bell-off-outline" meta="Off" title="Automatic dismissal">
+          <AppText tone="muted">
+            Requires explicit source and filter rules plus dry-run evidence. A quiet category alone
+            never authorizes dismissal, and dismissed system notifications cannot be restored.
+          </AppText>
+        </EditorialSurface>
+      </ReceiptStage>
+
+      <ReceiptStage label="Account" ordinal={4}>
+        <AppText tone="muted" variant="caption">
           {signedIn
-            ? "Signing out removes the refreshable session from secure device storage."
+            ? "Signing out removes the refreshable session from secure device storage. Nothing on the server is deleted."
             : "Sign in to manage account-backed categories and privacy controls."}
         </AppText>
         {signedIn ? (
@@ -106,7 +105,7 @@ export default function SettingsScreen() {
         {signOutError ? (
           <StatusMessage tone="error">Could not clear the local session. Try again.</StatusMessage>
         ) : null}
-      </EditorialSurface>
-    </AppScreen>
+      </ReceiptStage>
+    </ReceiptScreen>
   );
 }

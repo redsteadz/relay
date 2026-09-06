@@ -4,7 +4,7 @@ import {
   appIconFor,
   appLabelFor,
   formatCaptureTime,
-  evidenceLabel,
+  evidenceParts,
   filterInbox,
   groupByApp,
   groupByThread,
@@ -195,23 +195,39 @@ describe("evidence", () => {
   it("carries supporting facts onto the event rather than listing them separately", () => {
     const withEvidence = item({}, context(), [fact(), fact({ kind: "currency", value: "USD" })]);
     expect(withEvidence.evidence).toEqual([
-      { certain: true, kind: "amount", label: "42.50" },
-      { certain: true, kind: "currency", label: "USD" },
+      { certain: true, isInstant: false, key: "amount", kind: "amount", value: "42.50" },
+      { certain: true, isInstant: false, key: "currency", kind: "currency", value: "USD" },
     ]);
   });
 
-  it("renders a date fact as its instant and role rather than its kind", () => {
-    expect(evidenceLabel("date", { instant: "2026-08-31T07:59:23.966Z", role: "occurred" })).toBe(
-      "occurred 2026-08-31T07:59:23.966Z",
-    );
+  it("keys a date fact by its role rather than by its kind", () => {
+    expect(
+      evidenceParts("date", { instant: "2026-08-31T07:59:23.966Z", role: "occurred" }),
+    ).toEqual({ isInstant: true, key: "occurred", value: "2026-08-31T07:59:23.966Z" });
+  });
+
+  it("leaves an instant unformatted so the screen can apply the reader's own clock", () => {
+    expect(evidenceParts("date", { instant: "2026-08-31T07:59:23.966Z" })).toEqual({
+      isInstant: true,
+      key: "date",
+      value: "2026-08-31T07:59:23.966Z",
+    });
   });
 
   it("renders a bare string value directly", () => {
-    expect(evidenceLabel("sender", "Example Bank")).toBe("Example Bank");
+    expect(evidenceParts("sender", "Example Bank")).toEqual({
+      isInstant: false,
+      key: "sender",
+      value: "Example Bank",
+    });
   });
 
   it("names the kind when a value has no displayable form", () => {
-    expect(evidenceLabel("reference", { nested: { deep: true } })).toBe("reference");
+    expect(evidenceParts("reference", { nested: { deep: true } })).toEqual({
+      isInstant: false,
+      key: "reference",
+      value: "reference",
+    });
   });
 });
 

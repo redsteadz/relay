@@ -1,19 +1,17 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
 
-import { AppScreen } from "@/components/AppScreen";
+import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
-  ActionRow,
   AppButton,
   AppIconButton,
+  AppSwitch,
   AppText,
   ContextualNotice,
-  EditorialSurface,
   StatusMessage,
 } from "@/components/ui";
 import { SourceConsentDialog } from "@/features/device-capture/components/source/SourceConsentDialog";
 import { SourceDisclosureDialog } from "@/features/device-capture/components/source/SourceDisclosureDialog";
-import { SourceSettingsDialog } from "@/features/device-capture/components/source/SourceSettingsDialog";
 import { SourceStatusLabel } from "@/features/device-capture/components/source/SourceStatusLabel";
 import { useNotificationCaptureController } from "@/features/device-capture/hooks/useNotificationCaptureController";
 import { notificationStatus } from "@/features/device-capture/models/capturePresentation";
@@ -22,61 +20,53 @@ import {
   sourceQueueRoutes,
   sourceSelectorRoutes,
 } from "@/features/device-capture/models/sourceRoutes";
+import { ReceiptStage } from "@/features/inbox/components/ReceiptStage";
 
+/**
+ * The notification source and its boundary.
+ *
+ * Capture is a switch on the page rather than an action inside a settings dialog. Pausing a source
+ * is the control a person reaches for when they want capture to stop now, and burying the one
+ * urgent control two taps behind a gear was the wrong shape for it.
+ *
+ * Turning capture back on still goes through the consent dialog. Consent is a disclosure
+ * requirement, not a confirmation step, so it cannot be reduced to a switch even when pausing can.
+ */
 export default function NotificationSourceScreen() {
   const router = useRouter();
   const controller = useNotificationCaptureController();
   const [disclosureVisible, setDisclosureVisible] = useState(false);
-  const [settingsVisible, setSettingsVisible] = useState(false);
   const disclosure = notificationDisclosure(controller.mode.developmentLocal);
   const capabilities = controller.capabilities;
   const allowedCount = capabilities?.notificationAllowedPackages.length ?? 0;
   const unsupported = capabilities !== undefined && capabilities.platform !== "android";
-  const notificationActive =
+  const capturing =
     capabilities?.notificationListener === true && !capabilities.notificationCapturePaused;
 
-  function afterSettings(action: () => void) {
-    setSettingsVisible(false);
-    requestAnimationFrame(action);
-  }
-
   return (
-    <AppScreen
-      backLabel="Back to Sources"
-      detail="Capture visible notification fields from only the Android apps you approve."
+    <ReceiptScreen
+      action={
+        <AppIconButton
+          accessibilityHint="Explains notification privacy boundaries"
+          accessibilityLabel="Android notification privacy information"
+          icon="information-outline"
+          onPress={() => setDisclosureVisible(true)}
+        />
+      }
       onBack={() => router.back()}
       title="Android notifications"
-      titleAccessory={
-        <ActionRow compact wrap={false}>
-          <AppIconButton
-            accessibilityHint="Explains notification privacy boundaries"
-            accessibilityLabel="Android notification privacy information"
-            compact
-            icon="information-outline"
-            onPress={() => setDisclosureVisible(true)}
-          />
-          <AppIconButton
-            accessibilityHint="Opens notification source controls"
-            accessibilityLabel="Android notification settings"
-            compact
-            disabled={capabilities === undefined || controller.busy || unsupported}
-            icon="cog-outline"
-            onPress={() => setSettingsVisible(true)}
-          />
-        </ActionRow>
-      }
     >
-      <ActionRow compact wrap={false}>
-        <SourceStatusLabel status={notificationStatus(capabilities)} />
-        {unsupported ? (
-          <ContextualNotice
-            accessibilityLabel="Why notification capture is unavailable"
-            tone="warning"
-          >
-            Notification capture requires Android. This device can review the source boundary only.
-          </ContextualNotice>
-        ) : null}
-      </ActionRow>
+      <SourceStatusLabel status={notificationStatus(capabilities)} />
+
+      {unsupported ? (
+        <ContextualNotice
+          accessibilityLabel="Why notification capture is unavailable"
+          tone="warning"
+        >
+          Notification capture requires Android. This device can review the source boundary only.
+        </ContextualNotice>
+      ) : null}
+
       {controller.error === undefined ? null : (
         <StatusMessage tone="error">{controller.error}</StatusMessage>
       )}
@@ -91,8 +81,44 @@ export default function NotificationSourceScreen() {
           {controller.message}
         </StatusMessage>
       )}
-      <EditorialSurface icon="apps" meta={`${allowedCount.toString()} SELECTED`} title="Allowlist">
-        <AppText tone="muted">
+
+      <ReceiptStage label="Capture" ordinal={1}>
+        <AppSwitch
+          accessibilityHint={
+            capturing
+              ? "Stops capturing new notifications immediately"
+              : "Opens the consent notice before capture resumes"
+          }
+          detail={
+            capturing
+              ? "Capturing. Changes apply before the next item enters the encrypted queue."
+              : "Paused. Nothing new is captured, and what was already queued is untouched."
+          }
+          disabled={capabilities === undefined || unsupported || controller.busy}
+          label={capturing ? "Capturing" : "Paused"}
+          onValueChange={(next) => {
+            if (next) controller.openConsent();
+            else void controller.pause();
+          }}
+          value={capturing}
+        />
+        {allowedCount === 0 && !unsupported ? (
+          <AppText tone="muted" variant="caption">
+            Nothing is allowlisted yet, so capture has nothing to read. Choose apps below first.
+          </AppText>
+        ) : null}
+        <AppButton
+          label="Open Android access settings"
+          onPress={() => void controller.openSystemSettings()}
+          tone="secondary"
+        />
+      </ReceiptStage>
+
+      <ReceiptStage label="Allowlist" ordinal={2}>
+        <AppText tone="muted" variant="mono">
+          {`${String(allowedCount)} ${allowedCount === 1 ? "app" : "apps"} · title and visible text only`}
+        </AppText>
+        <AppText tone="muted" variant="caption">
           Installed app labels and the full launchable-app list remain on this device.
         </AppText>
         <AppButton
@@ -101,29 +127,10 @@ export default function NotificationSourceScreen() {
           onPress={() => router.push(sourceSelectorRoutes.notifications)}
           tone="secondary"
         />
-      </EditorialSurface>
-      <EditorialSurface icon="sync" title="Access and synchronization">
-        <AppText tone="muted">
-          Changes apply before any new item enters the encrypted upload queue.
-        </AppText>
-        <AppButton
-          disabled={allowedCount === 0 || unsupported || notificationActive}
-          label={
-            notificationActive
-              ? "Notification access active"
-              : capabilities?.notificationListener
-                ? "Review consent and resume"
-                : "Continue to Android access"
-          }
-          onPress={controller.openConsent}
-        />
-      </EditorialSurface>
-      <EditorialSurface
-        icon="format-list-bulleted"
-        meta={`${(capabilities?.notificationAllowedPackages.length ?? 0).toString()} APPS`}
-        title="Notification queue"
-      >
-        <AppText tone="muted">
+      </ReceiptStage>
+
+      <ReceiptStage label="Queue" ordinal={3}>
+        <AppText tone="muted" variant="caption">
           Review permitted metadata and processing state on a dedicated secure screen.
         </AppText>
         <AppButton
@@ -132,7 +139,8 @@ export default function NotificationSourceScreen() {
           onPress={() => router.push(sourceQueueRoutes.notifications)}
           tone="secondary"
         />
-      </EditorialSurface>
+      </ReceiptStage>
+
       <SourceDisclosureDialog
         disclosure={disclosure}
         onDismiss={() => setDisclosureVisible(false)}
@@ -148,34 +156,6 @@ export default function NotificationSourceScreen() {
         sourceName="Android notifications"
         visible={controller.consentVisible}
       />
-      <SourceSettingsDialog
-        actions={[
-          capabilities?.notificationCapturePaused === true
-            ? {
-                key: "resume",
-                label:
-                  controller.intent === "authorize"
-                    ? "Authorize notification access"
-                    : "Resume capture",
-                onPress: () => afterSettings(controller.openConsent),
-              }
-            : {
-                disabled: controller.busy || allowedCount === 0,
-                key: "pause",
-                label: "Pause capture",
-                onPress: () => afterSettings(() => void controller.pause()),
-              },
-          {
-            key: "android-settings",
-            label: "Open Android access settings",
-            onPress: () => afterSettings(() => void controller.openSystemSettings()),
-          },
-        ]}
-        detail="Pause capture immediately or manage Relay's notification-listener access in Android settings."
-        onDismiss={() => setSettingsVisible(false)}
-        sourceName="Android notifications"
-        visible={settingsVisible}
-      />
-    </AppScreen>
+    </ReceiptScreen>
   );
 }
