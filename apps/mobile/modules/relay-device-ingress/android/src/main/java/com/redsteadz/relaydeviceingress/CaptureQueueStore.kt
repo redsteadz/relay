@@ -194,6 +194,29 @@ internal class CaptureQueueStore(context: Context) :
     } finally { writableDatabase.endTransaction() }
   }
 
+  /**
+   * Whether this device has already recorded that exact capture.
+   *
+   * A sweep of what Android still has on screen re-offers notifications this device may have
+   * captured already, and the queue alone cannot say so: a row is deleted once the server
+   * acknowledges it, which makes a delivered capture look new. The retained content row outlives
+   * it -- thirty days against the queue's seven -- and is keyed by the same envelope UUID, so it is
+   * the durable record of what this device has seen. Both are checked, so a capture still waiting
+   * to upload and one already delivered are each recognised.
+   *
+   * Being wrong here is bounded and safe. Content retention is capped by age and size, so an evicted
+   * row makes an old capture look new; the envelope UUID is unchanged, so the pipeline recognises
+   * the redelivery rather than storing a second capture.
+   */
+  fun hasRecord(tenantId: String, envelopeId: String): Boolean =
+    readableDatabase.rawQuery(
+      """
+      SELECT EXISTS(SELECT 1 FROM capture_content WHERE tenant_id=? AND envelope_id=?)
+          OR EXISTS(SELECT 1 FROM capture_queue WHERE tenant_id=? AND envelope_id=?)
+      """.trimIndent(),
+      arrayOf(tenantId, envelopeId, tenantId, envelopeId)
+    ).use { cursor -> cursor.moveToFirst() && cursor.getInt(0) == 1 }
+
   fun ready(tenantId: String, now: Long, includeSms: Boolean): List<Map<String, Any>> {
     expire(writableDatabase, now)
     val selection = if (includeSms) {
