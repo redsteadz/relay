@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { filterPlanSchema, type FilterField, type FilterPlan } from "@relay/contracts";
+import {
+  filterFieldSchema,
+  filterPlanSchema,
+  type FilterField,
+  type FilterPlan,
+} from "@relay/contracts";
 
 import {
   classificationRationale,
   classifyCapture,
+  filterItem,
   referencedFilterFields,
   type ClassifiableRule,
 } from "../src/classification.js";
+import { evaluateFilterPlan } from "../src/filter-evaluator.js";
+import { readFilterField } from "../src/field-access.js";
 
 const ALL_FIELDS: ReadonlySet<FilterField> = new Set([
   "source.kind",
@@ -230,5 +238,86 @@ describe("classificationRationale", () => {
     }));
 
     expect((classificationRationale(many) ?? "").length).toBeLessThanOrEqual(500);
+  });
+});
+
+describe("filterItem", () => {
+  const populated = filterItem({
+    attributes: { amount: "10.00", currency: "USD", merchant: "North Station" },
+    body: "Your invoice is ready",
+    category: "transaction",
+    sender: "statements@examplebank.test",
+    source: { applicationId: "com.example.shop", kind: "notification" },
+    subject: "Card statement",
+  });
+
+  /**
+   * The guard against the two runtimes drifting apart again.
+   *
+   * A record whose keys merely look right is worthless: the pipeline built `{"source.kind": "sms"}`,
+   * which reads correctly to a person and resolves to nothing through `readFilterField`. So every
+   * field the contract allows is read back through the reader the evaluator actually uses.
+   */
+  it("exposes every filter field through the reader the evaluator uses", () => {
+    const expected: Record<FilterField, unknown> = {
+      "attributes.amount": "10.00",
+      "attributes.currency": "USD",
+      "attributes.merchant": "North Station",
+      body: "Your invoice is ready",
+      category: "transaction",
+      sender: "statements@examplebank.test",
+      "source.applicationId": "com.example.shop",
+      "source.kind": "notification",
+      subject: "Card statement",
+    };
+
+    for (const field of filterFieldSchema.options) {
+      expect(readFilterField(populated, field)).toBe(expected[field]);
+    }
+  });
+
+  it("nests source rather than naming a key with a dot in it", () => {
+    expect(populated.source).toEqual({
+      applicationId: "com.example.shop",
+      kind: "notification",
+    });
+    expect(populated).not.toHaveProperty(["source.kind"]);
+  });
+
+  it("nests attributes rather than prefixing their keys", () => {
+    expect(populated.attributes).toEqual({
+      amount: "10.00",
+      currency: "USD",
+      merchant: "North Station",
+    });
+    expect(populated).not.toHaveProperty(["attributes.amount"]);
+  });
+
+  it("omits a field the capture did not carry", () => {
+    const sparse = filterItem({ source: { kind: "sms" } });
+
+    expect(sparse).toEqual({ attributes: {}, source: { kind: "sms" } });
+    for (const field of ["sender", "subject", "body", "category"] as const) {
+      expect(readFilterField(sparse, field)).toBeUndefined();
+    }
+  });
+
+  // The behaviour the shape exists for: a plan written against these names has to actually match.
+  it("lets a plan match on the fields a rule is written against", () => {
+    for (const [field, value] of [
+      ["source.kind", "notification"],
+      ["source.applicationId", "com.example.shop"],
+      ["attributes.merchant", "North Station"],
+      ["sender", "statements@examplebank.test"],
+    ] as const) {
+      const plan = filterPlanSchema.parse({
+        schemaVersion: 1,
+        compilerVersion: 1,
+        intent: `matches ${field}`,
+        deterministic: { field, operator: "equals", value },
+      });
+
+      expect(evaluateFilterPlan(plan, populated).decision).toBe("match");
+    }
   });
 });

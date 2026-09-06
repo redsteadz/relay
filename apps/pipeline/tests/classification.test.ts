@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ingressEnvelopeSchema } from "@relay/contracts";
+import { filterPlanSchema, ingressEnvelopeSchema } from "@relay/contracts";
+
+import { evaluateFilterPlan, readFilterField } from "@relay/domain";
 
 import { activeRules, classificationItem, classifyCapture } from "../src/classification";
 
@@ -50,18 +52,38 @@ function backend(rules: unknown[]) {
 }
 
 describe("classificationItem", () => {
-  it("exposes the fields a rule may test, flattened as the compiler names them", () => {
+  /**
+   * This asserted the flat keys the module used to build, which read correctly to a person and
+   * resolved to nothing through `readFilterField`. Asserting the shape was what made the bug look
+   * deliberate, so it now asserts what the evaluator can actually read.
+   */
+  it("exposes the fields a rule may test, through the reader the evaluator uses", () => {
     const item = classificationItem(envelope());
-    expect(item["source.kind"]).toBe("notification");
-    expect(item["source.applicationId"]).toBe("com.example.shop");
-    expect(item["attributes.amount"]).toBe("10.00");
-    expect(item.subject).toBe("50% off everything");
+
+    expect(readFilterField(item, "source.kind")).toBe("notification");
+    expect(readFilterField(item, "source.applicationId")).toBe("com.example.shop");
+    expect(readFilterField(item, "attributes.amount")).toBe("10.00");
+    expect(readFilterField(item, "subject")).toBe("50% off everything");
   });
 
   it("omits a field the capture did not carry rather than passing an empty one", () => {
     const item = classificationItem(envelope({ subject: undefined, body: undefined }));
     expect("subject" in item).toBe(false);
     expect("body" in item).toBe(false);
+  });
+
+  // The regression itself: a rule reading a dotted field has to match here exactly as it does in the
+  // rule editor's preview and on the device.
+  it("matches a plan written against a dotted field", () => {
+    const item = classificationItem(envelope());
+    const plan = filterPlanSchema.parse({
+      schemaVersion: 1,
+      compilerVersion: 1,
+      intent: "from a notification",
+      deterministic: { field: "source.kind", operator: "equals", value: "notification" },
+    });
+
+    expect(evaluateFilterPlan(plan, item).decision).toBe("match");
   });
 });
 
