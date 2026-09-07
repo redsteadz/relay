@@ -153,7 +153,11 @@ describe("flattened server item support", () => {
       deterministic: { field: "source.kind", operator: "equals", value: "gmail" },
     });
     const appPlan = plan({
-      deterministic: { field: "source.applicationId", operator: "equals", value: "com.example.bank" },
+      deterministic: {
+        field: "source.applicationId",
+        operator: "equals",
+        value: "com.example.bank",
+      },
     });
 
     expect(evaluateFilter(kindPlan, flatItem)).toBe("match");

@@ -24,14 +24,18 @@ export function readFilterField(item: Record<string, unknown>, path: string): un
   // 2. Special fallback mappings for server-side persistence records
   if (path === "source.kind") {
     if (typeof item.source === "string" && item.source.length > 0) return item.source;
-    if (typeof item.source_kind === "string" && item.source_kind.length > 0) return item.source_kind;
+    if (typeof item.source_kind === "string" && item.source_kind.length > 0)
+      return item.source_kind;
     if (typeof item.sourceKind === "string" && item.sourceKind.length > 0) return item.sourceKind;
   }
 
   if (path === "source.applicationId") {
-    if (typeof item.application_id === "string" && item.application_id.length > 0) return item.application_id;
-    if (typeof item.applicationId === "string" && item.applicationId.length > 0) return item.applicationId;
-    if (typeof item.source_application_id === "string" && item.source_application_id.length > 0) return item.source_application_id;
+    if (typeof item.application_id === "string" && item.application_id.length > 0)
+      return item.application_id;
+    if (typeof item.applicationId === "string" && item.applicationId.length > 0)
+      return item.applicationId;
+    if (typeof item.source_application_id === "string" && item.source_application_id.length > 0)
+      return item.source_application_id;
   }
 
   if (path.startsWith("attributes.")) {
