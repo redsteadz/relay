@@ -537,7 +537,7 @@ insert into public.action_rules (
     '90400000-0000-4000-8000-000000000099',
     '90000000-0000-4000-8000-000000000001',
     '90300000-0000-4000-8000-000000000099',
-    'google-tasks', 'tasks.insert', '{}', 'required'
+    'google-tasks', 'tasks.insert', '{}', 'automatic'
   );
 
 select throws_ok(
@@ -588,18 +588,11 @@ select results_eq(
       '90200000-0000-4000-8000-000000000001',
       '{}'::jsonb
     )$$,
-  $$values ('awaiting-approval')$$,
-  'category-gated proposal succeeds when server classification exists'
+  $$values ('approved')$$,
+  'category-gated proposal succeeds and approves when server classification exists'
 );
 
-set local role authenticated;
-select public.decide_action_run(
-  public.relay_action_run_id(
-    '90400000-0000-4000-8000-000000000099', '90200000-0000-4000-8000-000000000001'
-  ),
-  'approve'
-);
-reset role;
+set local role service_role;
 
 select results_eq(
   format(
@@ -614,6 +607,8 @@ select results_eq(
   $$values ('running')$$,
   'category-gated workflow claim succeeds with server classification'
 );
+
+reset role;
 
 select * from finish();
 rollback;

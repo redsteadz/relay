@@ -230,3 +230,11 @@ begin
   return claimed;
 end;
 $$;
+
+revoke all on function public.propose_action_run_v1(uuid, uuid, uuid, jsonb)
+from public, anon, authenticated;
+grant execute on function public.propose_action_run_v1(uuid, uuid, uuid, jsonb) to service_role;
+
+revoke all on function public.claim_action_run_for_workflow_v1(uuid, uuid, text)
+from public, anon, authenticated;
+grant execute on function public.claim_action_run_for_workflow_v1(uuid, uuid, text) to service_role;
