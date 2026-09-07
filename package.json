@@ -27,13 +27,13 @@
     "supabase:types:remote:check": "node --env-file-if-exists=.env scripts/supabase-types.mjs check-remote"
   },
   "devDependencies": {
-    "@eslint/js": "9.39.5",
-    "eslint": "9.39.5",
+    "@eslint/js": "10.0.1",
+    "eslint": "10.10.0",
     "prettier": "3.9.6",
-    "supabase": "2.115.0",
-    "turbo": "2.10.11",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.67.0",
-    "vitest": "4.1.11"
+    "supabase": "2.116.0",
+    "turbo": "2.10.12",
+    "typescript": "7.0.2",
+    "typescript-eslint": "8.69.0",
+    "vitest": "5.0.0"
   }
 }
