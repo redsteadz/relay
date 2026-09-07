@@ -518,8 +518,8 @@ select throws_ok(
 reset role;
 
 -- Server classification gating (issue #171, ADR-0014) ------------------------------------------------
-insert into public.categories (id, user_id, name) values
-  ('90500000-0000-4000-8000-000000000001', '90000000-0000-4000-8000-000000000001', 'Finance');
+insert into public.categories (id, user_id, slug, name) values
+  ('90500000-0000-4000-8000-000000000001', '90000000-0000-4000-8000-000000000001', 'finance', 'Finance');
 
 insert into public.filter_rules (id, user_id, name, intent, plan, category_id) values
   (
