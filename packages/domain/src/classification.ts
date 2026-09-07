@@ -15,6 +15,59 @@ import type { FilterExpression, FilterField, FilterPlan } from "@relay/contracts
 
 import { evaluateFilterPlan, type MatchedPredicate } from "./filter-evaluator.js";
 
+/**
+ * What a runtime knows about a capture, before it is shaped for evaluation.
+ *
+ * Each runtime gathers these differently -- the pipeline from the decrypted envelope, the device from
+ * the columns it can read plus its own retained copy -- but what a plan is evaluated against must not
+ * depend on which one gathered it.
+ */
+export type FilterItemInput = {
+  /** Derived or adapter-supplied values, keyed without the `attributes.` prefix. */
+  attributes?: Readonly<Record<string, unknown>> | undefined;
+  body?: string | undefined;
+  /** The category slug a plan compares against, when the runtime knows it. */
+  category?: string | undefined;
+  sender?: string | undefined;
+  source: { applicationId?: string | undefined; kind: string };
+  subject?: string | undefined;
+};
+
+/**
+ * Builds the record a filter plan is evaluated against.
+ *
+ * `readFilterField` resolves `source.kind` by splitting on the dot and walking the object, so the
+ * record has to be nested. This exists because the two runtimes that evaluate plans each built their
+ * own and disagreed: the pipeline used flat keys that happened to contain dots, which the evaluator
+ * read as a path into a `source` object that was not there. Every `source.*` and `attributes.*`
+ * predicate therefore failed server-side while the identical rule matched on the device -- silently,
+ * because the evaluator treats an absent field as a failed predicate rather than an error.
+ *
+ * One constructor is the fix. A field a runtime does not have is omitted rather than set to
+ * `undefined`, which the evaluator reads the same way but keeps the record honest about what was
+ * actually known.
+ */
+export function filterItem(input: FilterItemInput): Record<string, unknown> {
+  const item: Record<string, unknown> = {
+    // Always present, even when empty, so `attributes.amount` resolves to a missing key rather than
+    // a missing object. The evaluator treats both as absent; keeping the shape constant means a
+    // reader of one of these records never has to ask which case they are looking at.
+    attributes: { ...(input.attributes ?? {}) },
+    source: {
+      kind: input.source.kind,
+      ...(input.source.applicationId === undefined
+        ? {}
+        : { applicationId: input.source.applicationId }),
+    },
+  };
+
+  if (input.sender !== undefined) item.sender = input.sender;
+  if (input.subject !== undefined) item.subject = input.subject;
+  if (input.body !== undefined) item.body = input.body;
+  if (input.category !== undefined) item.category = input.category;
+  return item;
+}
+
 /** The rule shape classification needs, independent of how any runtime stores a rule. */
 export type ClassifiableRule = {
   /** Where a match is filed. A rule may match without naming a category. */

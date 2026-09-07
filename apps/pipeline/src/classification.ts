@@ -1,4 +1,5 @@
 import { filterPlanSchema, type IngressEnvelope } from "@relay/contracts";
+import { filterItem } from "@relay/domain";
 
 import { supabaseBackendHeaders, type PersistenceConfiguration } from "./configuration";
 import { evaluateFilterWithSemantics, type SemanticEvaluationOptions } from "./semantic";
@@ -33,22 +34,25 @@ type FilterRuleRow = {
 /**
  * The fields a rule may test.
  *
- * Built from the envelope rather than the stored row so a rule sees what actually arrived, and
- * flattened to the field names the compiler emits. Attributes are spread under their own prefix so
- * `attributes.amount` reads as one field rather than requiring the evaluator to walk objects.
+ * Built from the envelope rather than the stored row, so a rule sees what actually arrived. The
+ * shape itself belongs to `@relay/domain`: this module previously built its own, using flat keys
+ * that contained dots, which `readFilterField` read as a path into objects that were not there. Every
+ * `source.*` and `attributes.*` predicate failed here while the identical rule matched on the
+ * device, and it failed silently, because an absent field is a failed predicate rather than an error.
  */
 export function classificationItem(envelope: IngressEnvelope): Record<string, unknown> {
-  const attributes = Object.fromEntries(
-    Object.entries(envelope.attributes).map(([key, value]) => [`attributes.${key}`, value]),
-  );
-  return {
-    ...attributes,
-    "source.applicationId": envelope.source.applicationId,
-    "source.kind": envelope.source.kind,
-    ...(envelope.sender === undefined ? {} : { sender: envelope.sender }),
-    ...(envelope.subject === undefined ? {} : { subject: envelope.subject }),
+  return filterItem({
+    attributes: envelope.attributes,
     ...(envelope.body === undefined ? {} : { body: envelope.body }),
-  };
+    ...(envelope.sender === undefined ? {} : { sender: envelope.sender }),
+    source: {
+      ...(envelope.source.applicationId === undefined
+        ? {}
+        : { applicationId: envelope.source.applicationId }),
+      kind: envelope.source.kind,
+    },
+    ...(envelope.subject === undefined ? {} : { subject: envelope.subject }),
+  });
 }
 
 /**

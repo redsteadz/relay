@@ -16,6 +16,7 @@
 import {
   classificationRationale,
   classifyCapture,
+  filterItem,
   type CaptureClassification,
   type ClassifiableRule,
 } from "@relay/domain";
@@ -56,22 +57,22 @@ export function classificationItemFor(capture: ClassifiableCapture): Record<stri
     if (value !== undefined) attributes[kind] = value;
   }
 
-  return {
+  // The retained subject is this device's own record of what arrived; the server column is a
+  // normalized copy of the same thing. Either answers the field.
+  const subject = capture.content?.subject ?? capture.source.subject;
+
+  return filterItem({
     attributes,
-    // The retained subject is this device's own record of what arrived; the server column is a
-    // normalized copy of the same thing. Either answers the field.
-    ...((capture.content?.subject ?? capture.source.subject) === undefined
-      ? {}
-      : { subject: capture.content?.subject ?? capture.source.subject }),
     ...(capture.content?.body === undefined ? {} : { body: capture.content.body }),
     ...(capture.source.sender === undefined ? {} : { sender: capture.source.sender }),
     source: {
-      kind: capture.source.kind,
       ...(capture.source.applicationId === undefined
         ? {}
         : { applicationId: capture.source.applicationId }),
+      kind: capture.source.kind,
     },
-  };
+    ...(subject === undefined ? {} : { subject }),
+  });
 }
 
 /** What this device can read for one capture. `body` only when it kept its own copy. */
