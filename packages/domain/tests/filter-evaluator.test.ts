@@ -140,3 +140,48 @@ describe("recorded evaluation", () => {
     expect(serialized).not.toContain("billing@example.test");
   });
 });
+
+describe("flattened server item support", () => {
+  it("matches source.kind and source.applicationId on flat server persistence items", () => {
+    const flatItem = {
+      source: "gmail",
+      application_id: "com.example.bank",
+      sender: "statements@example.test",
+    };
+
+    const kindPlan = plan({
+      deterministic: { field: "source.kind", operator: "equals", value: "gmail" },
+    });
+    const appPlan = plan({
+      deterministic: {
+        field: "source.applicationId",
+        operator: "equals",
+        value: "com.example.bank",
+      },
+    });
+
+    expect(evaluateFilter(kindPlan, flatItem)).toBe("match");
+    expect(evaluateFilter(appPlan, flatItem)).toBe("match");
+  });
+
+  it("matches attributes.* on JSON stringified and flat server persistence items", () => {
+    const jsonAttributesItem = {
+      source: "sms",
+      attributes: '{"currency":"USD","merchant":"Acme Market","amount":"42.50"}',
+    };
+
+    const currencyPlan = plan({
+      deterministic: { field: "attributes.currency", operator: "equals", value: "USD" },
+    });
+    const merchantPlan = plan({
+      deterministic: { field: "attributes.merchant", operator: "contains", value: "acme" },
+    });
+    const amountPlan = plan({
+      deterministic: { field: "attributes.amount", operator: "equals", value: "42.50" },
+    });
+
+    expect(evaluateFilter(currencyPlan, jsonAttributesItem)).toBe("match");
+    expect(evaluateFilter(merchantPlan, jsonAttributesItem)).toBe("match");
+    expect(evaluateFilter(amountPlan, jsonAttributesItem)).toBe("match");
+  });
+});
