@@ -22,8 +22,8 @@
     "@relay/observability": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260823.1",
+    "@cloudflare/workers-types": "5.20260904.1",
     "@relay/config": "workspace:*",
-    "wrangler": "4.125.0"
+    "wrangler": "4.129.0"
   }
 }

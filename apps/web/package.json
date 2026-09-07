@@ -22,11 +22,11 @@
   },
   "devDependencies": {
     "@relay/config": "workspace:*",
-    "@types/node": "22.19.15",
+    "@types/node": "26.4.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.1.1",
     "vite": "8.2.2",
-    "wrangler": "4.125.0"
+    "wrangler": "4.129.0"
   }
 }
