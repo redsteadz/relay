@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-30
+last_verified: 2026-09-07
 ---
 
 # Action And Approval Model
@@ -62,10 +62,12 @@ if it carries `action`, `provider`, `operation`, `endpoint`, or `credential` at 
 same guard the filter compiler applies to plans.
 
 Only an enabled rule may propose. Connection removal detaches and disables a rule in one statement,
-so a rule whose credential is gone cannot propose either. The rule's `approval_mode` decides the
-starting state -- `required` yields `awaiting-approval`, `automatic` yields `approved` with a
-timestamp -- and the mode in force is copied onto the run, so the ledger still explains an automatic
-approval after the rule is edited.
+so a rule whose credential is gone cannot propose either. A category-gated action rule (whose underlying
+filter rule specifies a category) requires a current classification with `origin = 'server'` on the
+event's source item. A device-authored classification (`origin = 'device'`) or absent classification
+refuses proposal (ADR-0014). The rule's `approval_mode` decides the starting state -- `required` yields
+`awaiting-approval`, `automatic` yields `approved` with a timestamp -- and the mode in force is copied
+onto the run, so the ledger still explains an automatic approval after the rule is edited.
 
 ### Decision
 
@@ -87,7 +89,8 @@ outcomes write a metadata-only audit row naming the transition performed.
 
 `claim_action_run_for_workflow_v1` is the single gate between ledger state and an external effect. It
 is service-role only, moves `approved` to `running` under a row lock, and re-checks that the rule is
-still enabled, so an approval that predates a rule being turned off cannot start anything. Only
+still enabled, so an approval that predates a rule being turned off cannot start anything. For category-gated
+action rules, it re-verifies that the source item retains a current server classification (`origin = 'server'`). Only
 `approved` is eligible: an undecided run, one already running, and every terminal state are refused.
 
 A repeated claim from the same workflow instance returns the running row without starting a second

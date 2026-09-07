@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(37);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at
@@ -513,6 +513,99 @@ select throws_ok(
   'P0002',
   null,
   'a running action can no longer be cancelled'
+);
+
+reset role;
+
+-- Server classification gating (issue #171, ADR-0014) ------------------------------------------------
+insert into public.categories (id, user_id, slug, name) values
+  ('90500000-0000-4000-8000-000000000001', '90000000-0000-4000-8000-000000000001', 'finance', 'Finance');
+
+insert into public.filter_rules (id, user_id, name, intent, plan, category_id) values
+  (
+    '90300000-0000-4000-8000-000000000099',
+    '90000000-0000-4000-8000-000000000001',
+    'Finance Rule', 'finance receipts',
+    '{"schemaVersion":1,"compilerVersion":1,"intent":"finance receipts","deterministic":{"field":"category","operator":"equals","value":"Finance"}}',
+    '90500000-0000-4000-8000-000000000001'
+  );
+
+insert into public.action_rules (
+  id, user_id, filter_rule_id, provider, operation, input_template, approval_mode
+) values
+  (
+    '90400000-0000-4000-8000-000000000099',
+    '90000000-0000-4000-8000-000000000001',
+    '90300000-0000-4000-8000-000000000099',
+    'google-tasks', 'tasks.insert', '{}', 'automatic'
+  );
+
+select throws_ok(
+  $$select public.propose_action_run_v1(
+    '90000000-0000-4000-8000-000000000001',
+    '90400000-0000-4000-8000-000000000099',
+    '90200000-0000-4000-8000-000000000001',
+    '{}'::jsonb
+  )$$,
+  'P0002',
+  null,
+  'category-gated proposal is refused when no classification exists'
+);
+
+insert into public.classifications (
+  id, user_id, source_item_id, category_id, method, confidence, origin
+) values (
+  '90600000-0000-4000-8000-000000000001',
+  '90000000-0000-4000-8000-000000000001',
+  '90100000-0000-4000-8000-000000000001',
+  '90500000-0000-4000-8000-000000000001',
+  'deterministic',
+  1,
+  'device'
+);
+
+select throws_ok(
+  $$select public.propose_action_run_v1(
+    '90000000-0000-4000-8000-000000000001',
+    '90400000-0000-4000-8000-000000000099',
+    '90200000-0000-4000-8000-000000000001',
+    '{}'::jsonb
+  )$$,
+  'P0002',
+  null,
+  'category-gated proposal is refused when classification was authored by device'
+);
+
+update public.classifications
+set origin = 'server'
+where id = '90600000-0000-4000-8000-000000000001';
+
+select results_eq(
+  $$select status::text
+    from public.propose_action_run_v1(
+      '90000000-0000-4000-8000-000000000001',
+      '90400000-0000-4000-8000-000000000099',
+      '90200000-0000-4000-8000-000000000001',
+      '{}'::jsonb
+    )$$,
+  $$values ('approved')$$,
+  'category-gated proposal succeeds and approves when server classification exists'
+);
+
+set local role service_role;
+
+select results_eq(
+  format(
+    $$select status::text
+      from public.claim_action_run_for_workflow_v1(
+        '90000000-0000-4000-8000-000000000001', %L, 'workflow-cat-1'
+      )$$,
+    public.relay_action_run_id(
+      '90400000-0000-4000-8000-000000000099', '90200000-0000-4000-8000-000000000001'
+    )
+  ),
+  $$values ('running')$$,
+  'category-gated workflow claim succeeds with server classification'
 );
 
 reset role;
