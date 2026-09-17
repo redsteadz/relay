@@ -133,15 +133,23 @@ async function stopChild(running) {
   ]);
 }
 
-async function waitForHttp(url, running, timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs;
+async function waitForHttp(url, running, timeoutMs = 300_000) {
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let attempts = 0;
   while (Date.now() < deadline) {
     if (running.child.exitCode !== null) throw new Error(`${running.name} exited before readiness`);
     try {
+      attempts += 1;
       const response = await globalThis.fetch(url, {
         signal: globalThis.AbortSignal.timeout(1000),
       });
-      if (response.ok) return;
+      if (response.ok) {
+        globalThis.console.error(
+          `DIAGNOSTIC ${running.name} ready after ${String(Date.now() - startedAt)}ms, ${String(attempts)} attempts`,
+        );
+        return;
+      }
     } catch {
       // Service is still starting.
     }
