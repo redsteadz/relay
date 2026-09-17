@@ -94,11 +94,20 @@ function startPnpm(name, args, env, forbidden) {
     name,
     privacyViolation: false,
     scanTails: { stderr: "", stdout: "" },
+    // DIAGNOSTIC ONLY -- scratch branch. Bounded, and every forbidden value is masked before it is
+    // ever printed, so no generated secret or fixture content can reach the log.
+    diagnosticTail: "",
+    forbidden,
+  };
+  const keepDiagnostic = (chunk) => {
+    running.diagnosticTail = `${running.diagnosticTail}${chunk.toString("utf8")}`.slice(-8000);
   };
   child.stdout.on("data", (chunk) => {
+    keepDiagnostic(chunk);
     scanProcessOutput(running, "stdout", chunk, forbidden);
   });
   child.stderr.on("data", (chunk) => {
+    keepDiagnostic(chunk);
     scanProcessOutput(running, "stderr", chunk, forbidden);
   });
   children.push(running);
@@ -755,6 +764,13 @@ try {
     globalThis.console.error(
       `DIAGNOSTIC child ${child.name}: exitCode=${String(child.child.exitCode)}`,
     );
+    let masked = child.diagnosticTail ?? "";
+    for (const value of child.forbidden ?? []) {
+      if (typeof value === "string" && value.length > 0) masked = masked.split(value).join("<redacted>");
+    }
+    globalThis.console.error(`DIAGNOSTIC ${child.name} output >>>
+${masked}
+<<< end`);
   }
   process.exitCode = 1;
 } finally {
