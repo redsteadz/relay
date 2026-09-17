@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { filterPlanSchema, ingressEnvelopeSchema } from "@relay/contracts";
 
@@ -196,5 +196,190 @@ describe("classifyCapture", () => {
       reason: "not-configured",
       status: "skipped",
     });
+  });
+});
+
+type RuleRow = {
+  category_id: string | null;
+  id: string;
+  plan: unknown;
+  series_id: string;
+  version: number;
+};
+
+const unmatchedPlan = {
+  ...deterministicPlan,
+  deterministic: { field: "subject", operator: "contains", value: "invoice" },
+  intent: "subject contains invoice",
+};
+
+function rule(seriesId: string, version: number, plan: unknown, categoryId?: string): RuleRow {
+  return {
+    category_id: categoryId ?? null,
+    id: `${seriesId}-${version.toString()}`,
+    plan,
+    series_id: seriesId,
+    version,
+  };
+}
+
+/** `series_id` wide enough to sort lexicographically in creation order. */
+const series = (index: number): string => `s${index.toString().padStart(3, "0")}`;
+
+/**
+ * A `filter_rules` stand-in that honours `order`, `limit` and a `series_id` cursor.
+ *
+ * #204 was a query-shape defect: the rows the pipeline never evaluated were dropped by PostgREST,
+ * before any code in this repository saw them. The `backend` helper above answers every read with
+ * every row it was given, so it cannot observe that class of bug at all -- which is why the rule
+ * loader had passing tests while silently losing whole rule series. This fake sorts and pages the
+ * way PostgREST does, so what is asserted is the query the pipeline actually issues.
+ */
+function pagedBackend(rows: readonly RuleRow[]) {
+  const requests: URL[] = [];
+  const writes: { body: unknown; url: string }[] = [];
+
+  const compare = (left: RuleRow, right: RuleRow, order: readonly string[]): number => {
+    for (const term of order) {
+      const [field = "", direction = "asc"] = term.split(".");
+      const leftValue = left[field as keyof RuleRow];
+      const rightValue = right[field as keyof RuleRow];
+      const result =
+        typeof leftValue === "number" && typeof rightValue === "number"
+          ? leftValue - rightValue
+          : String(leftValue).localeCompare(String(rightValue));
+      if (result !== 0) return direction === "desc" ? -result : result;
+    }
+    return 0;
+  };
+
+  const fetcher = vi.fn((input: unknown, init?: { body?: string; method?: string }) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/filter_rules")) {
+      requests.push(url);
+      let matching = [...rows];
+      const cursor = url.searchParams.get("series_id");
+      if (cursor !== null && cursor.startsWith("gt.")) {
+        const after = cursor.slice(3);
+        matching = matching.filter((row) => row.series_id > after);
+      }
+      const order = (url.searchParams.get("order") ?? "").split(",").filter((term) => term !== "");
+      matching.sort((left, right) => compare(left, right, order));
+      const limit = Number(url.searchParams.get("limit") ?? String(matching.length));
+      return Promise.resolve(
+        new Response(JSON.stringify(matching.slice(0, limit)), { status: 200 }),
+      );
+    }
+    if (url.pathname.endsWith("/classifications")) {
+      writes.push({ body: JSON.parse(init?.body ?? "{}"), url: String(input) });
+      return Promise.resolve(new Response("", { status: 201 }));
+    }
+    return Promise.resolve(new Response("[]", { status: 200 }));
+  });
+
+  return { fetcher, requests, writes };
+}
+
+describe("loadActiveRules", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * The defect in #204, as reported: one rule edited past the cap hid every other rule.
+   *
+   * `version` is per series, not global, so a global `version.desc` sort ranks one series' edit
+   * history above every other tenant rule. Sixty revisions rather than the reported fifty so the
+   * fiftieth-highest version is still above rule B's version 1, which keeps the reproduction free
+   * of a sort tie.
+   */
+  it("evaluates a rule series that a frequently edited series would have paged out", async () => {
+    const edited = Array.from({ length: 60 }, (_, index) =>
+      rule(series(0), index + 1, unmatchedPlan),
+    );
+    const { fetcher, writes } = pagedBackend([
+      ...edited,
+      rule(series(1), 1, deterministicPlan, "cat-2"),
+    ]);
+    vi.stubGlobal("fetch", fetcher);
+
+    const outcome = await classifyCapture(configuration as never, envelope(), USER, {});
+
+    expect(outcome).toMatchObject({
+      categoryId: "cat-2",
+      ruleId: `${series(1)}-1`,
+      status: "stored",
+    });
+    expect(writes).toHaveLength(1);
+  });
+
+  /**
+   * The cap has to bound rules, which is what its comment claims, rather than bound rows. Forty-nine
+   * noisy series of twenty revisions each puts 980 rows ahead of the only rule that matches, so the
+   * capture is filed only if the read pages by series instead of stopping at a row count.
+   */
+  it("reaches every series within the cap even when revisions outnumber a page", async () => {
+    const noisy = Array.from({ length: 49 }, (_, seriesIndex) =>
+      Array.from({ length: 20 }, (_, index) => rule(series(seriesIndex), index + 1, unmatchedPlan)),
+    ).flat();
+    const { fetcher, requests } = pagedBackend([
+      ...noisy,
+      rule(series(49), 1, deterministicPlan, "cat-2"),
+    ]);
+    vi.stubGlobal("fetch", fetcher);
+
+    const outcome = await classifyCapture(configuration as never, envelope(), USER, {});
+
+    expect(outcome).toMatchObject({ ruleId: `${series(49)}-1`, status: "stored" });
+    // Ordered so the newest revision of a series is the first row of its group, which is what makes
+    // a cursor on `series_id` safe to advance past rows it has not read.
+    for (const request of requests) {
+      expect(request.searchParams.get("order")).toBe("series_id.asc,version.desc");
+    }
+  });
+
+  it("keeps the newest revision of a series rather than the one a page happened to end on", async () => {
+    const { fetcher, writes } = pagedBackend([
+      rule(series(0), 1, unmatchedPlan, "cat-old"),
+      rule(series(0), 2, deterministicPlan, "cat-new"),
+    ]);
+    vi.stubGlobal("fetch", fetcher);
+
+    await classifyCapture(configuration as never, envelope(), USER, {});
+
+    expect(writes[0]?.body).toMatchObject({ category_id: "cat-new" });
+  });
+
+  it("logs a bounded count when the cap truncates the ruleset, naming no rule", async () => {
+    const rows = Array.from({ length: 60 }, (_, index) => rule(series(index), 1, unmatchedPlan));
+    const { fetcher } = pagedBackend(rows);
+    vi.stubGlobal("fetch", fetcher);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await classifyCapture(configuration as never, envelope(), USER, {});
+
+    expect(warn).toHaveBeenCalledOnce();
+    const entry = warn.mock.calls[0]?.[0] as string;
+    expect(JSON.parse(entry)).toMatchObject({
+      event: "ingress.rule_cap_reached",
+      level: "warn",
+      namespace: "relay:pipeline",
+      ruleSeriesEvaluated: 50,
+    });
+    // A count and nothing else: no rule id, no intent, and no tenant identifier.
+    expect(entry).not.toContain(series(0));
+    expect(entry).not.toContain("subject contains invoice");
+    expect(entry).not.toContain(USER);
+  });
+
+  it("stays silent when the ruleset fits within the cap", async () => {
+    const { fetcher } = pagedBackend([rule(series(0), 1, deterministicPlan, "cat-1")]);
+    vi.stubGlobal("fetch", fetcher);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await classifyCapture(configuration as never, envelope(), USER, {});
+
+    expect(warn).not.toHaveBeenCalled();
   });
 });

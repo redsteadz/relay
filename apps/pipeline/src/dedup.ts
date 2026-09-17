@@ -588,6 +588,7 @@ export async function processIngressMessage(
   if (persistence === "stored") {
     try {
       const outcome = await classifyCapture(configuration, envelope, userId.data, {
+        debugSpecification: env.DEBUG,
         endpoint: readSemanticEndpointDefaults(env),
       });
       if (outcome.status === "stored") {
