@@ -34,6 +34,7 @@ let stage = "initialization";
  * writes.
  */
 let normalizerVersion;
+let extractorVersion;
 const stageClock = { at: Date.now() };
 const markStage = (next) => {
   globalThis.console.error(
@@ -343,8 +344,8 @@ function assertEventRows(rows, fixture) {
   const event = rows[0];
   requireCondition(
     event.source_item_id === fixture.id &&
-      event.normalizer_version === 1 &&
-      event.extractor_version === 1 &&
+      event.normalizer_version === normalizerVersion &&
+      event.extractor_version === extractorVersion &&
       event.ordinal === 0 &&
       event.kind === "fact",
     "Synthetic event lacks versioned source identity",
@@ -409,9 +410,10 @@ async function main() {
   await runPnpm(["--filter", "@relay/pipeline", "--filter", "@relay/api", "build:dependencies"]);
 
   // Imported only after the build, since the built output is what exists on a clean checkout.
-  ({ SOURCE_FACT_NORMALIZER_VERSION: normalizerVersion } = await import(
-    pathToFileURL(resolve(root, "packages/domain/dist/index.js")).href
-  ));
+  ({
+    SOURCE_EVENT_EXTRACTOR_VERSION: extractorVersion,
+    SOURCE_FACT_NORMALIZER_VERSION: normalizerVersion,
+  } = await import(pathToFileURL(resolve(root, "packages/domain/dist/index.js")).href));
 
   temporaryDirectory = await mkdtemp(join(tmpdir(), "relay-local-e2e-"));
   const kek = randomBytes(32).toString("base64");
