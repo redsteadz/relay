@@ -34,6 +34,15 @@ const configuration = {
   supabase: { serviceRoleKey: "sb_secret_synthetic", url: "https://project.supabase.test" },
 };
 
+/**
+ * The pipeline writes through a routine, not a table.
+ *
+ * A capture has exactly one current classification, so a direct insert could only ever file a
+ * capture that had never been filed. Asserting the endpoint keeps a future change from quietly
+ * going back to a blind insert, which is what #203 was.
+ */
+const CLASSIFICATION_RPC = "/rpc/record_server_classification_v1";
+
 /** Answers the rule read, then records every write for inspection. */
 function backend(rules: unknown[]) {
   const writes: { body: unknown; url: string }[] = [];
@@ -42,9 +51,9 @@ function backend(rules: unknown[]) {
     if (url.includes("/filter_rules")) {
       return Promise.resolve(new Response(JSON.stringify(rules), { status: 200 }));
     }
-    if (url.includes("/classifications")) {
+    if (url.includes(CLASSIFICATION_RPC)) {
       writes.push({ body: JSON.parse(init?.body ?? "{}"), url });
-      return Promise.resolve(new Response("", { status: 201 }));
+      return Promise.resolve(new Response("", { status: 200 }));
     }
     return Promise.resolve(new Response("[]", { status: 200 }));
   });
@@ -129,10 +138,11 @@ describe("classifyCapture", () => {
     });
     expect(writes).toHaveLength(1);
     expect(writes[0]?.body).toMatchObject({
-      category_id: "cat-1",
-      method: "deterministic",
-      source_item_id: "cf4c3c89-0a15-4edb-94df-77786bcddd01",
-      user_id: USER,
+      p_category_id: "cat-1",
+      p_filter_rule_id: "rule-1",
+      p_method: "deterministic",
+      p_source_item_id: "cf4c3c89-0a15-4edb-94df-77786bcddd01",
+      p_user_id: USER,
     });
     vi.unstubAllGlobals();
   });
@@ -174,7 +184,7 @@ describe("classifyCapture", () => {
     vi.stubGlobal("fetch", fetcher);
 
     await classifyCapture(configuration as never, envelope(), USER, {});
-    const rationale = String((writes[0]?.body as { rationale: string }).rationale);
+    const rationale = String((writes[0]?.body as { p_rationale: string }).p_rationale);
     expect(rationale).not.toContain("50% off everything");
     expect(rationale).not.toContain("Unsubscribe");
     expect(rationale).toContain("rule-1");
@@ -270,9 +280,9 @@ function pagedBackend(rows: readonly RuleRow[]) {
         new Response(JSON.stringify(matching.slice(0, limit)), { status: 200 }),
       );
     }
-    if (url.pathname.endsWith("/classifications")) {
+    if (url.pathname.endsWith(CLASSIFICATION_RPC)) {
       writes.push({ body: JSON.parse(init?.body ?? "{}"), url: String(input) });
-      return Promise.resolve(new Response("", { status: 201 }));
+      return Promise.resolve(new Response("", { status: 200 }));
     }
     return Promise.resolve(new Response("[]", { status: 200 }));
   });
@@ -348,7 +358,7 @@ describe("loadActiveRules", () => {
 
     await classifyCapture(configuration as never, envelope(), USER, {});
 
-    expect(writes[0]?.body).toMatchObject({ category_id: "cat-new" });
+    expect(writes[0]?.body).toMatchObject({ p_category_id: "cat-new" });
   });
 
   it("logs a bounded count when the cap truncates the ruleset, naming no rule", async () => {
@@ -398,5 +408,72 @@ describe("loadActiveRules", () => {
     await classifyCapture(configuration as never, envelope(), USER, {});
 
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("storeClassification", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * The regression #203 was: a blind `POST /rest/v1/classifications` cannot supersede, so it could
+   * only ever file a capture that had never been filed. Asserting the endpoint is what stops a
+   * future change reverting to a table write; that the supersede itself works is a database
+   * property, asserted in `supabase/tests/database/server_classification.test.sql`.
+   */
+  it("writes through the superseding routine rather than inserting a row directly", async () => {
+    const { fetcher, writes } = pagedBackend([rule(series(0), 1, deterministicPlan, "cat-1")]);
+    vi.stubGlobal("fetch", fetcher);
+
+    await classifyCapture(configuration as never, envelope(), USER, {});
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.url).toContain("/rpc/record_server_classification_v1");
+    expect(writes[0]?.url).not.toMatch(/\/rest\/v1\/classifications(\?|$)/u);
+  });
+
+  /**
+   * Revisions are immutable, so the rule id is permanent provenance. The rationale names the same
+   * rule in prose, which is not what `202609070001` reads before letting a category gate a provider
+   * effect.
+   */
+  it("records the rule revision that filed the capture, not only its name in prose", async () => {
+    const { fetcher, writes } = pagedBackend([rule(series(0), 7, deterministicPlan, "cat-1")]);
+    vi.stubGlobal("fetch", fetcher);
+
+    await classifyCapture(configuration as never, envelope(), USER, {});
+
+    const body = writes[0]?.body as { p_filter_rule_id: string; p_rationale: string };
+    expect(body.p_filter_rule_id).toBe(`${series(0)}-7`);
+    expect(body.p_rationale).toContain(`${series(0)}-7`);
+  });
+
+  it("never asserts an origin of its own, leaving the routine to fix it", async () => {
+    const { fetcher, writes } = pagedBackend([rule(series(0), 1, deterministicPlan, "cat-1")]);
+    vi.stubGlobal("fetch", fetcher);
+
+    await classifyCapture(configuration as never, envelope(), USER, {});
+
+    expect(Object.keys(writes[0]?.body as object)).not.toContain("p_origin");
+    expect(JSON.stringify(writes[0]?.body)).not.toContain("origin");
+  });
+
+  /**
+   * A permanent write failure must still reach the queue, which records the metric and logs once
+   * (`dedup.ts:601-618`). Swallowing it here would make the capture look filed when it is not.
+   */
+  it("throws when the routine rejects the write", async () => {
+    const { fetcher } = pagedBackend([rule(series(0), 1, deterministicPlan, "cat-1")]);
+    const failing = vi.fn((input: unknown, init?: { body?: string; method?: string }) =>
+      String(input).includes("/rpc/record_server_classification_v1")
+        ? Promise.resolve(new Response("", { status: 409 }))
+        : fetcher(input, init),
+    );
+    vi.stubGlobal("fetch", failing);
+
+    await expect(classifyCapture(configuration as never, envelope(), USER, {})).rejects.toThrow(
+      /Classification write failed with status 409/u,
+    );
   });
 });

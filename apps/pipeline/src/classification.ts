@@ -183,6 +183,20 @@ async function loadActiveRules(
   return activeRules([...newest.values()]);
 }
 
+/**
+ * Records this classification as the capture's current one.
+ *
+ * Through `record_server_classification_v1` rather than a direct insert, because a capture has
+ * exactly one current classification -- `classifications_current_per_item_idx` is unique on
+ * `(user_id, source_item_id) where superseded_at is null`. A blind insert therefore succeeded only
+ * for a capture that had never been classified, and a second pass over the same capture raised a
+ * unique violation that reached the queue as an ordinary failed write. The routine supersedes the
+ * current row instead, which is what lets the pipeline re-file a capture at all.
+ *
+ * `filterRuleId` is the rule revision that matched. Revisions are immutable, so it is permanent
+ * provenance; the rationale names the same rule in prose, which is not the same thing and is not
+ * what `202609070001` reads when deciding whether a category may gate a provider effect.
+ */
 async function storeClassification(
   configuration: PersistenceConfiguration,
   userId: string,
@@ -190,25 +204,30 @@ async function storeClassification(
   entry: {
     categoryId: string | undefined;
     confidence: number;
+    filterRuleId: string;
     method: "deterministic" | "semantic";
     model: string | undefined;
     rationale: string;
   },
 ): Promise<void> {
   if (configuration.supabase === undefined) return;
-  const response = await fetch(`${configuration.supabase.url}/rest/v1/classifications`, {
-    method: "POST",
-    headers: supabaseBackendHeaders(configuration.supabase.serviceRoleKey),
-    body: JSON.stringify({
-      category_id: entry.categoryId ?? null,
-      confidence: entry.confidence,
-      method: entry.method,
-      model: entry.model ?? null,
-      rationale: entry.rationale,
-      source_item_id: sourceItemId,
-      user_id: userId,
-    }),
-  });
+  const response = await fetch(
+    `${configuration.supabase.url}/rest/v1/rpc/record_server_classification_v1`,
+    {
+      method: "POST",
+      headers: supabaseBackendHeaders(configuration.supabase.serviceRoleKey),
+      body: JSON.stringify({
+        p_category_id: entry.categoryId ?? null,
+        p_confidence: entry.confidence,
+        p_filter_rule_id: entry.filterRuleId,
+        p_method: entry.method,
+        p_model: entry.model ?? null,
+        p_rationale: entry.rationale,
+        p_source_item_id: sourceItemId,
+        p_user_id: userId,
+      }),
+    },
+  );
   if (!response.ok) throw new Error(`Classification write failed with status ${response.status}`);
 }
 
@@ -257,6 +276,7 @@ export async function classifyCapture(
     await storeClassification(configuration, userId, envelope.id, {
       categoryId: rule.category_id ?? undefined,
       confidence: semantic?.confidence ?? 1,
+      filterRuleId: rule.id,
       method,
       model: semantic?.model,
       rationale: `Matched rule ${rule.id} version ${rule.version.toString()} by ${method} evaluation`,
