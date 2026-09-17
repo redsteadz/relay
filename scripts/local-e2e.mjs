@@ -26,6 +26,14 @@ const apiUrl = "http://127.0.0.1:3300";
 const maxLogBytes = 64_000;
 
 let stage = "initialization";
+const stageClock = { at: Date.now() };
+const markStage = (next) => {
+  globalThis.console.error(
+    `DIAGNOSTIC stage "${stage}" took ${String(Date.now() - stageClock.at)}ms`,
+  );
+  stageClock.at = Date.now();
+  stage = next;
+};
 let temporaryDirectory;
 let startedSupabase = false;
 const children = [];
@@ -364,11 +372,11 @@ async function main() {
     status = await readSupabaseStatus(localEnvironment);
   }
 
-  stage = "local database reset";
+  markStage("local database reset");
   await runPnpm(["exec", "supabase", "db", "reset", "--local"], { env: localEnvironment });
   status = await readSupabaseStatus(localEnvironment);
 
-  stage = "workspace dependency build";
+  markStage("workspace dependency build");
   await runPnpm([
     "--filter",
     "@relay/contracts",
@@ -415,7 +423,7 @@ async function main() {
     { mode: 0o600 },
   );
 
-  stage = "local pipeline startup";
+  markStage("local pipeline startup");
   const pipeline = startPnpm(
     "pipeline",
     [
@@ -445,7 +453,7 @@ async function main() {
   );
   await waitForHttp(`${pipelineUrl}/health`, pipeline);
 
-  stage = "local API startup";
+  markStage("local API startup");
   const api = startPnpm(
     "api",
     ["--filter", "@relay/api", "exec", "next", "dev", "--hostname", "127.0.0.1", "--port", "3300"],
@@ -728,8 +736,18 @@ let completed = false;
 try {
   await main();
   completed = true;
-} catch {
+} catch (error) {
   globalThis.console.error(`Local E2E failed during ${stage}`);
+  // DIAGNOSTIC ONLY -- scratch branch. The message distinguishes a crash from a timeout without
+  // printing any child output, which is scanned for secrets and deliberately withheld.
+  globalThis.console.error(
+    `DIAGNOSTIC reason: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  for (const child of children) {
+    globalThis.console.error(
+      `DIAGNOSTIC child ${child.name}: exitCode=${String(child.child.exitCode)}`,
+    );
+  }
   process.exitCode = 1;
 } finally {
   let shutdownFailed = false;
