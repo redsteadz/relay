@@ -373,6 +373,23 @@ describe("loadActiveRules", () => {
     expect(entry).not.toContain(USER);
   });
 
+  /**
+   * The warning says rules were dropped, so a tenant sitting exactly on the cap must not see it.
+   * Reaching the cap is not the condition; finding a series beyond it is.
+   */
+  it("stays silent for a tenant holding exactly the cap", async () => {
+    const rows = Array.from({ length: 50 }, (_, index) => rule(series(index), 1, unmatchedPlan));
+    const { fetcher } = pagedBackend(rows);
+    vi.stubGlobal("fetch", fetcher);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect(await classifyCapture(configuration as never, envelope(), USER, {})).toEqual({
+      status: "unmatched",
+    });
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it("stays silent when the ruleset fits within the cap", async () => {
     const { fetcher } = pagedBackend([rule(series(0), 1, deterministicPlan, "cat-1")]);
     vi.stubGlobal("fetch", fetcher);
