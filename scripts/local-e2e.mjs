@@ -318,7 +318,16 @@ function assertFactRows(rows, fixture) {
         Array.isArray(row.provenance) &&
         row.provenance.length > 0,
     ),
-    "Synthetic facts lack source linkage or field provenance",
+    `Synthetic facts lack source linkage or field provenance :: ${JSON.stringify(
+      rows.map((row, ordinal) => ({
+        kind: row.kind,
+        linked: row.source_item_id === fixture.id,
+        normalizer_version: row.normalizer_version,
+        ordinalOk: row.ordinal === ordinal,
+        certainty: row.certainty,
+        provenanceLength: Array.isArray(row.provenance) ? row.provenance.length : "not-an-array",
+      })),
+    )}`,
   );
   const amount = rows.find((row) => row.kind === "amount");
   requireCondition(
