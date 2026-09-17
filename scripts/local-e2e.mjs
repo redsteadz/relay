@@ -394,15 +394,11 @@ async function main() {
   status = await readSupabaseStatus(localEnvironment);
 
   markStage("workspace dependency build");
-  await runPnpm([
-    "--filter",
-    "@relay/contracts",
-    "--filter",
-    "@relay/crypto",
-    "--filter",
-    "@relay/domain",
-    "build",
-  ]);
+  // Both apps under test declare their own workspace dependencies, so ask each to build them
+  // rather than restating the list here. The hand-written list omitted `@relay/observability` once
+  // the pipeline and the API started importing it, and `wrangler dev` does not exit on a bundling
+  // failure -- it waits for a fix -- so the omission surfaced only as a readiness timeout.
+  await runPnpm(["--filter", "@relay/pipeline", "--filter", "@relay/api", "build:dependencies"]);
 
   temporaryDirectory = await mkdtemp(join(tmpdir(), "relay-local-e2e-"));
   const kek = randomBytes(32).toString("base64");
