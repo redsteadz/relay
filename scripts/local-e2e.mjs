@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath, URL } from "node:url";
+import { fileURLToPath, pathToFileURL, URL } from "node:url";
 import { mkdtemp } from "node:fs/promises";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,6 +26,14 @@ const apiUrl = "http://127.0.0.1:3300";
 const maxLogBytes = 64_000;
 
 let stage = "initialization";
+/**
+ * Set once `@relay/domain` is built, because the built output is what the pipeline runs.
+ *
+ * Restating the version here is what made this assertion wrong: `SOURCE_FACT_NORMALIZER_VERSION`
+ * moved to 2 and the literal `1` stayed, so the harness asserted a version the pipeline no longer
+ * writes.
+ */
+let normalizerVersion;
 const stageClock = { at: Date.now() };
 const markStage = (next) => {
   globalThis.console.error(
@@ -312,22 +320,13 @@ function assertFactRows(rows, fixture) {
     rows.every(
       (row, ordinal) =>
         row.source_item_id === fixture.id &&
-        row.normalizer_version === 1 &&
+        row.normalizer_version === normalizerVersion &&
         row.ordinal === ordinal &&
         row.certainty === "certain" &&
         Array.isArray(row.provenance) &&
         row.provenance.length > 0,
     ),
-    `Synthetic facts lack source linkage or field provenance :: ${JSON.stringify(
-      rows.map((row, ordinal) => ({
-        kind: row.kind,
-        linked: row.source_item_id === fixture.id,
-        normalizer_version: row.normalizer_version,
-        ordinalOk: row.ordinal === ordinal,
-        certainty: row.certainty,
-        provenanceLength: Array.isArray(row.provenance) ? row.provenance.length : "not-an-array",
-      })),
-    )}`,
+    "Synthetic facts lack source linkage or field provenance",
   );
   const amount = rows.find((row) => row.kind === "amount");
   requireCondition(
@@ -408,6 +407,11 @@ async function main() {
   // the pipeline and the API started importing it, and `wrangler dev` does not exit on a bundling
   // failure -- it waits for a fix -- so the omission surfaced only as a readiness timeout.
   await runPnpm(["--filter", "@relay/pipeline", "--filter", "@relay/api", "build:dependencies"]);
+
+  // Imported only after the build, since the built output is what exists on a clean checkout.
+  ({ SOURCE_FACT_NORMALIZER_VERSION: normalizerVersion } = await import(
+    pathToFileURL(resolve(root, "packages/domain/dist/index.js")).href
+  ));
 
   temporaryDirectory = await mkdtemp(join(tmpdir(), "relay-local-e2e-"));
   const kek = randomBytes(32).toString("base64");
