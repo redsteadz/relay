@@ -1,4 +1,10 @@
 export {
+  derivedCaptureIds,
+  persistDerivedCapture,
+  storedCaptureCounts,
+  type StoredCaptureCounts,
+} from "./captures";
+export {
   clearLocalStoreForTenant,
   clearLocalStoreTenant,
   localStoreSupported,
@@ -6,6 +12,8 @@ export {
   openLocalStore,
   pruneLocalStore,
   type LocalStore,
+  type LocalStoreTransaction,
+  type SqlParameter,
 } from "./database";
 export {
   capturesToPrune,

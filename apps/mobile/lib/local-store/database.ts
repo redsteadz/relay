@@ -26,7 +26,33 @@ import {
 import { openSqliteDatabase } from "./driver";
 import { capturesToPrune, type PrunableCapture, type PruneBounds } from "./retention";
 
-export type LocalStore = SQLiteDatabase;
+/**
+ * The slice of `expo-sqlite` this store uses.
+ *
+ * Declared structurally rather than aliasing `SQLiteDatabase` so the statements themselves can be
+ * executed against any SQLite in a test. The assertion below keeps the two from drifting: if
+ * `expo-sqlite` changes one of these signatures, this file stops compiling rather than the store
+ * failing on a device.
+ */
+export type LocalStoreTransaction = {
+  execAsync(source: string): Promise<void>;
+  runAsync(source: string, params: SqlParameter[]): Promise<unknown>;
+};
+
+export type LocalStore = {
+  execAsync(source: string): Promise<void>;
+  getAllAsync<Row>(source: string, params: SqlParameter[]): Promise<Row[]>;
+  getFirstAsync<Row>(source: string, params: SqlParameter[]): Promise<Row | null>;
+  runAsync(source: string, params: SqlParameter[]): Promise<unknown>;
+  withExclusiveTransactionAsync(task: (txn: LocalStoreTransaction) => Promise<void>): Promise<void>;
+};
+
+/** What a statement may be bound to. Blobs are deliberately absent: this store holds no ciphertext. */
+export type SqlParameter = number | string | null;
+
+// A compile-time check that the real database still satisfies the narrowed contract.
+const _satisfiesLocalStore = (database: SQLiteDatabase): LocalStore => database;
+void _satisfiesLocalStore;
 
 export function localStoreSupported(): boolean {
   return Platform.OS !== "web";
@@ -57,7 +83,7 @@ function localStoreError(cause: unknown, operation: string, code: string): AppEr
  * than at the one it had started.
  */
 export async function migrateLocalStore(database: LocalStore): Promise<number> {
-  const row = await database.getFirstAsync<{ user_version: number }>("PRAGMA user_version");
+  const row = await database.getFirstAsync<{ user_version: number }>("PRAGMA user_version", []);
   let version = row?.user_version ?? 0;
 
   for (let index = version; index < LOCAL_STORE_MIGRATIONS.length; index += 1) {
@@ -116,7 +142,7 @@ export async function pruneLocalStore(
   try {
     const rows = await database.getAllAsync<{ captured_at: string; id: string }>(
       "SELECT id, captured_at FROM source_items WHERE tenant_id = ?",
-      tenantId,
+      [tenantId],
     );
     const doomed = capturesToPrune(
       rows.map((row): PrunableCapture => ({ capturedAt: row.captured_at, sourceItemId: row.id })),
@@ -158,7 +184,7 @@ export async function clearLocalStoreTenant(database: LocalStore, tenantId: stri
   try {
     await database.withExclusiveTransactionAsync(async (transaction) => {
       for (const table of LOCAL_STORE_TABLES) {
-        await transaction.runAsync(`DELETE FROM ${table} WHERE tenant_id = ?`, tenantId);
+        await transaction.runAsync(`DELETE FROM ${table} WHERE tenant_id = ?`, [tenantId]);
       }
     });
   } catch (error: unknown) {
