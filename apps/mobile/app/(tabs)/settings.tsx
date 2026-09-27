@@ -6,6 +6,7 @@ import { AppButton, AppText, EditorialSurface, StatusMessage } from "@/component
 import { ReceiptStage } from "@/features/inbox/components/ReceiptStage";
 import { ThemePreferencePanel } from "@/features/settings/components/ThemePreferencePanel";
 import { useAuth } from "@/lib/auth-context";
+import { demoModeEnabled } from "@/lib/demo/mode";
 import { reportUnexpectedUiError } from "@/lib/observability";
 
 /**
@@ -86,7 +87,21 @@ export default function SettingsScreen() {
         </EditorialSurface>
       </ReceiptStage>
 
-      <ReceiptStage label="Account" ordinal={4}>
+      {demoModeEnabled() ? (
+        <ReceiptStage label="Demo" ordinal={4}>
+          <AppText tone="muted" variant="caption">
+            This build carries a local synthetic account. Generate captures, watch rules file them,
+            and reset back to the starting state.
+          </AppText>
+          <AppButton
+            label="Open the demo studio"
+            onPress={() => router.push("/demo")}
+            tone="secondary"
+          />
+        </ReceiptStage>
+      ) : null}
+
+      <ReceiptStage label="Account" ordinal={demoModeEnabled() ? 5 : 4}>
         <AppText tone="muted" variant="caption">
           {signedIn
             ? "Signing out removes the refreshable session from secure device storage. Nothing on the server is deleted."

@@ -13,7 +13,15 @@ import { useRelayTheme } from "@/theme";
  * the caller so a nav item can state selection with color alone.
  */
 export type RelayIconName =
-  "activity" | "back" | "chevron" | "inbox" | "rules" | "search" | "settings" | "sources";
+  | "activity"
+  | "back"
+  | "chevron"
+  | "experiment"
+  | "inbox"
+  | "rules"
+  | "search"
+  | "settings"
+  | "sources";
 
 type RelayIconProps = {
   color: string;
@@ -27,6 +35,7 @@ const glyphs: Record<RelayIconName, { circles?: readonly [number, number, number
     activity: { d: "M3 12a9 9 0 1 0 3-6.7 M3 4v5h5 M12 7v5l3 2" },
     back: { d: "M15 18l-6-6 6-6" },
     chevron: { d: "M9 6l6 6-6 6" },
+    experiment: { d: "M9 3h6 M10 3v7l-6 11h16l-6-11V3 M7.5 15h9" },
     inbox: { d: "M5 5h14l2 8v6H3v-6z M3 13h5l2 3h4l2-3h5" },
     rules: {
       circles: [[15, 7, 2] as const, [9, 17, 2] as const],
