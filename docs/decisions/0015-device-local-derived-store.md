@@ -84,9 +84,18 @@ build that cannot capture.
   two places to look.
 - Migrations are append-only and recorded in `PRAGMA user_version`. Editing an existing migration
   would leave two devices claiming the same version with different tables.
-- This store is not yet written to or read from. Deriving facts and events into it, rendering the
-  inbox from it, and reconciling classifications through it are separate changes, and sync
-  bookkeeping is deliberately absent from the schema until the change that needs it.
+- The store is written by the device's derivation pass, which runs `normalizeSourceFacts` and
+  `extractSourceEvents` before upload. Rendering the inbox from it and reconciling classifications
+  through it remain separate changes, and sync bookkeeping is deliberately absent from the schema
+  until the change that needs it.
+- Deriving on the device needed a SHA-256 that Hermes does not have. The fingerprint functions in
+  `packages/domain` now take an optional digest instead of assuming `crypto.subtle`, and the app
+  supplies one from `expo-crypto`. That is a stated dependency rather than a global polyfill, so the
+  package's runtime neutrality stays structural instead of depending on who happened to install a
+  shim first. The default is unchanged, so the pipeline is untouched.
+- A locally derived event carries a locally generated id, and the server generates a different id for
+  the same capture. Nothing depends on that yet, but `hidden_inbox_events` is keyed by event id, so
+  reconciliation has to resolve it rather than assume the two agree.
 - It does **not** supersede [ADR-0002](0002-cloudflare-processing-boundary.md): no provider call and
   no credential moves to the device.
 - It does **not** supersede [ADR-0014](0014-device-local-classification.md). A device-authored
