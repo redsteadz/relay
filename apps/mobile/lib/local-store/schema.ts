@@ -77,11 +77,18 @@ export const LOCAL_STORE_MIGRATIONS: readonly (readonly string[])[] = [
       ordinal INTEGER NOT NULL CHECK (ordinal >= 0 AND ordinal <= 63),
       kind TEXT NOT NULL,
       certainty TEXT NOT NULL CHECK (certainty IN ('certain', 'uncertain')),
-      value TEXT NOT NULL,
+      value TEXT,
       uncertainty_reason TEXT,
       provenance TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
-      PRIMARY KEY (tenant_id, source_item_id, normalizer_version, ordinal)
+      PRIMARY KEY (tenant_id, source_item_id, normalizer_version, ordinal),
+      -- An uncertain fact has no value: the normalizer records why it could not resolve one instead.
+      -- Mirrors the paired constraint on public.source_facts, so a row that could never be stored
+      -- server-side cannot be stored here either.
+      CHECK (
+        (certainty = 'certain' AND value IS NOT NULL AND uncertainty_reason IS NULL)
+        OR (certainty = 'uncertain' AND value IS NULL AND uncertainty_reason IS NOT NULL)
+      )
     )`,
     `CREATE INDEX source_facts_item ON source_facts (tenant_id, source_item_id)`,
 

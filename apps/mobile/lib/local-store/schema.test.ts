@@ -20,7 +20,7 @@ const ddl = statements.join("\n");
  */
 type SqliteStatement = {
   all: () => readonly Record<string, unknown>[];
-  run: (...parameters: readonly string[]) => void;
+  run: (...parameters: readonly (string | null)[]) => void;
 };
 
 type SqliteDatabase = {
@@ -144,6 +144,31 @@ describe.skipIf(sqlite === undefined)("local store schema, executed", () => {
     database.prepare(insert).run("tenant-a");
     expect(() => database.prepare(insert).run("tenant-b")).not.toThrow();
     expect(() => database.prepare(insert).run("tenant-a")).toThrow(/UNIQUE/iu);
+    database.close();
+  });
+
+  it("pairs a fact's value with its certainty the way the server does", () => {
+    const database = migratedDatabase();
+    const insert = `INSERT INTO source_facts
+      (tenant_id, id, source_item_id, normalizer_version, ordinal, kind, certainty, value,
+       uncertainty_reason, created_at)
+      VALUES ('t', ?, 'capture-1', 2, ?, 'sender', ?, ?, ?, '2026-09-27T12:00:00Z')`;
+
+    // A certain fact carries a value and no reason; an uncertain one carries a reason and no value.
+    expect(() =>
+      database.prepare(insert).run("certain-ok", "0", "certain", '"someone"', null),
+    ).not.toThrow();
+    expect(() =>
+      database.prepare(insert).run("uncertain-ok", "1", "uncertain", null, "contradictory"),
+    ).not.toThrow();
+
+    // Neither shape may borrow the other's column.
+    expect(() =>
+      database.prepare(insert).run("certain-bad", "2", "certain", null, "contradictory"),
+    ).toThrow(/CHECK/iu);
+    expect(() =>
+      database.prepare(insert).run("uncertain-bad", "3", "uncertain", '"someone"', null),
+    ).toThrow(/CHECK/iu);
     database.close();
   });
 
