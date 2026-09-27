@@ -12,6 +12,8 @@ type AutoRefreshAuth = {
 
 type DeletedAccountLocalCleanup = {
   clearCaptureQueue?: (() => Promise<void>) | undefined;
+  /** The device's derived store. Cleared alongside the queue so neither outlives the account. */
+  clearLocalStore?: (() => Promise<void>) | undefined;
   clearSession?: (() => Promise<void>) | undefined;
 };
 
@@ -111,6 +113,7 @@ export async function clearRelaySession(client: SupabaseClient): Promise<void> {
 
 export async function clearDeletedAccountLocalState({
   clearCaptureQueue,
+  clearLocalStore,
   clearSession,
 }: DeletedAccountLocalCleanup): Promise<void> {
   let cleanupFailed = false;
@@ -126,7 +129,19 @@ export async function clearDeletedAccountLocalState({
         operation: "clearCaptureQueue",
       });
       cleanupFailed = true;
-      cleanupCause = error;
+      cleanupCause ??= error;
+    }
+  }
+
+  // Derived rows are cleared after the queue and before the session, so a failure to clear either
+  // local store leaves the session in place and the account deletion retryable.
+  if (clearLocalStore !== undefined) {
+    try {
+      await clearLocalStore();
+    } catch (error: unknown) {
+      // openLocalStore and clearLocalStoreTenant already log the underlying SQLite failure once.
+      cleanupFailed = true;
+      cleanupCause ??= error;
     }
   }
 
