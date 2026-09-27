@@ -32,10 +32,14 @@ type SqliteDatabase = {
 type SqliteConstructor = new (path: string) => SqliteDatabase;
 
 /**
- * `node:sqlite` is unflagged from Node 23 and needs `--experimental-sqlite` on the pinned 22.x, so
- * the cases that execute the schema skip rather than silently passing where it is absent. The
- * structural assertions below always run. The specifier is held in a variable so the bundler does not
- * try to resolve a Node builtin for a React Native target.
+ * `node:sqlite` stopped requiring `--experimental-sqlite` in Node v22.13.0, and the repository's
+ * `engines.node` floor is `>=22.13`, so every supported runtime has it and the cases below do execute
+ * in CI. The guard is defence in depth rather than an expected path: if it ever does resolve to
+ * nothing, those cases report as skipped instead of passing without having run. The structural
+ * assertions above never depend on it.
+ *
+ * The specifier is held in a variable so the bundler does not try to resolve a Node builtin for a
+ * React Native target.
  */
 const sqlite = await (async (): Promise<SqliteConstructor | undefined> => {
   const specifier = "node:sqlite";
