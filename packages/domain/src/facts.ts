@@ -17,6 +17,7 @@ import {
   type SourceFactSet,
 } from "@relay/contracts";
 
+import { sha256Hex, type Sha256Digest } from "./digest.js";
 import { textAmountCandidates, textDateCandidates, textReferenceCandidates } from "./text-facts.js";
 
 /**
@@ -300,12 +301,16 @@ export function normalizeSourceFacts(envelope: IngressEnvelope): SourceFactSet {
   });
 }
 
-/** SHA-256 over the complete runtime-validated normalizer output, serialized in contract order. */
-export async function sourceFactSetFingerprint(candidate: SourceFactSet): Promise<string> {
+/**
+ * SHA-256 over the complete runtime-validated normalizer output, serialized in contract order.
+ *
+ * `digest` exists so a runtime without WebCrypto can supply its own; the fingerprint it produces is
+ * the same value, because the bytes hashed are decided here and not by the caller.
+ */
+export async function sourceFactSetFingerprint(
+  candidate: SourceFactSet,
+  digest?: Sha256Digest,
+): Promise<string> {
   const factSet = sourceFactSetSchema.parse(candidate);
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(JSON.stringify(factSet)),
-  );
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(new TextEncoder().encode(JSON.stringify(factSet)), digest);
 }

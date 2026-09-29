@@ -97,6 +97,48 @@ describe("mobile auth operations", () => {
     expect(loggedError.mock.calls[0]?.[0]).not.toContain("synthetic queue detail");
   });
 
+  it("clears the derived store as well as the queue before the session", async () => {
+    const order: string[] = [];
+
+    await clearDeletedAccountLocalState({
+      clearCaptureQueue: () => {
+        order.push("queue");
+        return Promise.resolve();
+      },
+      clearLocalStore: () => {
+        order.push("local-store");
+        return Promise.resolve();
+      },
+      clearSession: () => {
+        order.push("session");
+        return Promise.resolve();
+      },
+    });
+
+    // The session goes last, so a device-local store that could not be cleared leaves the deletion
+    // retryable rather than signing the reader out of an account whose data is still on the phone.
+    expect(order).toEqual(["queue", "local-store", "session"]);
+  });
+
+  it("keeps the first cleanup cause when the derived store also fails", async () => {
+    const queueFailure = new Error("synthetic queue detail");
+    const storeFailure = new Error("synthetic store detail");
+    const clearSession = vi.fn(() => Promise.resolve());
+
+    const terminal = (await clearDeletedAccountLocalState({
+      clearCaptureQueue: () => Promise.reject(queueFailure),
+      clearLocalStore: () => Promise.reject(storeFailure),
+      clearSession,
+    }).catch((error: unknown) => error)) as AppError;
+
+    expect(terminal).toBeInstanceOf(AppError);
+    expect(terminal.code).toBe("AUTH_DELETED_ACCOUNT_CLEANUP_FAILED");
+    expect(terminal.cause).toBe(queueFailure);
+    // A failed store clear must not stop the session from being cleared, or a reader whose deletion
+    // half-succeeded would be left signed in with no way to retry.
+    expect(clearSession).toHaveBeenCalledOnce();
+  });
+
   it("reports one sign-out incident and preserves its classified cause", async () => {
     const loggedError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const signOut = vi.fn(() => Promise.resolve({ error: new Error("synthetic provider detail") }));

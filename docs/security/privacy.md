@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-30
+last_verified: 2026-09-27
 ---
 
 # Privacy And Data Lifecycle
@@ -22,6 +22,7 @@ last_verified: 2026-08-30
 | Semantic disclosure record       | Provider, model, purpose, field names, redaction counts, decision, confidence, rationale | Until user deletion                            |
 | Audit metadata                   | No raw bodies or secrets                                                                 | Product retention policy, currently unresolved |
 | Device offline queue             | Keystore-backed encryption                                                               | Until acknowledged or local expiry             |
+| Device derived store             | App-private SQLite, no source text or ciphertext                                         | Thirty days or two thousand captures           |
 
 Production wrapping key material must live in a versioned Cloudflare secret keyring, never Supabase
 or clients. Queue bundles include algorithm; current Supabase rows imply `AES-GCM-256` and store
@@ -139,6 +140,18 @@ what Relay concluded, how confident the model was, its one-sentence rationale, a
 actually left the runtime, so an attempt that failed before sending is distinguishable from one that
 disclosed and then failed. The stored OpenAI key is revocable, and revoking it disables every
 enabled filter revision with a semantic clause in the same transaction.
+
+The device keeps two local stores with different protections, and the difference is the point. The
+offline capture queue and this device's readable copy of what a capture said are encrypted under a
+per-tenant Android Keystore key and bounded by age, count, and bytes. The derived store added by
+[ADR-0015](../decisions/0015-device-local-derived-store.md) holds facts, events, classifications,
+categories, and rule revisions in app-private SQLite, scoped per tenant, and holds no source text and
+no ciphertext: there is no body column and no second copy of an encrypted payload. That draws the same
+line `source_items` already draws, where sender, subject, and application are ordinary columns and only
+the raw payload is encrypted. The restriction is asserted against the schema rather than left to
+review, so a migration that adds a place to keep source text fails a test. Both stores are cleared when
+a reader signs out and when an account is deleted, and the session is cleared last so a store that
+could not be cleared leaves the deletion retryable.
 
 Account deletion revokes provider credentials, cancels pending action runs, invalidates every
 device, deletes stored credentials, purges raw payloads, and then removes the identity, which

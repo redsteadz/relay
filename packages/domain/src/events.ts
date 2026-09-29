@@ -10,6 +10,8 @@ import {
   type SourceFactSet,
 } from "@relay/contracts";
 
+import { sha256Hex, type Sha256Digest } from "./digest.js";
+
 export const SOURCE_EVENT_EXTRACTOR_VERSION = 1 as const;
 
 type CertainDateFact = Extract<SourceFact, { certainty: "certain"; kind: "date" }>;
@@ -235,11 +237,10 @@ export function extractSourceEvents(candidate: SourceFactSet): SourceEventSet {
 }
 
 /** SHA-256 over complete runtime-validated extractor output, excluding database row IDs. */
-export async function sourceEventSetFingerprint(candidate: SourceEventSet): Promise<string> {
+export async function sourceEventSetFingerprint(
+  candidate: SourceEventSet,
+  digest?: Sha256Digest,
+): Promise<string> {
   const eventSet = sourceEventSetSchema.parse(candidate);
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(JSON.stringify(eventSet)),
-  );
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(new TextEncoder().encode(JSON.stringify(eventSet)), digest);
 }

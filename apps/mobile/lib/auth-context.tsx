@@ -19,6 +19,7 @@ import {
 import { createConfiguredClient } from "./auth-configuration";
 import { logMobileError } from "./observability";
 import RelayDeviceIngress from "../modules/relay-device-ingress";
+import { clearLocalStoreForTenant } from "./local-store";
 
 type AuthContextValue = {
   client: SupabaseClient | undefined;
@@ -104,7 +105,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
   async function signOut() {
     if (client === undefined) throw new Error("Auth configuration is unavailable");
     const tenantId = session?.user.id;
-    if (tenantId !== undefined) await RelayDeviceIngress.clearCaptureQueue(tenantId);
+    if (tenantId !== undefined) {
+      await RelayDeviceIngress.clearCaptureQueue(tenantId);
+      await clearLocalStoreForTenant(tenantId);
+    }
     await clearRelaySession(client);
     startTransition(() => setSession(null));
   }
@@ -115,7 +119,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       await clearDeletedAccountLocalState({
         ...(tenantId === undefined
           ? {}
-          : { clearCaptureQueue: () => RelayDeviceIngress.clearCaptureQueue(tenantId) }),
+          : {
+              clearCaptureQueue: () => RelayDeviceIngress.clearCaptureQueue(tenantId),
+              clearLocalStore: () => clearLocalStoreForTenant(tenantId),
+            }),
         ...(client === undefined ? {} : { clearSession: () => clearRelaySession(client) }),
       });
     } finally {

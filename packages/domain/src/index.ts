@@ -1,7 +1,10 @@
 import type { IngressEnvelope } from "@relay/contracts";
 
+import { sha256Hex } from "./digest.js";
+
 export * from "./action-ledger.js";
 export * from "./classification.js";
+export * from "./digest.js";
 export * from "./events.js";
 export * from "./facts.js";
 export * from "./field-access.js";
@@ -30,9 +33,7 @@ export async function contentFingerprint(item: IngressEnvelope): Promise<string>
     normalizeText(item.subject ?? ""),
     normalizeText(item.body ?? ""),
   ].join("\u001f");
-  const bytes = new TextEncoder().encode(canonical);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(new TextEncoder().encode(canonical));
 }
 
 /**
