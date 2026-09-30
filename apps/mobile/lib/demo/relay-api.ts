@@ -302,9 +302,6 @@ export async function demoRelayApi(
     if (method === "DELETE") return revokeOpenAiKey();
   }
   if (route === "/api/filters/compile" && method === "POST") return compileFilter(init.body);
-  if (route === "/api/devices/register" && method === "POST") {
-    return { body: { id: demoRandomUuid(), platform: "android" }, status: 200 };
-  }
 
   return failure(404, "route_not_found", "Route is unavailable in demo mode");
 }
