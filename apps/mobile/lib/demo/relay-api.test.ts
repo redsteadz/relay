@@ -112,6 +112,11 @@ describe("demo Relay API", () => {
     const before = await demoRelayApi("/api/privacy", { method: "GET" });
     expect(privacyOverviewResponseSchema.parse(before.body).deletion).toBeNull();
 
+    // Capture settings are account data too: an allowlist that outlived its account would still
+    // name the apps the deleted person chose to share.
+    const { demoCapabilities, demoConfigureNotificationCapture } = await import("./device-ingress");
+    await demoConfigureNotificationCapture(["com.whatsapp"], true);
+
     const deleted = await demoRelayApi("/api/privacy/account", {
       body: { confirm: "delete my account" },
       method: "DELETE",
@@ -122,9 +127,17 @@ describe("demo Relay API", () => {
     expect(demoDatabase.rows("relay_events")).toHaveLength(0);
     expect(demoDatabase.rows("categories")).toHaveLength(0);
     expect(demoDatabase.rows("filter_rules")).toHaveLength(0);
+    expect(demoDatabase.rows("capture_settings")).toHaveLength(0);
 
     const after = await demoRelayApi("/api/privacy", { method: "GET" });
     expect(privacyOverviewResponseSchema.parse(after.body).deletion?.state).toBe("completed");
+
+    // Reset brings back the seeded account, and with it the default capture settings.
+    await demoDatabase.reset();
+    const capabilities = await demoCapabilities();
+    expect(capabilities.notificationCapturePaused).toBe(false);
+    expect(capabilities.notificationAllowedPackages).not.toContain("com.whatsapp");
+    expect(capabilities.notificationAllowedPackages.length).toBeGreaterThan(0);
   });
 
   it("refuses a route it does not implement", async () => {

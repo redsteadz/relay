@@ -15,6 +15,7 @@ export const DEMO_TABLES = [
   "action_rules",
   "action_runs",
   "audit_log",
+  "capture_settings",
   "categories",
   "classifications",
   "connections",
