@@ -2,8 +2,8 @@ import type { IngressEnvelope } from "@relay/contracts";
 import { extractSourceEvents, normalizeSourceFacts } from "@relay/domain";
 import { describe, expect, it, vi } from "vitest";
 
-import { LOCAL_STORE_MIGRATIONS } from "./schema";
-import type { LocalStore, LocalStoreTransaction, SqlParameter } from "./database";
+import type { LocalStore } from "./database";
+import { loadNodeSqlite, nodeSqliteLocalStore } from "./node-sqlite";
 
 vi.mock("expo-crypto", () => {
   let counter = 0;
@@ -18,71 +18,12 @@ vi.mock("expo-crypto", () => {
 const { derivedCaptureIds, persistDerivedCapture, storedCaptureCounts } =
   await import("./captures");
 
-/** The slice of `node:sqlite` this double needs. */
-type SqliteStatement = {
-  all: (...parameters: readonly SqlParameter[]) => readonly Record<string, unknown>[];
-  get: (...parameters: readonly SqlParameter[]) => Record<string, unknown> | undefined;
-  run: (...parameters: readonly SqlParameter[]) => void;
-};
-type SqliteDatabase = {
-  close: () => void;
-  exec: (s: string) => void;
-  prepare: (s: string) => SqliteStatement;
-};
-type SqliteConstructor = new (path: string) => SqliteDatabase;
+const sqlite = await loadNodeSqlite();
 
-const sqlite = await (async (): Promise<SqliteConstructor | undefined> => {
-  const specifier = "node:sqlite";
-  try {
-    const loaded = (await import(specifier)) as { DatabaseSync?: SqliteConstructor };
-    return loaded.DatabaseSync;
-  } catch {
-    return undefined;
-  }
-})();
-
-/**
- * A real SQLite behind the narrowed store contract.
- *
- * The point is to run the module's own statements rather than a stand-in for them: an idempotency
- * claim that rests on a unique index is only worth as much as the index actually refusing the second
- * write. Transactions are real too, so a partial write would be visible.
- */
+/** A real SQLite behind the store contract, so unique indexes and transactions are the real ones. */
 function localStoreDouble(): { close: () => void; store: LocalStore } {
   if (sqlite === undefined) throw new Error("node:sqlite unavailable");
-  const database = new sqlite(":memory:");
-  for (const statement of LOCAL_STORE_MIGRATIONS.flat()) database.exec(statement);
-
-  const transaction: LocalStoreTransaction = {
-    execAsync: (source) => {
-      database.exec(source);
-      return Promise.resolve();
-    },
-    runAsync: (source, params) => {
-      database.prepare(source).run(...params);
-      return Promise.resolve(undefined);
-    },
-  };
-
-  const store: LocalStore = {
-    execAsync: (source) => transaction.execAsync(source),
-    getAllAsync: <Row>(source: string, params: SqlParameter[]) =>
-      Promise.resolve(database.prepare(source).all(...params) as Row[]),
-    getFirstAsync: <Row>(source: string, params: SqlParameter[]) =>
-      Promise.resolve((database.prepare(source).get(...params) ?? null) as Row | null),
-    runAsync: (source, params) => transaction.runAsync(source, params),
-    withExclusiveTransactionAsync: async (task) => {
-      database.exec("BEGIN");
-      try {
-        await task(transaction);
-        database.exec("COMMIT");
-      } catch (error: unknown) {
-        database.exec("ROLLBACK");
-        throw error;
-      }
-    },
-  };
-  return { close: () => database.close(), store };
+  return nodeSqliteLocalStore(sqlite);
 }
 
 const envelope: IngressEnvelope = {
