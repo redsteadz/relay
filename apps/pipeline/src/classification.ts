@@ -1,6 +1,6 @@
 import { filterPlanSchema, type IngressEnvelope } from "@relay/contracts";
 import { filterItem } from "@relay/domain";
-import { createLogger } from "@relay/observability";
+import { createLogger, httpResponseError } from "@relay/observability";
 
 import { supabaseBackendHeaders, type PersistenceConfiguration } from "./configuration";
 import { evaluateFilterWithSemantics, type SemanticEvaluationOptions } from "./semantic";
@@ -228,7 +228,16 @@ async function storeClassification(
       }),
     },
   );
-  if (!response.ok) throw new Error(`Classification write failed with status ${response.status}`);
+  // The status is what lets the terminal log tell a pipeline deployed ahead of `202609170001` apart
+  // from a rejected write or an unavailable database: PostgREST answers 404 for a routine it cannot
+  // find, on every capture. The body is PostgREST's and is never read.
+  if (!response.ok) {
+    throw httpResponseError(response, {
+      code: "CLASSIFICATION_WRITE_FAILED",
+      integration: "supabase",
+      operation: "recordServerClassification",
+    });
+  }
 }
 
 /**

@@ -924,6 +924,62 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     vi.unstubAllGlobals();
   });
 
+  it("logs a classification routine the database lacks once, by status, and keeps the capture", async () => {
+    // A pipeline deployed ahead of `202609170001` meets a PostgREST 404 for the routine on every
+    // capture. The status has to reach the terminal log, or that deployment-order mistake reads
+    // exactly like any other failed write.
+    const { keyring, serialized } = keyMaterial();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.includes("/rest/v1/filter_rules")) {
+        return Promise.resolve(
+          Response.json([
+            {
+              category_id: "0b9f6d52-3a1c-4d2e-9f7a-1c2b3d4e5f60",
+              id: "5a4c1f1e-7d2b-4c3a-8e9f-0a1b2c3d4e5f",
+              plan: {
+                compilerVersion: 1,
+                deterministic: { field: "subject", operator: "contains", value: "synthetic" },
+                intent: "subject contains synthetic",
+                schemaVersion: 1,
+              },
+              series_id: "8e7d6c5b-4a39-4281-b7f6-e5d4c3b2a190",
+              version: 1,
+            },
+          ]),
+        );
+      }
+      if (url.endsWith("/rpc/record_server_classification_v1")) {
+        return Promise.resolve(Response.json({ code: "PGRST202" }, { status: 404 }));
+      }
+      return Promise.resolve(Response.json("stored"));
+    });
+    const { env } = supabaseEnv(serialized, fetchMock);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { storage } = fakeStorage();
+    const message = await buildMessage(keyring, {});
+
+    const response = await processIngressMessage(storage, env, message);
+
+    expect(await response.json()).toEqual({ accepted: true, reason: "persisted" });
+    expect(logged).toHaveBeenCalledOnce();
+    const entry = JSON.parse(String(logged.mock.calls[0]?.[0])) as {
+      error: Record<string, unknown>;
+      event: string;
+    };
+    expect(entry.event).toBe("ingress.classification_failed");
+    expect(entry.error).toMatchObject({
+      category: "not-found",
+      code: "INGRESS_CLASSIFICATION_FAILED",
+      retryable: false,
+      statusCode: 404,
+    });
+    expect(JSON.stringify(entry)).not.toContain("PGRST202");
+    expect(JSON.stringify(entry)).not.toContain("synthetic-subject");
+    logged.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
   it("records e2e result markers for source-identity and fingerprint duplicates distinctly", async () => {
     const { keyring, serialized } = keyMaterial();
     const fetchMock = vi.fn(() => Promise.resolve(Response.json("stored")));

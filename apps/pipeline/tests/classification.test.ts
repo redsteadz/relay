@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { filterPlanSchema, ingressEnvelopeSchema } from "@relay/contracts";
 
 import { evaluateFilterPlan, readFilterField } from "@relay/domain";
+import { AppError } from "@relay/observability";
 
 import { activeRules, classificationItem, classifyCapture } from "../src/classification";
 
@@ -464,16 +465,41 @@ describe("storeClassification", () => {
    * (`dedup.ts:601-618`). Swallowing it here would make the capture look filed when it is not.
    */
   it("throws when the routine rejects the write", async () => {
+    const failure = await rejectedWrite(409);
+
+    expect(failure).toBeInstanceOf(AppError);
+    expect(failure).toMatchObject({
+      category: "validation",
+      code: "CLASSIFICATION_WRITE_FAILED",
+      integration: "supabase",
+      operation: "recordServerClassification",
+      statusCode: 409,
+    });
+  });
+
+  /**
+   * PostgREST answers 404 for a routine it cannot find, which is what a pipeline deployed ahead of
+   * `202609170001` meets on every capture. The status is what lets the terminal log tell that apart
+   * from a rejected write.
+   */
+  it("reports a routine the database lacks as not-found rather than as a rejected write", async () => {
+    const failure = await rejectedWrite(404);
+
+    expect(failure).toBeInstanceOf(AppError);
+    expect(failure).toMatchObject({ category: "not-found", retryable: false, statusCode: 404 });
+  });
+
+  async function rejectedWrite(status: number): Promise<unknown> {
     const { fetcher } = pagedBackend([rule(series(0), 1, deterministicPlan, "cat-1")]);
     const failing = vi.fn((input: unknown, init?: { body?: string; method?: string }) =>
-      String(input).includes("/rpc/record_server_classification_v1")
-        ? Promise.resolve(new Response("", { status: 409 }))
+      String(input).includes(CLASSIFICATION_RPC)
+        ? Promise.resolve(new Response("", { status }))
         : fetcher(input, init),
     );
     vi.stubGlobal("fetch", failing);
 
-    await expect(classifyCapture(configuration as never, envelope(), USER, {})).rejects.toThrow(
-      /Classification write failed with status 409/u,
+    return classifyCapture(configuration as never, envelope(), USER, {}).catch(
+      (error: unknown) => error,
     );
-  });
+  }
 });
