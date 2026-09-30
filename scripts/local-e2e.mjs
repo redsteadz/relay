@@ -11,6 +11,7 @@ import { mkdtemp } from "node:fs/promises";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixturePath = resolve(root, "fixtures/demo-ingress.json");
+const deviceFixturePath = resolve(root, "fixtures/device-notifications.json");
 const userId = "00000000-0000-4000-8000-000000000001";
 const failedUserId = "00000000-0000-4000-8000-000000000099";
 const fingerprintDuplicateId = "cf4c3c89-0a15-4edb-94df-77786bcdddb5";
@@ -24,10 +25,16 @@ const databaseConflictBody = "SYNTHETIC DATABASE CONFLICT BODY MUST NOT APPEAR";
 const pipelineUrl = "http://127.0.0.1:8787";
 const apiUrl = "http://127.0.0.1:3300";
 const maxLogBytes = 64_000;
+// Opt-in: the device half needs the mobile workspace and is not part of the CI dispatch run (#199).
+const deviceBoundary = process.argv.includes("--device");
+const deviceUserId = "00000000-0000-4000-8000-000000000003";
+const deviceUserEmail = "relay-device-harness@example.test";
+const deviceHarnessTimeoutMs = 15 * 60_000;
 
 let stage = "initialization";
 let temporaryDirectory;
 let startedSupabase = false;
+let deviceSummary;
 const children = [];
 
 function requireCondition(condition, message) {
@@ -260,7 +267,7 @@ async function e2eResult(ingressSecret, relayUserId, envelopeId) {
   return value;
 }
 
-function assertEncryptedRow(row, fixture) {
+function assertEncryptedRow(row, plaintexts) {
   requireCondition(row.encryption_environment === "development", "Encryption owner mismatch");
   requireCondition(row.key_version === 1, "KEK version mismatch");
   requireCondition(
@@ -277,7 +284,7 @@ function assertEncryptedRow(row, fixture) {
   const encrypted = [row.raw_ciphertext, row.raw_nonce, row.wrapped_data_key, row.wrap_nonce]
     .join("")
     .toLowerCase();
-  for (const plaintext of [fixture.sender, fixture.subject, fixture.body]) {
+  for (const plaintext of plaintexts) {
     requireCondition(
       !encrypted.includes(Buffer.from(plaintext, "utf8").toString("hex")),
       "Plaintext appeared in encrypted persistence",
@@ -359,8 +366,356 @@ function assertLogsContainNoSensitiveData() {
   }
 }
 
+/** Every string a device notification carries, so no process may print one. */
+function deviceFixturePlaintexts(deviceFixture) {
+  return Object.values(deviceFixture.notifications).flatMap((notification) =>
+    [notification.title, notification.text, notification.messagingSender].filter(
+      (value) => typeof value === "string",
+    ),
+  );
+}
+
+/** The device stages, in order. A stage missing from the device's result is itself a failure. */
+const deviceStages = [
+  "device: rule setup (online)",
+  "device: listener allow/deny",
+  "device: envelope",
+  "device: queue",
+  "device: derivation (offline)",
+  "device: offline classification by rule",
+  "device: offline inbox shows capture under its rule's category",
+  "sync: upload",
+  "sync: server copy visible",
+  "sync: classification precedence (ADR-0014)",
+  "sync: device files a synced capture",
+  "sync: filing converges",
+  "probe: #179 no-op sync is observable",
+  "probe: #178 held capture uploads while paused",
+];
+const deviceOutcomes = new Set([
+  "blocked",
+  "failed",
+  "known-failure",
+  "known-failure-resolved",
+  "passed",
+]);
+
+/**
+ * A real session for a synthetic account, as a signed-in phone holds one.
+ *
+ * The password exists only for this run, and it and both tokens join the forbidden output before
+ * anything that could print them starts.
+ */
+async function createDeviceSession(status, forbidden) {
+  const password = randomBytes(24).toString("base64url");
+  forbidden.push(password);
+  const created = await globalThis.fetch(`${status.API_URL}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: serviceHeaders(status),
+    body: JSON.stringify({
+      email: deviceUserEmail,
+      email_confirm: true,
+      id: deviceUserId,
+      password,
+    }),
+  });
+  if (!created.ok) throw new Error("Local device account creation failed");
+  const signedIn = await globalThis.fetch(`${status.API_URL}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { apikey: status.PUBLISHABLE_KEY, "content-type": "application/json" },
+    body: JSON.stringify({ email: deviceUserEmail, password }),
+  });
+  if (!signedIn.ok) throw new Error("Local device sign-in failed");
+  const session = await signedIn.json();
+  if (
+    typeof session?.access_token !== "string" ||
+    typeof session?.refresh_token !== "string" ||
+    session?.user?.id !== deviceUserId
+  ) {
+    throw new Error("Local device session is invalid");
+  }
+  forbidden.push(session.access_token, session.refresh_token);
+  return session;
+}
+
+async function waitForExit(running, timeoutMs) {
+  await Promise.race([
+    running.closed,
+    // Unreferenced, so a long deadline never holds the process open once the child has exited.
+    delay(timeoutMs, undefined, { ref: false }).then(() => {
+      throw new Error(`${running.name} did not finish`);
+    }),
+  ]);
+  return running.child.exitCode;
+}
+
+function deviceResult(value) {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    value.schemaVersion !== 1 ||
+    !Array.isArray(value.stages) ||
+    typeof value.envelopes !== "object" ||
+    typeof value.fingerprints !== "object"
+  ) {
+    throw new Error("Device result is invalid");
+  }
+  for (const entry of value.stages) {
+    if (typeof entry?.name !== "string" || !deviceOutcomes.has(entry.outcome)) {
+      throw new Error("Device result is invalid");
+    }
+  }
+  return value;
+}
+
+async function categoryId(status, slug) {
+  const rows = await tableRows(
+    status,
+    "categories",
+    `user_id=eq.${deviceUserId}&slug=eq.${encodeURIComponent(slug)}&select=id`,
+  );
+  requireCondition(rows.length === 1, "Device category is missing");
+  return rows[0].id;
+}
+
+/** The synced half, asserted the way the server half above asserts an ingested capture. */
+async function assertDeviceSourceItems(status, ingressSecret, result, deviceFixture) {
+  for (const name of ["purchase", "parcel"]) {
+    const id = result.envelopes[name];
+    requireCondition(typeof id === "string", "Device result omitted an envelope id");
+    await poll(
+      "device capture persistence",
+      () => e2eResult(ingressSecret, deviceUserId, id),
+      (value) => value?.status === "persisted",
+      45_000,
+    );
+    const notification = deviceFixture.notifications[name];
+    const rows = await sourceRows(
+      status,
+      `id=eq.${encodeURIComponent(id)}&select=id,user_id,application_id,fact_set_fingerprint,raw_ciphertext,raw_nonce,wrapped_data_key,wrap_nonce,key_version,encryption_environment,created_at,raw_expires_at`,
+    );
+    requireCondition(
+      rows.length === 1 &&
+        rows[0].user_id === deviceUserId &&
+        rows[0].application_id === notification.packageName,
+      "Device capture was not durable under its own tenant and application",
+    );
+    assertEncryptedRow(
+      rows[0],
+      [notification.title, notification.text, notification.messagingSender].filter(
+        (value) => typeof value === "string",
+      ),
+    );
+    requireCondition(
+      rows[0].fact_set_fingerprint === result.fingerprints[name],
+      "Device and server derivations of the same capture disagree",
+    );
+    const facts = await tableRows(
+      status,
+      "source_facts",
+      `source_item_id=eq.${encodeURIComponent(id)}&select=id`,
+    );
+    const events = await tableRows(
+      status,
+      "relay_events",
+      `source_item_id=eq.${encodeURIComponent(id)}&select=id`,
+    );
+    requireCondition(facts.length > 0 && events.length === 1, "Device capture was not derived");
+  }
+}
+
+async function classificationRows(status, sourceItemId) {
+  return tableRows(
+    status,
+    "classifications",
+    `source_item_id=eq.${encodeURIComponent(sourceItemId)}&select=origin,method,confidence,category_id,filter_rule_id,superseded_at`,
+  );
+}
+
+/** ADR-0014: a capture the server could file keeps the server's answer, and the device adds none. */
+async function assertServerPrecedence(status, result, deviceFixture) {
+  const rows = await classificationRows(status, result.envelopes.purchase);
+  const current = rows.filter((row) => row.superseded_at === null);
+  const transactions = await categoryId(status, deviceFixture.rules.purchase.categorySlug);
+  requireCondition(
+    current.length === 1 &&
+      current[0].origin === "server" &&
+      current[0].category_id === transactions,
+    "The server's classification is not the current one",
+  );
+  requireCondition(
+    !rows.some((row) => row.origin === "device"),
+    "A device classification was recorded over the server's",
+  );
+}
+
+/** The only path by which a device-origin classification reaches the server today. */
+async function assertDeviceClassification(status, result, deviceFixture) {
+  const rule = deviceFixture.rules.parcel;
+  const rows = await classificationRows(status, result.envelopes.parcel);
+  const current = rows.filter((row) => row.superseded_at === null);
+  const deliveries = await categoryId(status, rule.categorySlug);
+  const revisions = await tableRows(
+    status,
+    "filter_rules",
+    `user_id=eq.${deviceUserId}&name=eq.${encodeURIComponent(rule.name)}&select=id&order=version.desc&limit=1`,
+  );
+  requireCondition(
+    current.length === 1 &&
+      current[0].origin === "device" &&
+      current[0].method === "deterministic" &&
+      Number(current[0].confidence) === 1 &&
+      current[0].category_id === deliveries &&
+      current[0].filter_rule_id === revisions[0]?.id,
+    "The device's classification did not reach the server as recorded",
+  );
+}
+
+async function assertHeldCaptureSynced(ingressSecret, result) {
+  const id = result.envelopes.held;
+  requireCondition(typeof id === "string", "Device result omitted the held envelope id");
+  await poll(
+    "held capture persistence",
+    () => e2eResult(ingressSecret, deviceUserId, id),
+    (value) => value?.status === "persisted",
+    45_000,
+  );
+}
+
+function printDeviceStages(records) {
+  globalThis.console.log("Device boundary stages:");
+  for (const entry of records) {
+    const notes = [
+      entry.step === undefined ? undefined : `at ${entry.step}`,
+      entry.issues === undefined ? undefined : entry.issues.join(", "),
+      entry.blockedBy === undefined ? undefined : `after ${entry.blockedBy}`,
+    ].filter((note) => note !== undefined);
+    globalThis.console.log(
+      `  ${entry.outcome.padEnd(22)} ${entry.name}${notes.length > 0 ? ` (${notes.join("; ")})` : ""}`,
+    );
+  }
+}
+
+/**
+ * Runs the device half and asserts where it lands.
+ *
+ * The device process runs the shipped mobile code under Vitest (`apps/mobile/e2e`), writes one
+ * outcome per stage, and prints nothing this script relies on. Server checks run after the device
+ * stage they follow, and every outcome is printed before the first failure is reported.
+ */
+async function runDeviceBoundary(status, ingressSecret, forbidden, environment, deviceFixture) {
+  stage = "device: account session";
+  const session = await createDeviceSession(status, forbidden);
+  const sessionPath = join(temporaryDirectory, "device-session.json");
+  const resultPath = join(temporaryDirectory, "device-result.json");
+  await writeFile(sessionPath, JSON.stringify(session), { mode: 0o600 });
+
+  stage = "device boundary run";
+  // The device half runs the real transports; demo mode would answer them locally instead.
+  const deviceEnvironment = { ...environment };
+  delete deviceEnvironment.EXPO_PUBLIC_RELAY_DEMO;
+  const device = startPnpm(
+    "device",
+    ["--filter", "@relay/mobile", "exec", "vitest", "run", "--config", "vitest.e2e.config.mjs"],
+    {
+      ...deviceEnvironment,
+      EXPO_PUBLIC_API_URL: apiUrl,
+      EXPO_PUBLIC_DEBUG: "relay:mobile",
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: status.PUBLISHABLE_KEY,
+      EXPO_PUBLIC_SUPABASE_URL: status.API_URL,
+      RELAY_E2E_DEVICE_RESULT: resultPath,
+      RELAY_E2E_DEVICE_SESSION: sessionPath,
+    },
+    forbidden,
+  );
+  const exitCode = await waitForExit(device, deviceHarnessTimeoutMs);
+  let resultText;
+  try {
+    resultText = await readFile(resultPath, "utf8");
+  } catch {
+    throw new Error("Device harness wrote no result");
+  }
+  stage = "device result privacy";
+  requireCondition(
+    !forbidden.some((value) => resultText.includes(value)),
+    "Device result exposed sensitive data",
+  );
+  stage = "device boundary run";
+  const result = deviceResult(JSON.parse(resultText));
+
+  const serverChecks = new Map([
+    [
+      "sync: upload",
+      {
+        name: "sync: source_items (server)",
+        run: () => assertDeviceSourceItems(status, ingressSecret, result, deviceFixture),
+      },
+    ],
+    [
+      "sync: classification precedence (ADR-0014)",
+      {
+        name: "sync: classification precedence (ADR-0014) (server)",
+        run: () => assertServerPrecedence(status, result, deviceFixture),
+      },
+    ],
+    [
+      "sync: device files a synced capture",
+      {
+        name: "sync: device files a synced capture (server)",
+        run: () => assertDeviceClassification(status, result, deviceFixture),
+      },
+    ],
+    [
+      "probe: #178 held capture uploads while paused",
+      {
+        name: "probe: #178 held capture uploads while paused (server)",
+        run: () => assertHeldCaptureSynced(ingressSecret, result),
+      },
+    ],
+  ]);
+
+  const records = [];
+  const reported = new Map(result.stages.map((entry) => [entry.name, entry]));
+  for (const name of deviceStages) {
+    const entry = reported.get(name) ?? { name, outcome: "failed", step: "stage never reported" };
+    records.push(entry);
+    const check = serverChecks.get(name);
+    if (check === undefined) continue;
+    if (entry.outcome !== "passed") {
+      records.push({ blockedBy: name, name: check.name, outcome: "blocked" });
+      continue;
+    }
+    stage = check.name;
+    try {
+      await check.run();
+      records.push({ name: check.name, outcome: "passed" });
+    } catch {
+      records.push({ name: check.name, outcome: "failed" });
+    }
+  }
+  printDeviceStages(records);
+
+  const failures = records.filter(
+    (entry) => entry.outcome === "failed" || entry.outcome === "known-failure-resolved",
+  );
+  if (failures.length > 0) {
+    stage = failures[0].name;
+    throw new Error("Device boundary stage failed");
+  }
+  if (exitCode !== 0) {
+    stage = "device boundary run";
+    throw new Error("Device harness failed outside a stage");
+  }
+  const known = records.filter((entry) => entry.outcome === "known-failure").length;
+  const passed = records.filter((entry) => entry.outcome === "passed").length;
+  return `device boundary (${String(passed)} stages passed, ${String(known)} known failures)`;
+}
+
 async function main() {
   const fixture = JSON.parse(await readFile(fixturePath, "utf8"));
+  const deviceFixture = deviceBoundary
+    ? JSON.parse(await readFile(deviceFixturePath, "utf8"))
+    : undefined;
   const localEnvironment = {
     ...process.env,
     RELAY_AUTH_SITE_URL: "http://localhost:3000",
@@ -389,6 +744,7 @@ async function main() {
     "@relay/crypto",
     "--filter",
     "@relay/domain",
+    ...(deviceBoundary ? ["--filter", "@relay/observability"] : []),
     "build",
   ]);
 
@@ -413,6 +769,7 @@ async function main() {
     recoverySecret,
     status.PUBLISHABLE_KEY,
     status.SECRET_KEY,
+    ...(deviceFixture === undefined ? [] : deviceFixturePlaintexts(deviceFixture)),
   ];
   const envFile = join(temporaryDirectory, "pipeline.env");
   await writeFile(
@@ -488,7 +845,7 @@ async function main() {
     `id=eq.${encodeURIComponent(fixture.id)}&select=id,user_id,fact_set_fingerprint,raw_ciphertext,raw_nonce,wrapped_data_key,wrap_nonce,key_version,encryption_environment,created_at,raw_expires_at`,
   );
   requireCondition(rows.length === 1, "Synthetic source row was not durable");
-  assertEncryptedRow(rows[0], fixture);
+  assertEncryptedRow(rows[0], [fixture.sender, fixture.subject, fixture.body]);
   const factRows = await tableRows(
     status,
     "source_facts",
@@ -735,6 +1092,16 @@ async function main() {
     `source_item_id=eq.${encodeURIComponent(fixture.id)}&select=id`,
   );
   requireCondition(retainedEventRows.length === 1, "Raw retention cleanup removed derived event");
+
+  if (deviceFixture !== undefined) {
+    deviceSummary = await runDeviceBoundary(
+      status,
+      ingressSecret,
+      forbiddenProcessOutput,
+      localEnvironment,
+      deviceFixture,
+    );
+  }
 }
 
 let completed = false;
@@ -779,6 +1146,6 @@ try {
 
 if (completed && process.exitCode !== 1) {
   globalThis.console.log(
-    "Local E2E passed: encrypted persistence, typed facts/events, deduplication, DLQ recovery, replay, and retention cleanup",
+    `Local E2E passed: encrypted persistence, typed facts/events, deduplication, DLQ recovery, replay, and retention cleanup${deviceSummary === undefined ? "" : `; ${deviceSummary}`}`,
   );
 }
