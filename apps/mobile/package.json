@@ -11,6 +11,7 @@
     "build": "expo export --platform web",
     "build-config:check": "node scripts/validate-build-config.mjs",
     "clean": "rm -rf .expo dist",
+    "demo:android": "node scripts/build-demo-apk.mjs",
     "dev": "expo start --dev-client",
     "eas-build-post-install": "pnpm --dir ../.. --filter \"@relay/mobile^...\" build",
     "lint": "eslint app components features hooks lib modules scripts app.config.ts vitest.config.mjs",

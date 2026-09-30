@@ -3,6 +3,18 @@ import { ingressEnvelopeSchema, type IngressEnvelope } from "@relay/contracts";
 import { PermissionsAndroid, Platform } from "react-native";
 
 import buildConstants from "../../config/build.constants.json";
+import {
+  demoCapabilities,
+  demoConfigureNotificationCapture,
+  demoConfigureSmsCapture,
+  demoGrantSmsPermission,
+  demoNotificationPreviews,
+  demoRetainedContent,
+  demoSelectableApps,
+  demoSmsPreviews,
+  demoSmsSenderChoice,
+} from "../../lib/demo/device-ingress";
+import { demoModeEnabled } from "../../lib/demo/mode";
 import { normalizeNotificationAppChoices } from "../../lib/notification-capture";
 import NativeRelayDeviceIngress, {
   type NativeDeviceCapabilities,
@@ -75,8 +87,19 @@ const unsupported: DeviceCapabilities = {
   platform: Platform.OS,
 };
 
+/**
+ * Demo builds answer every method here locally.
+ *
+ * The listener grant, the SMS permission and the encrypted queue are all things a demo cannot
+ * arrange in front of an audience, so this is the boundary they are replaced at: everything above it
+ * -- the source screens, the consent flow, the secure previews, the retained-content reads the inbox
+ * depends on -- keeps calling exactly what it calls in a real build.
+ */
 const RelayDeviceIngress = {
   async getCapabilities(): Promise<DeviceCapabilities> {
+    if (demoModeEnabled()) {
+      return { ...(await demoCapabilities()), buildVariant };
+    }
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) {
       return unsupported;
     }
@@ -89,12 +112,15 @@ const RelayDeviceIngress = {
     };
   },
   async getSelectableNotificationApps(): Promise<SelectableNotificationApp[]> {
+    if (demoModeEnabled()) return normalizeNotificationAppChoices(await demoSelectableApps());
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return [];
     return normalizeNotificationAppChoices(
       await NativeRelayDeviceIngress.getSelectableNotificationApps(),
     );
   },
   async openNotificationAccessSettings(): Promise<void> {
+    // Nothing to open: the demo already holds the grant it would have asked Android for.
+    if (demoModeEnabled()) return;
     if (Platform.OS === "android" && NativeRelayDeviceIngress !== null) {
       await NativeRelayDeviceIngress.openNotificationAccessSettings();
     }
@@ -104,6 +130,7 @@ const RelayDeviceIngress = {
     allowedPackages: string[],
     paused: boolean,
   ): Promise<void> {
+    if (demoModeEnabled()) return demoConfigureNotificationCapture(allowedPackages, paused);
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
     await NativeRelayDeviceIngress.configureNotificationCapture(
       tenantId,
@@ -123,6 +150,15 @@ const RelayDeviceIngress = {
     tenantId: string,
     envelopeIds: readonly string[],
   ): Promise<Record<string, RetainedCaptureContent>> {
+    if (demoModeEnabled()) {
+      const rows = await demoRetainedContent(envelopeIds);
+      const content: Record<string, RetainedCaptureContent> = {};
+      for (const [envelopeId, raw] of Object.entries(rows)) {
+        const parsed = parseRetainedContent(raw);
+        if (parsed !== undefined) content[envelopeId] = parsed;
+      }
+      return content;
+    }
     if (
       Platform.OS !== "android" ||
       NativeRelayDeviceIngress === null ||
@@ -147,6 +183,10 @@ const RelayDeviceIngress = {
     cleanupTenantId: string | undefined,
     generation: number,
   ): Promise<void> {
+    if (demoModeEnabled()) {
+      preparedCaptureGeneration = generation;
+      return;
+    }
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
     await NativeRelayDeviceIngress.prepareNotificationCaptureState(
       tenantId ?? null,
@@ -158,6 +198,7 @@ const RelayDeviceIngress = {
     }
   },
   async requestSmsPermissions(): Promise<boolean> {
+    if (demoModeEnabled()) return demoGrantSmsPermission();
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return false;
     const capabilities = await this.getCapabilities();
     if (!capabilities.smsAvailable) return false;
@@ -175,6 +216,7 @@ const RelayDeviceIngress = {
     allowedSenders: string[],
     paused: boolean,
   ): Promise<void> {
+    if (demoModeEnabled()) return demoConfigureSmsCapture(allowedSenders, paused);
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
     await NativeRelayDeviceIngress.configureSmsCapture(
       tenantId,
@@ -184,18 +226,22 @@ const RelayDeviceIngress = {
     );
   },
   async pickSmsSender(): Promise<SmsSenderChoice | undefined> {
+    if (demoModeEnabled()) return demoSmsSenderChoice();
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return undefined;
     return (await NativeRelayDeviceIngress.pickSmsSender()) ?? undefined;
   },
   async syncSmsInbox(tenantId: string): Promise<number> {
+    if (demoModeEnabled()) return 0;
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return 0;
     return NativeRelayDeviceIngress.syncSmsInbox(tenantId, currentCaptureGeneration());
   },
   async deleteQueuedSms(tenantId: string): Promise<void> {
+    if (demoModeEnabled()) return;
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
     await NativeRelayDeviceIngress.deleteQueuedSms(tenantId, currentCaptureGeneration());
   },
   async enqueueCapture(tenantId: string, envelope: IngressEnvelope): Promise<void> {
+    if (demoModeEnabled()) return;
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
     const parsed = ingressEnvelopeSchema.parse(envelope);
     if (parsed.source.kind !== "notification" && parsed.source.kind !== "sms") {
@@ -211,6 +257,7 @@ const RelayDeviceIngress = {
     );
   },
   async getReadyCaptures(tenantId: string, now = Date.now()) {
+    if (demoModeEnabled()) return [];
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return [];
     const rows = await NativeRelayDeviceIngress.getReadyCaptures(
       tenantId,
@@ -226,6 +273,7 @@ const RelayDeviceIngress = {
     tenantId: string,
     now = Date.now(),
   ): Promise<NotificationCapturePreview[]> {
+    if (demoModeEnabled()) return demoNotificationPreviews();
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return [];
     return NativeRelayDeviceIngress.getNotificationCapturePreviews(
       tenantId,
@@ -234,6 +282,7 @@ const RelayDeviceIngress = {
     );
   },
   async getSmsCapturePreviews(tenantId: string, now = Date.now()): Promise<SmsCapturePreview[]> {
+    if (demoModeEnabled()) return demoSmsPreviews();
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return [];
     return NativeRelayDeviceIngress.getSmsCapturePreviews(
       tenantId,
@@ -242,10 +291,12 @@ const RelayDeviceIngress = {
     );
   },
   async setCapturePreviewSecure(enabled: boolean): Promise<void> {
+    if (demoModeEnabled()) return;
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
     await NativeRelayDeviceIngress.setCapturePreviewSecure(enabled);
   },
   async acknowledgeCapture(tenantId: string, envelopeId: string): Promise<void> {
+    if (demoModeEnabled()) return;
     await NativeRelayDeviceIngress?.acknowledgeCapture(
       tenantId,
       envelopeId,
@@ -253,6 +304,7 @@ const RelayDeviceIngress = {
     );
   },
   async failCapture(tenantId: string, envelopeId: string, terminal: boolean): Promise<void> {
+    if (demoModeEnabled()) return;
     await NativeRelayDeviceIngress?.failCapture(
       tenantId,
       envelopeId,
@@ -261,6 +313,7 @@ const RelayDeviceIngress = {
     );
   },
   async clearCaptureQueue(tenantId: string): Promise<void> {
+    if (demoModeEnabled()) return;
     if (NativeRelayDeviceIngress === null) return;
     const generation = currentCaptureGeneration();
     await NativeRelayDeviceIngress.clearCaptureQueue(tenantId, generation);

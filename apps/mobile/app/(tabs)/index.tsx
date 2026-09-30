@@ -4,6 +4,7 @@ import { StyleSheet, View } from "react-native";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
+  ActionRow,
   AppButton,
   AppText,
   AppTextInput,
@@ -31,6 +32,7 @@ import {
   type InboxItem,
 } from "@/features/inbox/models/inboxPresentation";
 import { useAuth } from "@/lib/auth-context";
+import { demoModeEnabled } from "@/lib/demo/mode";
 import { logMobileError } from "@/lib/observability";
 import { useRelayTheme } from "@/theme";
 
@@ -165,15 +167,27 @@ export default function InboxScreen() {
   return (
     <ReceiptScreen
       action={
-        <TopBarIconButton
-          label={searching ? "Close search" : "Search the inbox"}
-          name="search"
-          onPress={() => {
-            const next = !searching;
-            setSearching(next);
-            if (!next) inbox.setQuery("");
-          }}
-        />
+        // A demo build puts its one extra control here rather than in the list. The inbox is the
+        // thing being demonstrated, and a banner across the top of it displaces the receipts a
+        // person is meant to be reading.
+        <ActionRow compact wrap={false}>
+          {demoModeEnabled() ? (
+            <TopBarIconButton
+              label="Demo studio"
+              name="experiment"
+              onPress={() => router.push("/demo")}
+            />
+          ) : null}
+          <TopBarIconButton
+            label={searching ? "Close search" : "Search the inbox"}
+            name="search"
+            onPress={() => {
+              const next = !searching;
+              setSearching(next);
+              if (!next) inbox.setQuery("");
+            }}
+          />
+        </ActionRow>
       }
       overlay={
         inbox.lastHidden === undefined ? undefined : (

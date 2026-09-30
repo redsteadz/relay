@@ -22,6 +22,8 @@ export async function syncQueuedCaptures(tenantId: string, deviceId: string, acc
     const startedAt = Date.now();
     let response: Response;
     try {
+      // Store in local db first and operate locally before ever ingesting
+      // purpose of ingestion should primarily be to keep a relative store to be synced elsewhere/other devices
       response = await fetch(`${baseUrl}/api/ingest`, {
         method: "POST",
         headers: {

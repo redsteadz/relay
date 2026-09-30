@@ -52,8 +52,16 @@ if (!Object.values(buildVariants).includes(buildVariant)) {
 
 const isSideload = buildVariant === buildVariants.sideload;
 
+/**
+ * A demo build says so on the home screen.
+ *
+ * Same application id, so it replaces rather than sits beside a real install, but a distinct name
+ * because the account inside it is synthetic and nobody should have to open it to find that out.
+ */
+const isDemo = process.env.EXPO_PUBLIC_RELAY_DEMO === "enabled";
+
 const config: ExpoConfig = {
-  name: app.name,
+  name: isDemo ? `${app.name} Demo` : app.name,
   slug: app.slug,
   owner: app.owner,
   scheme: app.scheme,
