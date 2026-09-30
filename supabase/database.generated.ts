@@ -1711,6 +1711,38 @@ export type Database = {
         };
         Returns: string;
       };
+      record_server_classification_v1: {
+        Args: {
+          p_category_id?: string;
+          p_confidence?: number;
+          p_filter_rule_id?: string;
+          p_method?: string;
+          p_model?: string;
+          p_rationale?: string;
+          p_source_item_id: string;
+          p_user_id: string;
+        };
+        Returns: {
+          category_id: string | null;
+          confidence: number;
+          created_at: string;
+          filter_rule_id: string | null;
+          id: string;
+          method: string;
+          model: string | null;
+          origin: string;
+          rationale: string | null;
+          source_item_id: string;
+          superseded_at: string | null;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "classifications";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       register_device: {
         Args: { p_device_id: string; p_platform: string };
         Returns: {
