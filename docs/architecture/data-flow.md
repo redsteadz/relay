@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-30
+last_verified: 2026-09-30
 ---
 
 # Data Flow
@@ -258,6 +258,42 @@ The `wrangler.e2e.jsonc` config exists only for `wrangler dev --local`. Result m
 and key version only and remain in temporary local Durable Object storage. Controlled retention time
 is honored only when `RELAY_E2E_MODE=true`, a valid explicit timestamp is present, and Supabase uses
 an HTTP loopback URL.
+
+### Device Boundary
+
+`pnpm e2e:local --device` extends the same run across the device boundary (#197). After the server
+stages, it signs a synthetic account in and runs `apps/mobile/e2e/device-boundary.e2e.ts` under
+Vitest: the shipped mobile code follows `fixtures/device-notifications.json` from the listener to the
+inbox with the network refused, then restores it and syncs. Each stage is reported by name; server
+checks run after the device stage they follow, and the device process's output is scanned for the
+fixture's plaintext and the session's credentials like every other process.
+
+| Stages                                                      | Proves                                                                                    |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| listener allow/deny, envelope, queue                        | the listener's gates and policy, the envelope shape and identity, and the queue contract  |
+| derivation (offline)                                        | facts and events are derived into the local store, without body text, before any upload   |
+| offline classification by rule, offline inbox shows capture | a capture is filed and visible with no network                                            |
+| upload, source_items, server copy visible                   | the queue drains and the device and server derive the same fact set                       |
+| classification precedence (ADR-0014)                        | a capture the server could file keeps the server's answer                                 |
+| device files a synced capture, filing converges             | a device-origin classification reaches `classifications` and a second pass writes nothing |
+| probes #179, #178                                           | a sync with nothing to upload says so; a capture held across a pause still uploads        |
+
+Its limits are deliberate and stated where they apply:
+
+- Node cannot run the Kotlin module, so the listener, the queue and the retained copy are the demo
+  stand-in (`apps/mobile/lib/demo/device-ingress.ts`), which mirrors the listener's gates,
+  `NotificationCapturePolicy`, `NotificationEnvelopeFactory` and the queue semantics. Those stages
+  verify the bridge contract. The Kotlin itself, including the Keystore encryption of the queue, is
+  covered only by the module's JUnit tests.
+- The two offline filing stages are known failures until the inbox reads from the local store (#193)
+  and filing is recorded locally (#194). They keep their full assertion; a failure counts as known
+  only when the app reached for the network, and a known failure that starts passing fails the run.
+- Probes #179 and #178 are expected to fail until those defects are fixed.
+- #176 needs two mounted inbox hooks and #175 needs more than 200 current classifications; neither is
+  reachable here yet (#198).
+
+The device half is opt-in and does not run in CI (#199). Like the server half, it resets local
+Supabase.
 
 Provider delivery uses Relay action UUID as idempotency identity. Nextcloud Budget accepts it
 directly. Webhooks transmit it for receiver dedupe. Google Tasks needs a reconciliation marker

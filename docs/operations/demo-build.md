@@ -29,6 +29,12 @@ Everything above those seams is the shipped code. Facts come from `normalizeSour
 pure functions the pipeline and the device pass call. A demo capture is therefore derived, filed and
 explained exactly as a real one would be.
 
+The device stand-in also hears notifications and holds a capture queue: `demoPostNotification`
+applies the listener's gates and policy and queues a native-shaped envelope. The device-boundary
+harness ([local harness](../architecture/data-flow.md#device-boundary)) installs the same stand-in in
+place of the native module. A demo build still never uploads what it queues, because
+`syncDeviceCaptures` returns before anything is registered or sent.
+
 ## What It Holds
 
 `lib/demo/seed.ts` builds one synthetic account: twelve categories, six rule series (one with two
