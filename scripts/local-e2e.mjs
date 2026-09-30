@@ -300,7 +300,7 @@ function assertFactRows(rows, fixture) {
     rows.every(
       (row, ordinal) =>
         row.source_item_id === fixture.id &&
-        row.normalizer_version === 1 &&
+        row.normalizer_version === 2 &&
         row.ordinal === ordinal &&
         row.certainty === "certain" &&
         Array.isArray(row.provenance) &&
@@ -323,7 +323,7 @@ function assertEventRows(rows, fixture) {
   const event = rows[0];
   requireCondition(
     event.source_item_id === fixture.id &&
-      event.normalizer_version === 1 &&
+      event.normalizer_version === 2 &&
       event.extractor_version === 1 &&
       event.ordinal === 0 &&
       event.kind === "fact",
