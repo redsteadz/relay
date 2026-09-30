@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { Buffer } from "node:buffer";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -97,11 +97,25 @@ function startPnpm(name, args, env, forbidden) {
   return running;
 }
 
+/**
+ * Ends a child and everything it started.
+ *
+ * On Windows each child runs through `cmd.exe`, and killing that shell leaves the server it launched
+ * running -- holding its port, its output pipes and the temporary directory. `taskkill /T` ends the
+ * whole tree. Elsewhere the child leads its own process group.
+ */
+function killTree(running, signal) {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(running.child.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    process.kill(-running.child.pid, signal);
+  }
+}
+
 async function stopChild(running) {
   if (running.child.exitCode === null) {
     try {
-      if (process.platform === "win32") running.child.kill("SIGTERM");
-      else process.kill(-running.child.pid, "SIGTERM");
+      killTree(running, "SIGTERM");
     } catch {
       // Process already exited.
     }
@@ -110,8 +124,7 @@ async function stopChild(running) {
     }
     if (running.child.exitCode === null) {
       try {
-        if (process.platform === "win32") running.child.kill("SIGKILL");
-        else process.kill(-running.child.pid, "SIGKILL");
+        killTree(running, "SIGKILL");
       } catch {
         // Process already exited.
       }
