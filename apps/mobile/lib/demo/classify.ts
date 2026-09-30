@@ -19,40 +19,34 @@ import {
   type ClassifiableRule,
 } from "@relay/domain";
 
+import {
+  classifiableRules,
+  DEVICE_READABLE_FIELDS,
+} from "../../features/inbox/models/deviceClassification";
 import { DEMO_USER_ID } from "./account";
 import { demoRandomUuid } from "./ids";
 import type { DemoCaptureInput } from "./ingest";
 import type { DemoRow, DemoTables } from "./types";
 
-/** Fields a phone can always read. `body` is added per capture, when this device kept a copy. */
-const DEVICE_FIELDS: readonly FilterField[] = [
-  "source.kind",
-  "source.applicationId",
-  "sender",
-  "subject",
-  "category",
-  "attributes.currency",
-  "attributes.merchant",
-  "attributes.amount",
-];
-
-/** The newest enabled revision of each series, in the order the classifier expects. */
+/**
+ * The newest enabled revision of each series, in the order the device pass tries them.
+ *
+ * Classification is first-match-wins, so the order is part of the decision. It comes from the
+ * shipped `classifiableRules` rather than a copy, which is what keeps two rules sharing a name
+ * resolving the same way here as on a real device.
+ */
 export function classifiableRuleRows(rows: readonly DemoRow[]): ClassifiableRule[] {
-  const newest = new Map<string, DemoRow>();
-  for (const row of rows) {
-    const current = newest.get(row.series_id as string);
-    if (current === undefined || (row.version as number) > (current.version as number)) {
-      newest.set(row.series_id as string, row);
-    }
-  }
-  return [...newest.values()]
-    .filter((row) => row.enabled === true)
-    .sort((left, right) => (left.name as string).localeCompare(right.name as string))
-    .map((row) => ({
-      categoryId: (row.category_id as string | null) ?? undefined,
+  return classifiableRules(
+    rows.map((row) => ({
+      ...(typeof row.category_id === "string" ? { categoryId: row.category_id } : {}),
+      enabled: row.enabled === true,
       id: row.id as string,
+      name: row.name as string,
       plan: row.plan as FilterPlan,
-    }));
+      seriesId: row.series_id as string,
+      version: row.version as number,
+    })),
+  );
 }
 
 export type DemoClassification = {
@@ -82,7 +76,7 @@ export function classifyDemoCapture(
     ...(input.subject === undefined ? {} : { subject: input.subject }),
   });
 
-  const available = new Set<FilterField>(DEVICE_FIELDS);
+  const available = new Set<FilterField>(DEVICE_READABLE_FIELDS);
   if (input.retainContent !== false && input.body !== undefined) available.add("body");
 
   const outcome = classifyCapture(

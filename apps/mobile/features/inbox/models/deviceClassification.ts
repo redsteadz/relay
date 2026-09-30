@@ -24,8 +24,12 @@ import type { FilterField, FilterRuleVersion } from "@relay/contracts";
 
 import type { InboxItem } from "./inboxPresentation";
 
-/** Every field except `body`, which depends on whether this device holds the capture. */
-const DEVICE_READABLE_FIELDS: readonly FilterField[] = [
+/**
+ * Every field except `body`, which depends on whether this device holds the capture.
+ *
+ * Exported so the demo files a capture against exactly this list rather than a copy of it.
+ */
+export const DEVICE_READABLE_FIELDS: readonly FilterField[] = [
   "source.kind",
   "source.applicationId",
   "sender",
@@ -82,14 +86,20 @@ export function availableFieldsFor(capture: ClassifiableCapture): Set<FilterFiel
   return fields;
 }
 
+/** The parts of a revision that decide whether and in what order it is tried. */
+export type ClassifiableRevision = Pick<
+  FilterRuleVersion,
+  "categoryId" | "enabled" | "id" | "name" | "plan" | "seriesId" | "version"
+>;
+
 /**
  * The rules to try, newest revision of each series, in a stable order.
  *
  * Ordered by name so the sequence is the one a person sees in the Rules tab, and broken by series id
  * so two rules sharing a name still resolve the same way on every device and every run.
  */
-export function classifiableRules(revisions: readonly FilterRuleVersion[]): ClassifiableRule[] {
-  const newest = new Map<string, FilterRuleVersion>();
+export function classifiableRules(revisions: readonly ClassifiableRevision[]): ClassifiableRule[] {
+  const newest = new Map<string, ClassifiableRevision>();
   for (const revision of revisions) {
     const current = newest.get(revision.seriesId);
     if (current === undefined || revision.version > current.version) {
