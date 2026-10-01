@@ -1,5 +1,7 @@
 import { AppError, type ErrorCategory } from "@relay/observability";
 
+import { demoRelayApi } from "./demo/relay-api";
+import { demoModeEnabled } from "./demo/mode";
 import { logMobileError, mobileRequestId } from "./observability";
 
 export type RelayApiFailure =
@@ -114,6 +116,30 @@ export async function requestRelayApi(
   const operation = `${init.method ?? "GET"} ${path.split("?", 1)[0] ?? path}`;
   const operationRequestId = mobileRequestId();
   const startedAt = Date.now();
+
+  // Demo builds answer these routes locally. The response still travels the same path -- a status
+  // and a body -- so a failure becomes a RelayApiError here rather than in a second error factory.
+  if (demoModeEnabled()) {
+    const local = await demoRelayApi(path, init);
+    if (local.status < 400) return local.body;
+    const apiCode = errorCode(local.body);
+    const normalized = new RelayApiError(failureFor(local.status, apiCode), {
+      apiCode,
+      cause: new Error("Relay API returned a failure status"),
+      operation,
+      requestId: operationRequestId,
+      statusCode: local.status,
+    });
+    logMobileError("integration.request_failed", normalized, {
+      code: normalized.code,
+      integration: "relay-api",
+      operation,
+      requestId: operationRequestId,
+      startedAt,
+    });
+    throw normalized;
+  }
+
   let baseUrl: string;
   try {
     baseUrl = configuredBaseUrl();

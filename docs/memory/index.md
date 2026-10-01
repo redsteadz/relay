@@ -61,6 +61,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [Cloudflare environments and operations](../operations/cloudflare.md)
 - [Supabase environments and operations](../operations/supabase.md)
 - [Mobile wireless ADB](../operations/mobile-wireless-adb.md)
+- [Demo build](../operations/demo-build.md)
 
 When generated locally, Graphify output indexes these documents and code for discovery. It is not CI
 evidence or an authority over contracts, migrations, or accepted ADRs.

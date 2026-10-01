@@ -1,0 +1,67 @@
+{
+  "allowedPackages": ["com.example.bank", "com.example.parcels"],
+  "rules": {
+    "purchase": {
+      "categorySlug": "transaction",
+      "intent": "app is com.example.bank",
+      "name": "Harbour bank"
+    },
+    "parcel": {
+      "categorySlug": "delivery",
+      "intent": "app is com.example.parcels",
+      "name": "Harbour parcels"
+    }
+  },
+  "notifications": {
+    "purchase": {
+      "expect": "capture",
+      "key": "0|com.example.bank|4101|null|10231",
+      "packageName": "com.example.bank",
+      "postedSecondsAgo": 90,
+      "text": "USD 18.40 at LANTERN KIOSK",
+      "title": "Harbour card purchase"
+    },
+    "parcel": {
+      "expect": "capture",
+      "key": "0|com.example.parcels|88|null|10232",
+      "messagingSender": "Harbour Couriers",
+      "packageName": "com.example.parcels",
+      "postedSecondsAgo": 80,
+      "text": "Tracking HX-5512 arrives with the evening round",
+      "title": "Harbour parcel on its way"
+    },
+    "chat": {
+      "expect": "package-not-allowed",
+      "key": "0|com.example.chat|12|null|10233",
+      "packageName": "com.example.chat",
+      "postedSecondsAgo": 70,
+      "text": "Synthetic chat line that must never be captured",
+      "title": "Harbour chat thread"
+    },
+    "summary": {
+      "expect": "group-summary",
+      "flags": 512,
+      "key": "0|com.example.bank|0|g:harbour|10234",
+      "packageName": "com.example.bank",
+      "postedSecondsAgo": 60,
+      "text": "Two synthetic Harbour alerts waiting",
+      "title": "Harbour bank summary"
+    },
+    "own": {
+      "expect": "own-notification",
+      "key": "0|com.redsteadz.relay|1|null|10235",
+      "packageName": "com.redsteadz.relay",
+      "postedSecondsAgo": 50,
+      "text": "Synthetic Relay status line",
+      "title": "Relay synthetic status"
+    },
+    "held": {
+      "expect": "capture",
+      "key": "0|com.example.bank|4102|null|10236",
+      "packageName": "com.example.bank",
+      "postedSecondsAgo": 10,
+      "text": "USD 6.10 returned from LANTERN KIOSK",
+      "title": "Harbour card refund"
+    }
+  }
+}

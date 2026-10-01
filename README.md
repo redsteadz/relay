@@ -61,6 +61,8 @@ npx pnpm@11.23.0 e2e:local
 
 `e2e:local` resets local Supabase and uses only the deterministic synthetic fixture under `fixtures/`.
 It creates no remote resources and requires Docker.
+`e2e:local --device` also follows a synthetic notification across the device boundary; see
+[the local harness](docs/architecture/data-flow.md#device-boundary).
 
 Read [project memory](docs/memory/index.md), [contribution workflow](CONTRIBUTING.md), and
 [security model](docs/security/privacy.md) before implementation work. Hosted database provisioning

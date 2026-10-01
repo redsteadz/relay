@@ -2,11 +2,15 @@ import type { Session } from "@supabase/supabase-js";
 
 import RelayDeviceIngress from "../modules/relay-device-ingress";
 import { syncQueuedCaptures } from "./capture-sync";
+import { demoModeEnabled } from "./demo/mode";
 import { deriveQueuedCaptures } from "./device-derivation";
 import { registerInstallation } from "./device";
 
 /** Reads enabled sources, derives what is queued, then uploads a single encrypted queue snapshot. */
 export async function syncDeviceCaptures(session: Session): Promise<void> {
+  // Nothing is queued in demo mode: a generated capture is derived on the device and lands in the
+  // local store directly, so there is no envelope to register a device for or upload.
+  if (demoModeEnabled()) return;
   const capabilities = await RelayDeviceIngress.getCapabilities();
   const notificationActive =
     capabilities.notificationListener && !capabilities.notificationCapturePaused;

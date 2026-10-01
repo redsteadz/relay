@@ -7,7 +7,7 @@ import { AppText } from "./AppText";
 import { RelayIcon, RelayMark } from "./RelayIcon";
 
 type ScreenTopBarProps = {
-  /** Rendered at the trailing edge. A single icon button, never a row of them. */
+  /** Rendered at the trailing edge. Normally a single icon button, and never a toolbar. */
   action?: ReactNode;
   /** Shown instead of the mark. A screen reached from another names its way back. */
   onBack?: (() => void) | undefined;
