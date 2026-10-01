@@ -20,6 +20,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { FeedbackState, LoadingState } from "@/components/ui";
+import { SubscriptionProvider } from "@/features/subscription/context/subscription-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import {
   canEnterApp,
@@ -223,7 +224,9 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <RelayThemeProvider>
           <QueryClientProvider client={queryClient}>
-            <ThemedRoot />
+            <SubscriptionProvider>
+              <ThemedRoot />
+            </SubscriptionProvider>
           </QueryClientProvider>
         </RelayThemeProvider>
       </SafeAreaProvider>

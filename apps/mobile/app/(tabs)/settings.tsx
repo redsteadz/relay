@@ -5,6 +5,7 @@ import { ReceiptScreen } from "@/components/ReceiptScreen";
 import { AppButton, AppText, EditorialSurface, StatusMessage } from "@/components/ui";
 import { ReceiptStage } from "@/features/inbox/components/ReceiptStage";
 import { ThemePreferencePanel } from "@/features/settings/components/ThemePreferencePanel";
+import { RelayProPanel } from "@/features/subscription/components/RelayProPanel";
 import { useAuth } from "@/lib/auth-context";
 import { demoModeEnabled } from "@/lib/demo/mode";
 import { reportUnexpectedUiError } from "@/lib/observability";
@@ -87,6 +88,13 @@ export default function SettingsScreen() {
         </EditorialSurface>
       </ReceiptStage>
 
+      {/* A demo build carries no billing SDK, so there is nothing here to show or sell. */}
+      {demoModeEnabled() ? null : (
+        <ReceiptStage label="Relay Pro" ordinal={4}>
+          <RelayProPanel />
+        </ReceiptStage>
+      )}
+
       {demoModeEnabled() ? (
         <ReceiptStage label="Demo" ordinal={4}>
           <AppText tone="muted" variant="caption">
@@ -101,7 +109,7 @@ export default function SettingsScreen() {
         </ReceiptStage>
       ) : null}
 
-      <ReceiptStage label="Account" ordinal={demoModeEnabled() ? 5 : 4}>
+      <ReceiptStage label="Account" ordinal={5}>
         <AppText tone="muted" variant="caption">
           {signedIn
             ? "Signing out removes the refreshable session from secure device storage. Nothing on the server is deleted."
