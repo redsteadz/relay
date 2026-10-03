@@ -285,9 +285,13 @@ Its limits are deliberate and stated where they apply:
   `NotificationCapturePolicy`, `NotificationEnvelopeFactory` and the queue semantics. Those stages
   verify the bridge contract. The Kotlin itself, including the Keystore encryption of the queue, is
   covered only by the module's JUnit tests.
-- The two offline filing stages are known failures until the inbox reads from the local store (#193)
-  and filing is recorded locally (#194). They keep their full assertion; a failure counts as known
-  only when the app reached for the network, and a known failure that starts passing fails the run.
+- The two offline filing stages are known failures until they are pointed at a local read and a local
+  record path. The read now exists -- `listLocalInbox` serves the inbox from the local store (#193) --
+  but both stages still call `listInbox` and `recordDeviceClassifications`, and the inbox stage
+  asserts the capture appears under its rule's category, which needs filing recorded locally (#194).
+  So both markers stand until #194 lands and the stages are repointed together. They keep their full
+  assertion; a failure counts as known only when the app reached for the network, and a known failure
+  that starts passing fails the run.
 - Probes #179 and #178 are expected to fail until those defects are fixed.
 - #176 needs two mounted inbox hooks and #175 needs more than 200 current classifications; neither is
   reachable here yet (#198).

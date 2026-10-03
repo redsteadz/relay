@@ -85,9 +85,19 @@ build that cannot capture.
 - Migrations are append-only and recorded in `PRAGMA user_version`. Editing an existing migration
   would leave two devices claiming the same version with different tables.
 - The store is written by the device's derivation pass, which runs `normalizeSourceFacts` and
-  `extractSourceEvents` before upload. Rendering the inbox from it and reconciling classifications
-  through it remain separate changes, and sync bookkeeping is deliberately absent from the schema
-  until the change that needs it.
+  `extractSourceEvents` before upload. Sync bookkeeping is deliberately absent from the schema until
+  the change that needs it.
+- The inbox now **reads** from it as well. `listLocalInbox` in `apps/mobile/features/inbox/api/localInbox.ts`
+  answers the first paint and an offline open, and the PostgREST read replaces that answer when it
+  lands; `useInbox` holds both and prefers the server's. The two are not merged, because a locally
+  derived event carries a locally generated id while the server mints its own for the same capture,
+  so merging would show one capture twice. Both readers share `assembleInbox`, so an item cannot be
+  explained one way from the server and another from this device. Reconciling classifications through
+  the store remains a separate change.
+- Hiding is mirrored into the local `hidden_inbox_events` by `setLocalHidden`. Without it, reading
+  locally first would redraw an item the reader had already removed, for as long as it took the
+  server read to say otherwise. The server write is still what makes the removal real; the local
+  write is best-effort and corrected by the next server read.
 - Deriving on the device needed a SHA-256 that Hermes does not have. The fingerprint functions in
   `packages/domain` now take an optional digest instead of assuming `crypto.subtle`, and the app
   supplies one from `expo-crypto`. That is a stated dependency rather than a global polyfill, so the
