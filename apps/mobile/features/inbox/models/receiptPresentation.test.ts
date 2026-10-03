@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { InboxCategory, InboxItem } from "./inboxPresentation";
+import type { InboxCategory, InboxEvidence, InboxItem } from "./inboxPresentation";
 import {
   eventKindLabel,
+  listEvidence,
   receiptDecision,
   receiptFactValue,
   receiptGlyph,
-  receiptKindLine,
   receiptSourceLine,
+  receiptTimeLine,
 } from "./receiptPresentation";
 
 const now = new Date("2026-09-04T13:00:00.000Z");
@@ -90,21 +91,49 @@ describe("receipt source line", () => {
   });
 });
 
-describe("receipt kind line", () => {
-  it("names the event kind and when it arrived", () => {
-    expect(receiptKindLine(item(), now)).toBe(`Record · ${arrivedClock}`);
-    expect(receiptKindLine(item({ kind: "calendar-event" }), now)).toBe(
-      `Appointment · ${arrivedClock}`,
-    );
+describe("receipt time line", () => {
+  it("states when the capture arrived, without repeating the kind", () => {
+    expect(receiptTimeLine(item(), now)).toBe(arrivedClock);
+    expect(receiptTimeLine(item({ kind: "calendar-event" }), now)).toBe(arrivedClock);
   });
 
-  it("names the kind alone when the timestamp cannot be read", () => {
+  it("is empty when the timestamp cannot be read, rather than showing a placeholder", () => {
     const source = { ...item().source, occurredAt: "not-a-date" };
-    expect(receiptKindLine(item({ source }), now)).toBe("Record");
+    expect(receiptTimeLine(item({ source }), now)).toBe("");
   });
 
   it("names an unknown kind as a record rather than showing a slug", () => {
     expect(eventKindLabel("teleportation")).toBe("Record");
+  });
+});
+
+describe("list evidence", () => {
+  const amount: InboxEvidence = {
+    certain: true,
+    isInstant: false,
+    key: "amount",
+    kind: "amount",
+    value: "USD 14.20",
+  };
+  const occurred: InboxEvidence = {
+    certain: true,
+    isInstant: true,
+    key: "occurred",
+    kind: "date",
+    value: "2026-09-04T12:41:00.000Z",
+  };
+
+  it("keeps values a reader checks and drops the instants", () => {
+    expect(listEvidence([amount, occurred])).toEqual([amount]);
+  });
+
+  it("returns nothing when a capture derived only the moment it arrived", () => {
+    expect(listEvidence([occurred])).toEqual([]);
+  });
+
+  it("leaves an uncertain non-instant in place rather than hiding it", () => {
+    const uncertain = { ...amount, certain: false };
+    expect(listEvidence([uncertain])).toEqual([uncertain]);
   });
 });
 

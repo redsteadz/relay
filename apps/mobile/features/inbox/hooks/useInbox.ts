@@ -4,10 +4,12 @@ import { AppState } from "react-native";
 
 import { listFilterRevisions } from "@/features/filters/api/filters";
 import { useAuth } from "@/lib/auth-context";
+import { localStoreSupported, openLocalStore, setLocalHidden } from "@/lib/local-store";
 import { runInBackground } from "@/lib/observability";
 
 import { recordDeviceClassifications } from "../api/classifications";
 import { hideInboxEvent, listInbox, restoreInboxEvent } from "../api/inbox";
+import { listLocalInbox } from "../api/localInbox";
 import { classifiableRules, classificationPass } from "../models/deviceClassification";
 import {
   filterInbox,
@@ -18,6 +20,11 @@ import {
 
 export const inboxQueryKeys = {
   all: (userId: string | undefined) => ["inbox", userId] as const,
+};
+
+/** Kept separate from the server read so one can refetch, fail, or be invalidated without the other. */
+export const localInboxQueryKeys = {
+  all: (userId: string | undefined) => ["inbox-local", userId] as const,
 };
 
 export type InboxState = {
@@ -60,15 +67,36 @@ export function useInbox(): InboxState {
     queryKey: inboxQueryKeys.all(userId),
   });
 
+  /**
+   * The same inbox, from this device's own derived store.
+   *
+   * Read alongside the server rather than after it, because the device derived these rows before it
+   * uploaded anything: waiting for PostgREST meant a capture the phone had already understood stayed
+   * invisible until a round trip completed. This answers the first paint and an offline open; the
+   * server read replaces it the moment it lands.
+   *
+   * It needs no client, only a tenant, so it still answers when the network does not.
+   */
+  const local = useQuery({
+    enabled: userId !== undefined,
+    queryFn: () => listLocalInbox(userId as string),
+    queryKey: localInboxQueryKeys.all(userId),
+  });
+
   // Captures arrive while the app is backgrounded and sync on resume, so a list fetched once goes
   // stale the moment a notification lands. Refetching on resume is what makes an arrival visible
   // without asking a person to know they should reopen the screen.
+  // Both readers, because resume is also when the sync pass derives what arrived while the app was
+  // away: the local store is written during that pass, so refetching only the server would leave the
+  // faster source holding rows nothing had asked it for.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void inbox.refetch();
+      if (state !== "active") return;
+      void inbox.refetch();
+      void local.refetch();
     });
     return () => subscription.remove();
-  }, [inbox]);
+  }, [inbox, local]);
 
   const inboxKey = inboxQueryKeys.all(userId);
 
@@ -97,6 +125,22 @@ export function useInbox(): InboxState {
       }
       const write = action === "hide" ? hideInboxEvent : restoreInboxEvent;
       await write(client, userId, eventId);
+      // Mirrored locally so the device's own read agrees. Not awaited into the mutation's result: the
+      // server write is what makes the change real, and a local store that could not record it would
+      // otherwise turn a successful removal into a failed one. The next server read corrects it.
+      if (localStoreSupported()) {
+        runInBackground(
+          openLocalStore().then((database) =>
+            setLocalHidden(database, userId, eventId, action === "hide"),
+          ),
+          "inbox.local_hidden_write_failed",
+          {
+            code: "LOCAL_HIDDEN_WRITE_FAILED",
+            integration: "expo-sqlite",
+            operation: "setLocalHidden",
+          },
+        );
+      }
     },
     onMutate: async ({ action, eventId, item }) => {
       await queryClient.cancelQueries({ queryKey: inboxKey });
@@ -126,7 +170,15 @@ export function useInbox(): InboxState {
     queryKey: ["filter-rules", userId],
   });
 
-  const items = useMemo(() => inbox.data ?? [], [inbox.data]);
+  /**
+   * The server's answer when there is one, this device's until then.
+   *
+   * Not merged. The two stores disagree about event ids -- a locally derived event carries a locally
+   * generated id and the server generates its own for the same capture (ADR-0015) -- so merging would
+   * show one capture twice. Preferring the server once it answers keeps a single identity per item
+   * and makes reconciliation a replacement rather than a diff.
+   */
+  const items = useMemo(() => inbox.data ?? local.data ?? [], [inbox.data, local.data]);
   const rules = useMemo(() => classifiableRules(revisions.data ?? []), [revisions.data]);
 
   /**
@@ -196,13 +248,20 @@ export function useInbox(): InboxState {
   );
 
   const refetchInbox = inbox.refetch;
-  const refetch = useCallback(() => void refetchInbox(), [refetchInbox]);
+  const refetchLocal = local.refetch;
+  const refetch = useCallback(() => {
+    void refetchInbox();
+    void refetchLocal();
+  }, [refetchInbox, refetchLocal]);
 
   return {
     clearLastHidden,
     hide,
     lastHidden,
-    loading: inbox.isPending && inbox.fetchStatus !== "idle",
+    // A spinner only while there is genuinely nothing to show. Local rows arriving first are what
+    // they are -- the inbox -- so replacing them with a loading state while the server catches up
+    // would reintroduce the wait this read exists to remove.
+    loading: inbox.isPending && inbox.fetchStatus !== "idle" && items.length === 0,
     query,
     refetch,
     refreshing: inbox.isFetching && !inbox.isPending,
@@ -210,6 +269,9 @@ export function useInbox(): InboxState {
     sections,
     setQuery,
     total: items.length,
-    unavailable: inbox.isError,
+    // A failed server read is not an unavailable inbox when the device can still answer from its own
+    // store. It is reported only when there is nothing to show, so an offline open reads as the inbox
+    // it is rather than as an error.
+    unavailable: inbox.isError && items.length === 0,
   };
 }

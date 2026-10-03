@@ -6,10 +6,11 @@ import { useRelayTheme } from "@/theme";
 
 import type { InboxItem } from "../models/inboxPresentation";
 import {
+  listEvidence,
   receiptDecision,
   receiptGlyph,
-  receiptKindLine,
   receiptSourceLine,
+  receiptTimeLine,
 } from "../models/receiptPresentation";
 import { DecisionLine } from "./DecisionLine";
 import { FactChipRow } from "./FactChipRow";
@@ -90,13 +91,32 @@ export function ReceiptCard({
           </AppText>
         </View>
         <AppText numberOfLines={1} tone="muted" variant="monoMeta">
-          {receiptKindLine(item, now).toUpperCase()}
+          {receiptTimeLine(item, now)}
         </AppText>
       </View>
 
-      <AppText variant="receiptTitle">{item.title}</AppText>
+      <AppText numberOfLines={2} variant="receiptTitle">
+        {item.title}
+      </AppText>
 
-      <FactChipRow evidence={item.evidence} now={now} />
+      {/*
+       * What the capture actually said.
+       *
+       * This is the line a person is looking for, so it leads rather than waiting behind a tap. It
+       * is truncated because a notification body has no length a list can rely on, and an untruncated
+       * one pushes every following card off the screen. The full text is on the receipt.
+       *
+       * Absent when this device holds no readable copy -- another device captured it, retention
+       * dropped it, or the posting app put nothing in the extra Relay reads. The card then stands on
+       * its title, exactly as before, rather than reserving blank space for text that is not coming.
+       */}
+      {item.summary === undefined ? null : (
+        <AppText numberOfLines={3} tone="muted" variant="body">
+          {item.summary}
+        </AppText>
+      )}
+
+      <FactChipRow evidence={listEvidence(item.evidence)} now={now} />
 
       {decision === undefined ? null : <DecisionLine decision={decision} />}
 

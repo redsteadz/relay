@@ -224,9 +224,13 @@ type KnownFailure = { issues: readonly string[] };
  *
  * They still make their full assertion. A failure counts as known only when it came from the app
  * reaching for a network it does not have; a harness check failing is always a real failure. A
- * known failure that starts passing fails the run until its marker is removed here. When #193 and
- * #194 land, point these stages at the offline read and record paths they add, then delete the
- * markers.
+ * known failure that starts passing fails the run until its marker is removed here.
+ *
+ * The read half of #193 has landed: `listLocalInbox` serves the inbox from the local store. Both
+ * stages below still call `listInbox` and `recordDeviceClassifications`, and the inbox stage asserts
+ * the capture is shown under its rule's category, which needs filing recorded locally (#194). So they
+ * are repointed together when #194 lands -- at `listLocalInbox` and whatever local record path it
+ * adds -- and the markers deleted then.
  */
 const OFFLINE_FILING: KnownFailure = { issues: ["#194"] };
 const OFFLINE_INBOX: KnownFailure = { issues: ["#193"] };

@@ -26,6 +26,7 @@ import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabel
 import { useInbox } from "@/features/inbox/hooks/useInbox";
 import {
   groupByThread,
+  inboxEverything,
   summariseByApp,
   summariseByCategory,
   type InboxGroup,
@@ -37,25 +38,28 @@ import { logMobileError } from "@/lib/observability";
 import { useRelayTheme } from "@/theme";
 
 /**
- * The inbox, grouped by outcome rather than by section.
+ * The inbox: what arrived, then what Relay wants from you about it.
  *
- * The three tabs are the three things that can have happened to a capture: Relay proposes something
- * and is waiting on you, Relay could not resolve something and is waiting on you for a different
- * reason, or Relay filed it and is waiting on nothing. Stacking those as sections put the count that
- * mattered below eighteen that did not; as tabs, every count is legible at once and a person can
- * stay inside one outcome.
+ * "All" leads because it is the only tab whose contents a reader can predict. The others are
+ * outcomes -- Relay proposes something and is waiting on you, Relay could not resolve something, or
+ * Relay filed it and is waiting on nothing -- and an ordinary notification derives no time, so it is
+ * never actionable. Opening onto an outcome therefore showed an empty screen to a person whose
+ * messages had all arrived correctly and been filed two tabs away. Outcomes remain, as filters over
+ * a list that is visible first.
  */
 /**
  * The tabs, and what each one answers.
  *
- * The first three are outcomes -- what happened to a capture. "Categories" is a different axis: it
- * is the taxonomy the reader themselves defined, and it belongs here because the question "where
- * did that go" is asked of the inbox rather than of Settings, which is where categories are edited.
+ * "All" is what arrived. The next three are outcomes -- what happened to a capture. "Categories" is
+ * a different axis: it is the taxonomy the reader themselves defined, and it belongs here because
+ * the question "where did that go" is asked of the inbox rather than of Settings, which is where
+ * categories are edited.
  */
-type InboxTab = "actionable" | "categories" | "needs-review" | "quiet";
+type InboxTab = "actionable" | "all" | "categories" | "needs-review" | "quiet";
 
 const TAB_LABEL: Readonly<Record<InboxTab, string>> = {
   actionable: "Needs you",
+  all: "All",
   categories: "Categories",
   quiet: "Quiet",
   "needs-review": "Review",
@@ -63,6 +67,7 @@ const TAB_LABEL: Readonly<Record<InboxTab, string>> = {
 
 const EMPTY_DETAIL: Readonly<Record<InboxTab, string>> = {
   actionable: "Nothing is waiting on a decision from you.",
+  all: "Nothing has been captured yet.",
   categories: "You have no categories yet. Create one from Settings.",
   quiet: "Nothing has been filed quietly yet.",
   "needs-review": "Relay resolved everything it read.",
@@ -78,7 +83,7 @@ export default function InboxScreen() {
   const inbox = useInbox();
   const proposals = useProposedActions(client, session?.user.id);
   const categories = useCategoryManagement(client, session?.user.id);
-  const [tab, setTab] = useState<InboxTab>("actionable");
+  const [tab, setTab] = useState<InboxTab>("all");
   const [searching, setSearching] = useState(false);
   const [hideError, setHideError] = useState<string | undefined>();
 
@@ -91,6 +96,9 @@ export default function InboxScreen() {
     for (const section of sections) byGroup.set(section.group, section.items);
     const group = (key: InboxGroup): readonly InboxItem[] => byGroup.get(key) ?? EMPTY_ITEMS;
     return new Map<InboxTab, readonly InboxItem[]>([
+      // Every group, in arrival order. Built from the same sections so an item cannot appear here
+      // and be missing from the outcome it belongs to.
+      ["all", inboxEverything(sections.flatMap((section) => section.items))],
       ["actionable", group("actionable")],
       ["needs-review", group("needs-review")],
       // One tab over two groups. An item a rule filed and one nothing has ever looked at are
@@ -122,7 +130,7 @@ export default function InboxScreen() {
 
   const tabs: readonly OutcomeTab<InboxTab>[] = useMemo(
     () =>
-      (["actionable", "needs-review", "quiet", "categories"] as const).map((key) => ({
+      (["all", "actionable", "needs-review", "quiet", "categories"] as const).map((key) => ({
         count: key === "categories" ? summaries.length : (itemsByTab.get(key)?.length ?? 0),
         key,
         label: TAB_LABEL[key],
@@ -311,7 +319,9 @@ export default function InboxScreen() {
         })
       )}
 
-      {tab === "quiet" || tab === "categories" || quietCount === 0 ? null : (
+      {/* Not on "All": the quiet captures are already in that list, so the shortcut would offer to
+          show what is on screen. */}
+      {tab === "all" || tab === "quiet" || tab === "categories" || quietCount === 0 ? null : (
         <AppButton
           accessibilityHint="Shows everything Relay filed without asking you"
           label={`${String(quietCount)} filed quietly →`}

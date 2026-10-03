@@ -15,6 +15,7 @@ export {
   type LocalStoreTransaction,
   type SqlParameter,
 } from "./database";
+export { setLocalHidden } from "./hidden";
 export {
   capturesToPrune,
   isLocalCaptureExpired,

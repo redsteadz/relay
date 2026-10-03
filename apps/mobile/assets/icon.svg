@@ -1,0 +1,14 @@
+<!--
+  The Relay app icon: the mark from apps/web/public/icon.svg, inset for a square app icon.
+
+  Full-bleed and opaque, with no rounded corners of its own, because iOS and Android each apply
+  their own mask: a radius baked in here would be clipped by theirs and leave a visible seam.
+
+  The viewBox is centred on the glyph's own visual centre (16,16 in the mark's 32-unit grid,
+  stroke caps included) so the artwork is optically centred rather than centred on its path data.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="-2.55 -2.55 37.1 37.1" fill="none" stroke-linecap="round" stroke-width="3">
+  <rect x="-2.55" y="-2.55" width="37.1" height="37.1" fill="#151411"/>
+  <path d="M6 9c5 0 6.7 7 10 7M6 16h10M6 23c5 0 6.7-7 10-7" stroke="#F4EFE6"/>
+  <path d="M16 16h10" stroke="#F08B5E"/>
+</svg>

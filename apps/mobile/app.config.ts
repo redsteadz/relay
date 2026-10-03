@@ -66,6 +66,14 @@ const config: ExpoConfig = {
   owner: app.owner,
   scheme: app.scheme,
   version: "0.1.0",
+  /**
+   * The mark, shared with the landing site's `apps/web/public/icon.svg` so one Relay is one Relay.
+   *
+   * Opaque and full-bleed: iOS rejects an icon with an alpha channel, and both platforms apply their
+   * own corner mask, so the artwork carries no radius of its own. Android draws the adaptive layers
+   * below in preference to this; this remains the iOS icon and the Android legacy fallback.
+   */
+  icon: "./assets/icon.png",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
   plugins: ["expo-router", "expo-secure-store"],
@@ -77,6 +85,10 @@ const config: ExpoConfig = {
     ...(isSideload ? { permissions: sms.permissions } : { blockedPermissions: sms.permissions }),
     adaptiveIcon: {
       backgroundColor: palette.dark.background,
+      foregroundImage: "./assets/adaptive-icon.png",
+      // Android 13 and later recolour this to the wallpaper. Supplying one is what keeps Relay from
+      // being the icon that stays fully coloured on a themed home screen.
+      monochromeImage: "./assets/monochrome-icon.png",
     },
   },
   extra: {

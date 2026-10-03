@@ -1,6 +1,11 @@
 import type { EventKind } from "@relay/contracts";
 
-import { formatCaptureTime, type InboxCategory, type InboxItem } from "./inboxPresentation";
+import {
+  formatCaptureTime,
+  type InboxCategory,
+  type InboxEvidence,
+  type InboxItem,
+} from "./inboxPresentation";
 
 /**
  * The receipt anatomy.
@@ -57,11 +62,30 @@ export function receiptSourceLine(item: InboxItem): string {
   return sender === undefined || sender === "" ? item.appLabel : `${item.appLabel} · ${sender}`;
 }
 
-/** What it is and when it arrived, for the trailing corner of a receipt's head. */
-export function receiptKindLine(item: InboxItem, now?: Date): string {
-  const time = formatCaptureTime(item.source.occurredAt, now);
-  const kind = eventKindLabel(item.kind);
-  return time === "" ? kind : `${kind} · ${time}`;
+/**
+ * When it arrived, for the trailing corner of a receipt's head.
+ *
+ * The event's own kind is deliberately not repeated here. In a list every notification is a
+ * `Record`, so pairing that word with a timestamp spent the most valuable line on the card -- the
+ * one beside the sender -- restating what the list already is. The kind is named on the receipt
+ * itself, where it distinguishes one capture from another.
+ */
+export function receiptTimeLine(item: InboxItem, now?: Date): string {
+  return formatCaptureTime(item.source.occurredAt, now);
+}
+
+/**
+ * The facts worth chipping in a list.
+ *
+ * An instant is dropped. A notification that derived nothing else still derives the moment it
+ * arrived, so chipping instants put a date on every card and made a list of them look like a list of
+ * timestamps rather than a list of messages -- while the arrival time is already in the card's own
+ * corner. An amount or a merchant is kept: that is a value a reader checks at a glance.
+ *
+ * Nothing is lost, because the receipt shows the full evidence set unfiltered.
+ */
+export function listEvidence(evidence: readonly InboxEvidence[]): readonly InboxEvidence[] {
+  return evidence.filter((fact) => !fact.isInstant);
 }
 
 /**

@@ -475,6 +475,22 @@ export function inboxItemForEvent(
   };
 }
 
+/**
+ * Every capture, newest first.
+ *
+ * The outcome groups answer "what does Relay want from me", which is the wrong first question when
+ * the answer is usually "nothing": an ordinary notification derives no time, so it is never
+ * `actionable`, and a reader who opened onto that group saw an empty screen while every message they
+ * had just received sat two tabs away. This is the list that simply shows what arrived, ordered the
+ * way a person expects a feed of messages to be ordered.
+ *
+ * Sorted on the same `occurredAt` the groups use, so an item does not change position when a reader
+ * moves between this list and the group it belongs to.
+ */
+export function inboxEverything(items: readonly InboxItem[]): readonly InboxItem[] {
+  return [...items].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+}
+
 const GROUP_ORDER: readonly InboxGroup[] = ["needs-review", "actionable", "filed", "unfiled"];
 
 function compareWithin(group: InboxGroup, left: InboxItem, right: InboxItem): number {

@@ -220,6 +220,99 @@ async function readRetainedContent(
 /** Which side of the hidden set a read wants. */
 export type InboxVisibility = "hidden" | "visible";
 
+/**
+ * The rows an inbox is assembled from, whichever store answered.
+ *
+ * Named as a type rather than left implicit because there are now two readers -- PostgREST and this
+ * device's own derived store -- and they must hand the assembler the same shapes. The local store's
+ * columns deliberately mirror what PostgREST returns ([ADR-0015](../../../../docs/decisions/0015-device-local-derived-store.md)),
+ * so this is one contract rather than a translation layer.
+ */
+export type InboxRows = {
+  categories: readonly CategoryRow[];
+  classifications: readonly ClassificationRow[];
+  events: readonly EventRow[];
+  facts: readonly FactRow[];
+  hidden: readonly HiddenEventRow[];
+  items: readonly SourceItemRow[];
+};
+
+/**
+ * Turns rows into the list a screen renders.
+ *
+ * Shared by both readers so an item cannot be explained one way when it came from the server and
+ * another when it came from this device. Retained content is read here, because what a capture said
+ * is held by the device in either case.
+ */
+export async function assembleInbox(
+  rows: InboxRows,
+  tenantId: string,
+  now = new Date().toISOString(),
+  visibility: InboxVisibility = "visible",
+): Promise<readonly InboxItem[]> {
+  const itemsById = new Map(rows.items.map((row) => [row.id, row] as const));
+  const classificationsByItem = new Map(
+    rows.classifications.map((row) => [row.source_item_id, row] as const),
+  );
+  const categoryNames = new Map(rows.categories.map((row) => [row.id, row.name] as const));
+
+  const hiddenIds = new Set(rows.hidden.map((row) => row.event_id));
+  const wantHidden = visibility === "hidden";
+  const eventRows = rows.events.filter((row) => hiddenIds.has(row.id) === wantHidden);
+  const retained = await readRetainedContent(
+    tenantId,
+    eventRows.map((row) => row.source_item_id),
+  );
+
+  const context = (sourceItemId: string, fallbackOccurredAt: string): InboxContext =>
+    buildContext(
+      sourceItemId,
+      fallbackOccurredAt,
+      itemsById,
+      classificationsByItem,
+      categoryNames,
+      now,
+      retained.get(sourceItemId),
+    );
+
+  const factsByItem = new Map<string, InboxFactInput[]>();
+  for (const row of rows.facts) {
+    const fact: InboxFactInput = {
+      certainty: row.certainty,
+      createdAt: row.created_at,
+      id: row.id,
+      kind: row.kind,
+      sourceItemId: row.source_item_id,
+      uncertaintyReason: row.uncertainty_reason,
+      value: row.value,
+    };
+    const existing = factsByItem.get(row.source_item_id);
+    if (existing === undefined) factsByItem.set(row.source_item_id, [fact]);
+    else existing.push(fact);
+  }
+
+  return eventRows.map((row) =>
+    inboxItemForEvent(
+      {
+        confidence: row.confidence,
+        createdAt: row.created_at,
+        dateAmbiguity: row.date_ambiguity,
+        dueAt: row.due_at,
+        id: row.id,
+        kind: row.kind,
+        requiresReview: row.requires_review,
+        sourceItemId: row.source_item_id,
+        startsAt: row.starts_at,
+        summary: row.summary,
+        temporalStatus: row.temporal_status,
+        title: row.title,
+      },
+      context(row.source_item_id, row.created_at),
+      factsByItem.get(row.source_item_id) ?? [],
+    ),
+  );
+}
+
 export async function listInbox(
   client: SupabaseClient,
   tenantId: string,
@@ -261,87 +354,22 @@ export async function listInbox(
   if (categories.error !== null) throw inboxError(categories.error, "listCategories");
   if (hidden.error !== null) throw inboxError(hidden.error, "listHiddenInboxEvents");
 
-  const itemsById = new Map(
-    ((items.data ?? []) as SourceItemRow[]).map((row) => [row.id, row] as const),
-  );
-  const classificationsByItem = new Map(
-    ((classifications.data ?? []) as ClassificationRow[]).map(
-      (row) => [row.source_item_id, row] as const,
-    ),
-  );
-  const categoryNames = new Map(
-    ((categories.data ?? []) as CategoryRow[]).map((row) => [row.id, row.name] as const),
-  );
-
   // What the capture said is read from this device's own encrypted copy, keyed by the same envelope
   // ID the server knows as `source_item_id`. It is absent when another device captured the item or
   // when local retention has dropped it, which is ordinary rather than an error.
-  // One read serves both views. Rows on the side the caller did not ask for are dropped before
-  // content is read for them, so the inbox never reopens the retained copy of a removed item and
-  // the hidden list never reopens one still on display.
-  const hiddenIds = new Set(((hidden.data ?? []) as HiddenEventRow[]).map((row) => row.event_id));
-  const wantHidden = visibility === "hidden";
-  const eventRows = ((events.data ?? []) as EventRow[]).filter(
-    (row) => hiddenIds.has(row.id) === wantHidden,
-  );
-  const retained = await readRetainedContent(
+  return assembleInbox(
+    {
+      categories: categories.data ?? [],
+      classifications: classifications.data ?? [],
+      events: events.data ?? [],
+      facts: facts.data ?? [],
+      hidden: hidden.data ?? [],
+      items: items.data ?? [],
+    },
     tenantId,
-    eventRows.map((row) => row.source_item_id),
+    now,
+    visibility,
   );
-
-  const context = (sourceItemId: string, fallbackOccurredAt: string): InboxContext =>
-    buildContext(
-      sourceItemId,
-      fallbackOccurredAt,
-      itemsById,
-      classificationsByItem,
-      categoryNames,
-      now,
-      retained.get(sourceItemId),
-    );
-
-  // Facts support the event extracted from the same source item. They are grouped here rather than
-  // listed, because a raw fact is evidence for an observation rather than an observation itself.
-  const factsByItem = new Map<string, InboxFactInput[]>();
-  for (const row of (facts.data ?? []) as FactRow[]) {
-    const fact: InboxFactInput = {
-      certainty: row.certainty,
-      createdAt: row.created_at,
-      id: row.id,
-      kind: row.kind,
-      sourceItemId: row.source_item_id,
-      uncertaintyReason: row.uncertainty_reason,
-      value: row.value,
-    };
-    const existing = factsByItem.get(row.source_item_id);
-    if (existing === undefined) factsByItem.set(row.source_item_id, [fact]);
-    else existing.push(fact);
-  }
-
-  const inbox: InboxItem[] = [
-    ...eventRows.map((row) =>
-      inboxItemForEvent(
-        {
-          confidence: row.confidence,
-          createdAt: row.created_at,
-          dateAmbiguity: row.date_ambiguity,
-          dueAt: row.due_at,
-          id: row.id,
-          kind: row.kind,
-          requiresReview: row.requires_review,
-          sourceItemId: row.source_item_id,
-          startsAt: row.starts_at,
-          summary: row.summary,
-          temporalStatus: row.temporal_status,
-          title: row.title,
-        },
-        context(row.source_item_id, row.created_at),
-        factsByItem.get(row.source_item_id) ?? [],
-      ),
-    ),
-  ];
-
-  return inbox;
 }
 
 /**
