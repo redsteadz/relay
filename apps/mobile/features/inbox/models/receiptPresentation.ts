@@ -58,8 +58,41 @@ export function receiptGlyph(appLabel: string): string {
 
 /** Where it came from: the capturing application, then the party it came from. */
 export function receiptSourceLine(item: InboxItem): string {
+  const sender = receiptSender(item);
+  return sender === undefined ? item.appLabel : `${item.appLabel} · ${sender}`;
+}
+
+/**
+ * Who it came from, wherever that was recorded.
+ *
+ * A Gmail capture carries a sender on the source. An Android notification usually does not: the
+ * posting application puts the correspondent in the notification's own title, which extraction then
+ * reads as the item's title because nothing more specific was found. Both are the same fact to a
+ * reader, so both are resolved here rather than at each call site.
+ */
+export function receiptSender(item: InboxItem): string | undefined {
   const sender = item.source.sender;
-  return sender === undefined || sender === "" ? item.appLabel : `${item.appLabel} · ${sender}`;
+  if (sender !== undefined && sender !== "") return sender;
+  const derived = item.evidence.find((fact) => fact.kind === "sender")?.value;
+  if (derived !== undefined && derived !== "") return derived;
+  // The title stands in for the sender only when it is not already doing the louder job below.
+  return item.summary === undefined || item.title === item.summary ? undefined : item.title;
+}
+
+/**
+ * The one line a capture is named by in a list, and the quieter line under it.
+ *
+ * What a notification said is the line a person is looking for, and the title it arrived with is
+ * usually the correspondent -- so setting the title large and the body in muted type put a phone
+ * number where the message should be and made every row from one chat look identical. The lead is
+ * therefore what was said whenever Relay holds it; the sender keeps its place in the meta line
+ * above, where a reader already looks for provenance.
+ *
+ * Where no readable copy exists -- another device captured it, or retention has dropped it -- the
+ * title leads exactly as before, because it is then the only thing Relay can honestly show.
+ */
+export function receiptLead(item: InboxItem): string {
+  return item.summary ?? item.title;
 }
 
 /**
@@ -84,8 +117,12 @@ export function receiptTimeLine(item: InboxItem, now?: Date): string {
  *
  * Nothing is lost, because the receipt shows the full evidence set unfiltered.
  */
-export function listEvidence(evidence: readonly InboxEvidence[]): readonly InboxEvidence[] {
-  return evidence.filter((fact) => !fact.isInstant);
+export function listEvidence(
+  evidence: readonly InboxEvidence[],
+  shown?: readonly (string | undefined)[],
+): readonly InboxEvidence[] {
+  const already = new Set(shown?.filter((value): value is string => value !== undefined));
+  return evidence.filter((fact) => !fact.isInstant && !already.has(fact.value));
 }
 
 /**

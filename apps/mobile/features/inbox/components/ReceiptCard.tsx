@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { AppText } from "@/components/ui";
+import { AppText, TintTile } from "@/components/ui";
 import type { ProposedAction } from "@/features/actions/models/actionPresentation";
 import { useRelayTheme } from "@/theme";
 
@@ -8,7 +8,8 @@ import type { InboxItem } from "../models/inboxPresentation";
 import {
   listEvidence,
   receiptDecision,
-  receiptGlyph,
+  receiptLead,
+  receiptSender,
   receiptSourceLine,
   receiptTimeLine,
 } from "../models/receiptPresentation";
@@ -19,10 +20,15 @@ import { ProposedActionBlock } from "./ProposedActionBlock";
 /**
  * One capture, as a receipt.
  *
- * The anatomy is fixed and runs everywhere Relay shows an item: where it came from, what it is
- * called, the values that were read, how it was filed, and -- below a perforation -- what is
- * proposed because of it. The order is the order things happened, so reading down the card is
- * reading the pipeline's own sequence.
+ * The anatomy is fixed and runs everywhere Relay shows an item: where it came from, what it said,
+ * the values that were read, how it was filed, and -- below a perforation -- what is proposed
+ * because of it. The order is the order things happened, so reading down the card is reading the
+ * pipeline's own sequence.
+ *
+ * What changed in the redesign is which of those parts is loud. Provenance used to take the title
+ * slot, so a list of twelve messages from one chat was twelve copies of a phone number with the
+ * messages themselves greyed out underneath. Provenance now shares one meta line with the arrival
+ * time, and what was said is the line set large.
  *
  * The card never states more than the pipeline did. A missing category, an uncertain fact, an
  * unfinished capture and an expired raw copy each get their own quiet line rather than being
@@ -51,9 +57,14 @@ export function ReceiptCard({
   threadCount?: number | undefined;
 }) {
   const theme = useRelayTheme();
-  const { borders, colors, interaction, radii, sizes, spacing } = theme.relay;
+  const { borders, colors, interaction, radii, spacing } = theme.relay;
   const unresolved = item.reviewReasons.length > 0;
   const decision = receiptDecision(item.category, unresolved);
+  const sender = receiptSender(item);
+  const lead = receiptLead(item);
+  // The sender is already set in the meta line above, so chipping it again spends a whole row
+  // restating one value. This was the single densest piece of noise in the old list.
+  const evidence = listEvidence(item.evidence, [sender, lead]);
   const conversation =
     threadCount === undefined || threadCount < 2 ? undefined : `+${String(threadCount - 1)} more`;
 
@@ -61,62 +72,45 @@ export function ReceiptCard({
     <View
       style={[
         styles.head,
-        {
-          gap: spacing.sm,
-          paddingBottom: spacing.sm,
-          paddingHorizontal: spacing.md,
-          paddingTop: spacing.md,
-        },
+        { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
       ]}
     >
-      <View style={[styles.meta, { gap: spacing.sm }]}>
-        <View style={[styles.source, { gap: spacing.sm }]}>
-          <View
-            style={[
-              styles.glyph,
-              {
-                backgroundColor: colors.surfaceRaised,
-                borderRadius: radii.sm,
-                height: sizes.glyph,
-                width: sizes.glyph,
-              },
-            ]}
-          >
-            <AppText tone="muted" variant="monoGlyph">
-              {receiptGlyph(item.appLabel)}
+      <View style={[styles.row, { gap: spacing.md }]}>
+        <TintTile
+          compact
+          label={item.appLabel}
+          tintKey={item.source.applicationId ?? item.appLabel}
+        />
+        <View style={[styles.copy, { gap: spacing.xs }]}>
+          <View style={[styles.meta, { gap: spacing.sm }]}>
+            <AppText numberOfLines={1} style={styles.metaText} tone="muted" variant="caption">
+              {receiptSourceLine(item)}
+            </AppText>
+            <AppText numberOfLines={1} tone="muted" variant="monoMeta">
+              {receiptTimeLine(item, now)}
             </AppText>
           </View>
-          <AppText numberOfLines={1} style={styles.sourceText} tone="muted" variant="caption">
-            {receiptSourceLine(item)}
+
+          {/*
+           * What the capture actually said.
+           *
+           * Truncated at two lines because a notification body has no length a list can rely on,
+           * and an untruncated one pushes every following card off the screen. The full text is on
+           * the receipt.
+           */}
+          <AppText numberOfLines={2} variant="bodyStrong">
+            {lead}
           </AppText>
+
+          {conversation === undefined ? null : (
+            <AppText tone="muted" variant="monoMeta">
+              {conversation}
+            </AppText>
+          )}
         </View>
-        <AppText numberOfLines={1} tone="muted" variant="monoMeta">
-          {receiptTimeLine(item, now)}
-        </AppText>
       </View>
 
-      <AppText numberOfLines={2} variant="receiptTitle">
-        {item.title}
-      </AppText>
-
-      {/*
-       * What the capture actually said.
-       *
-       * This is the line a person is looking for, so it leads rather than waiting behind a tap. It
-       * is truncated because a notification body has no length a list can rely on, and an untruncated
-       * one pushes every following card off the screen. The full text is on the receipt.
-       *
-       * Absent when this device holds no readable copy -- another device captured it, retention
-       * dropped it, or the posting app put nothing in the extra Relay reads. The card then stands on
-       * its title, exactly as before, rather than reserving blank space for text that is not coming.
-       */}
-      {item.summary === undefined ? null : (
-        <AppText numberOfLines={3} tone="muted" variant="body">
-          {item.summary}
-        </AppText>
-      )}
-
-      <FactChipRow evidence={listEvidence(item.evidence)} now={now} />
+      {evidence.length === 0 ? null : <FactChipRow evidence={evidence} now={now} />}
 
       {decision === undefined ? null : <DecisionLine decision={decision} />}
 
@@ -131,12 +125,6 @@ export function ReceiptCard({
           Relay accepted this but has not finished reading it, so its facts may be incomplete.
         </AppText>
       ) : null}
-
-      {conversation === undefined ? null : (
-        <AppText tone="muted" variant="monoMeta">
-          {conversation}
-        </AppText>
-      )}
     </View>
   );
 
@@ -147,7 +135,7 @@ export function ReceiptCard({
         {
           backgroundColor: colors.surface,
           borderColor: colors.borderSubtle,
-          borderRadius: radii.md,
+          borderRadius: radii.lg,
           borderWidth: borders.hairline,
         },
       ]}
@@ -181,9 +169,9 @@ export function ReceiptCard({
 
 const styles = StyleSheet.create({
   card: { overflow: "hidden", width: "100%" },
-  glyph: { alignItems: "center", justifyContent: "center" },
+  copy: { flex: 1 },
   head: { width: "100%" },
   meta: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
-  source: { alignItems: "center", flexDirection: "row", flexShrink: 1 },
-  sourceText: { flexShrink: 1 },
+  metaText: { flexShrink: 1 },
+  row: { alignItems: "flex-start", flexDirection: "row", width: "100%" },
 });

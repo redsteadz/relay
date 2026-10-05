@@ -138,6 +138,7 @@ function AuthenticatedStack() {
           <Stack.Screen name="rules/editor" />
           <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
+          <Stack.Screen name="activity" />
           <Stack.Screen name="demo" />
           <Stack.Screen name="disclosures" />
           <Stack.Screen name="your-data" />

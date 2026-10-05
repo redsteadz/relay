@@ -32,6 +32,21 @@ export const sizes = {
   icon: { sm: 16, md: 20, lg: 24 },
   /** Source initial on a receipt. Reads as provenance, not as a tappable avatar. */
   glyph: 22,
+  /**
+   * The square a source or a condition type is identified by.
+   *
+   * Large enough to carry a real application icon at list density, so a reader recognises WhatsApp
+   * before they have read a word. The rounded square is deliberately not a circle: a circle reads as
+   * a person, and almost nothing Relay captures comes from one.
+   */
+  tile: 40,
+  /** The same square at list density, where the row's text already carries the name. */
+  tileCompact: 32,
+  /** Height of the twenty-four-hour arrival chart. Tall enough to compare, short enough to skim. */
+  sparkline: 56,
+  /** A single hour's column in that chart, and the track of a per-source share bar. */
+  sparkBar: 3,
+  barTrack: 6,
   control: 48,
   touchTarget: 48,
   compactTouchTarget: 40,
@@ -89,6 +104,31 @@ export const typography = {
     fontSize: 38,
     letterSpacing: -1.25,
     lineHeight: 42,
+  },
+  /**
+   * The name of the screen you are on, set large enough to be the first thing read.
+   *
+   * A one-line header in body-sized type made every screen open the same way, so a person landing
+   * on Rules had to read the tab bar to know where they were. Size does that work instead, which is
+   * also what buys the tab bar the right to stop shouting.
+   */
+  display: {
+    fontFamily: fontFamilies.display,
+    fontSize: 32,
+    letterSpacing: -1,
+    lineHeight: 38,
+  },
+  /**
+   * A number Relay counted, standing alone above its label.
+   *
+   * Mono, because a count is a value Relay read rather than a word it chose, and because tabular
+   * figures keep three tiles the same width whatever the numbers are.
+   */
+  metric: {
+    fontFamily: fontFamilies.monoStrong,
+    fontSize: 28,
+    letterSpacing: -0.5,
+    lineHeight: 32,
   },
   heading: {
     fontFamily: fontFamilies.display,
@@ -224,8 +264,22 @@ type RelayColors = {
   scrim: string;
 };
 
+/**
+ * The six hues a category, a source, or a condition type can be recognised by.
+ *
+ * Relay's own palette is one accent on one neutral, which is right for prose and wrong for a list
+ * of twelve categories: with a single colour, telling two of them apart means reading both labels.
+ * These are assigned from a key rather than chosen per screen, so one category keeps one hue
+ * everywhere it appears and no screen can invent a thirteenth colour.
+ */
+export const tintNames = ["sky", "mint", "amber", "violet", "rose", "sand"] as const;
+export type RelayTintName = (typeof tintNames)[number];
+export type RelayTint = { ink: string; surface: string };
+export type RelayTints = Record<RelayTintName, RelayTint>;
+
 export type RelaySemanticTokens = {
   colors: RelayColors;
+  tints: RelayTints;
   spacing: typeof spacing;
   radii: typeof radii;
   borders: typeof borders;
@@ -240,9 +294,10 @@ export type RelaySemanticTokens = {
 const lightColors: RelayColors = palette.light;
 const darkColors: RelayColors = palette.dark;
 
-function createTokens(colors: RelayColors): RelaySemanticTokens {
+function createTokens(colors: RelayColors, tints: RelayTints): RelaySemanticTokens {
   return {
     colors,
+    tints,
     spacing,
     radii,
     borders,
@@ -256,9 +311,22 @@ function createTokens(colors: RelayColors): RelaySemanticTokens {
 }
 
 export const relayTokens: Record<RelayColorScheme, RelaySemanticTokens> = {
-  light: createTokens(lightColors),
-  dark: createTokens(darkColors),
+  light: createTokens(lightColors, palette.tints.light),
+  dark: createTokens(darkColors, palette.tints.dark),
 };
+
+/**
+ * The hue a key is recognised by, chosen once and never varying.
+ *
+ * A category's colour has to survive reordering, renaming of its neighbours, and appearing on a
+ * screen that shows only one of them, so it is derived from the key itself rather than from a
+ * position in a list. The hash is deliberately trivial: it only has to be stable.
+ */
+export function tintNameFor(key: string): RelayTintName {
+  let hash = 0;
+  for (const character of key) hash = (hash * 31 + character.codePointAt(0)!) % 1_000_003;
+  return tintNames[hash % tintNames.length]!;
+}
 
 export function isThemePreference(value: string | null): value is ThemePreference {
   return themePreferences.some((preference) => preference === value);

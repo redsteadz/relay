@@ -1,30 +1,39 @@
 import type { FilterRuleVersion } from "@relay/contracts";
 import { Pressable, StyleSheet, View } from "react-native";
+import { Switch } from "react-native-paper";
 
-import { AppSwitch, AppText, RelayIcon } from "@/components/ui";
+import { AppText, RelayIcon } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
-import { filterPlanSummary } from "../models/filterPresentation";
+import { filterRuleSentence } from "../models/filterPresentation";
 
 /**
- * One rule, as a row.
+ * One rule, as a sentence you can switch off.
  *
- * The version is stated on the face of the row rather than inside the editor, because a rule is a
- * series and not a setting: what is running now is one revision of it, and the number is how a
- * person tells which. The summary beneath is compiled from the stored plan, so the row describes
- * what the rule does rather than what its author meant to write.
+ * The card used to describe a rule by its construction -- a name, the author's intent, then "2
+ * deterministic checks · semantic fallback at 80% confidence" -- and put the pause switch in a
+ * separate band beneath, with a paragraph of its own explaining what pausing means. Three of those
+ * filled a phone, and none of them said what the rule did.
  *
- * The switch is the only control that acts in place. Everything else opens the rule, because
- * changing a rule means adding a version and that deserves a screen.
+ * It now states the rule as the conditional it is, in Relay's own compiled words rather than the
+ * author's, so what is read is what will run. The switch sits on the title line because on and off
+ * is the only state worth scanning a list of rules for, and the explanation it used to carry now
+ * appears in the confirmation that actually changes something.
+ *
+ * Everything else still opens the rule, because changing one means adding a version and that
+ * deserves a screen.
  */
 export function RuleRow({
   busy,
+  categoryName,
   history,
   onOpen,
   onToggleEnabled,
   revision,
 }: {
   busy: boolean;
+  /** Where a matching capture is filed, when the screen could resolve the name. */
+  categoryName?: string | undefined;
   history: readonly FilterRuleVersion[];
   onOpen: () => void;
   onToggleEnabled: () => void;
@@ -33,6 +42,8 @@ export function RuleRow({
   const theme = useRelayTheme();
   const { borders, colors, interaction, radii, sizes, spacing } = theme.relay;
   const prior = history.filter((entry) => entry.version !== revision.version);
+  const sentence = filterRuleSentence(revision.plan);
+  const outcome = categoryName === undefined ? "file it" : `file it as ${categoryName}`;
 
   return (
     <View
@@ -41,7 +52,7 @@ export function RuleRow({
         {
           backgroundColor: colors.surface,
           borderColor: colors.borderSubtle,
-          borderRadius: radii.md,
+          borderRadius: radii.lg,
           borderWidth: borders.hairline,
           opacity: revision.enabled ? 1 : interaction.pressedOpacity,
         },
@@ -49,7 +60,9 @@ export function RuleRow({
     >
       <Pressable
         accessibilityHint="Opens the rule, its compiled plan, and a dry run"
-        accessibilityLabel={`${revision.name}, version ${String(revision.version)}`}
+        accessibilityLabel={`${revision.name}, version ${String(revision.version)}, ${
+          revision.enabled ? "enabled" : "paused"
+        }`}
         accessibilityRole="button"
         onPress={onOpen}
         style={({ pressed }) => [
@@ -57,66 +70,78 @@ export function RuleRow({
           {
             gap: spacing.sm,
             opacity: pressed ? interaction.pressedOpacity : 1,
-            padding: spacing.md,
+            padding: spacing.lg,
           },
         ]}
       >
         <View style={[styles.title, { gap: spacing.sm }]}>
-          <AppText numberOfLines={1} style={styles.name} variant="receiptTitle">
+          <AppText numberOfLines={1} style={styles.name} variant="title">
             {revision.name}
           </AppText>
           <AppText tone="muted" variant="monoMeta">
             {`v${String(revision.version)}`}
           </AppText>
-          <RelayIcon color={colors.textMuted} name="chevron" size={sizes.icon.sm} />
+          <View
+            // The switch owns its own gesture inside a pressable card, so the card's label must not
+            // swallow it: it is announced separately and toggles without opening the rule.
+            style={[styles.switch, { minHeight: sizes.compactTouchTarget }]}
+          >
+            <Switch
+              accessibilityLabel={revision.enabled ? "Enabled" : "Paused"}
+              color={colors.accent}
+              disabled={busy}
+              onValueChange={onToggleEnabled}
+              value={revision.enabled}
+            />
+          </View>
         </View>
 
-        <AppText numberOfLines={2} tone="muted" variant="caption">
-          {revision.intent}
+        {/*
+         * The rule, as a conditional. Set in body type rather than mono: this is Relay describing a
+         * rule in words, not quoting a value it read, and the mono face is reserved for the latter.
+         */}
+        <AppText numberOfLines={4} variant="body">
+          <AppText tone="muted" variant="body">
+            If{" "}
+          </AppText>
+          {sentence.condition}
+          <AppText tone="muted" variant="body">
+            , then{" "}
+          </AppText>
+          {outcome}.
         </AppText>
 
-        <AppText tone="muted" variant="mono">
-          {filterPlanSummary(revision.plan)}
-        </AppText>
-
-        {prior.length === 0 ? null : (
-          <AppText tone="muted" variant="monoMeta">
-            {`${String(prior.length)} earlier ${prior.length === 1 ? "version" : "versions"} kept`}
+        {sentence.semantic === undefined ? null : (
+          <AppText numberOfLines={2} tone="muted" variant="caption">
+            {sentence.semantic}
           </AppText>
         )}
-      </Pressable>
 
-      <View
-        style={[
-          styles.control,
-          {
-            borderTopColor: colors.borderSubtle,
-            borderTopWidth: borders.hairline,
-            paddingHorizontal: spacing.md,
-            paddingVertical: spacing.sm,
-          },
-        ]}
-      >
-        <AppSwitch
-          detail={
-            revision.enabled
-              ? "Deciding. Applies to the next capture."
-              : "Paused. Its versions and past decisions are kept."
-          }
-          disabled={busy}
-          label={revision.enabled ? "Enabled" : "Paused"}
-          onValueChange={onToggleEnabled}
-          value={revision.enabled}
-        />
-      </View>
+        <View style={[styles.footer, { gap: spacing.sm }]}>
+          {prior.length === 0 ? (
+            <View />
+          ) : (
+            <AppText tone="muted" variant="monoMeta">
+              {`${String(prior.length)} earlier ${prior.length === 1 ? "version" : "versions"} kept`}
+            </AppText>
+          )}
+          <RelayIcon color={colors.textMuted} name="chevron" size={sizes.icon.sm} />
+        </View>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  control: { width: "100%" },
+  footer: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+  },
   head: { width: "100%" },
   name: { flexShrink: 1, flexGrow: 1 },
   row: { overflow: "hidden", width: "100%" },
+  switch: { justifyContent: "center" },
   title: { alignItems: "center", flexDirection: "row", width: "100%" },
 });

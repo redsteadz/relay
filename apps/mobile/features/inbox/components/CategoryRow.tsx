@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { AppText, RelayIcon, StatusPill } from "@/components/ui";
+import { AppText, RelayIcon, StatusPill, TintTile } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import { formatCaptureTime, type InboxCategorySummary } from "../models/inboxPresentation";
@@ -39,7 +39,7 @@ export function CategoryRow({
         {
           backgroundColor: colors.surface,
           borderColor: colors.borderSubtle,
-          borderRadius: radii.md,
+          borderRadius: radii.lg,
           borderWidth: borders.hairline,
           gap: spacing.md,
           opacity: pressed ? interaction.pressedOpacity : 1,
@@ -47,6 +47,8 @@ export function CategoryRow({
         },
       ]}
     >
+      <TintTile compact label={category.name} tintKey={category.key} />
+
       <View style={styles.body}>
         <View style={[styles.heading, { gap: spacing.sm }]}>
           <AppText numberOfLines={1} style={styles.name} variant="bodyStrong">

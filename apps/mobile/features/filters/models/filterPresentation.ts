@@ -375,6 +375,88 @@ export function filterSaveErrorMessage(error: unknown): string {
   return "The rule could not be saved right now. Try again shortly.";
 }
 
+/**
+ * A rule as one sentence: if this, then that.
+ *
+ * The list used to describe a rule by counting its parts -- "2 deterministic checks · semantic
+ * fallback at 80% confidence" -- which says how a rule is built and not what it does. A person
+ * scanning their rules is asking the second question, and the compiled plan can answer it in their
+ * own words, so a rule can be checked against what they meant without opening the editor.
+ *
+ * The condition comes from the compiled plan rather than the intent that produced it, so the
+ * sentence states what will actually run. A plan too branched to read as a clause says so plainly
+ * instead of flattening its logic into a misleading list.
+ */
+export type RuleSentence = {
+  /** The compiled condition, as a clause that reads after the word "if". */
+  condition: string;
+  /** The semantic clause, when one survives compilation. Always attributed to a model. */
+  semantic: string | undefined;
+};
+
+/** The longest chain of predicates still readable as one sentence. */
+const SENTENCE_LIMIT = 3;
+
+/**
+ * How much of a compiled question fits in a card's sentence.
+ *
+ * The compiler builds its question from the author's whole intent, which can run to a paragraph. Set
+ * in full it pushed the "then …" clause -- the outcome, and the part a person is scanning for --
+ * off the bottom of the card. The question is shown complete in the editor.
+ */
+const QUESTION_LIMIT = 68;
+/** Boilerplate the surrounding sentence already says, stripped so the question itself leads. */
+const QUESTION_PREFIX = /^does this item satisfy:\s*/iu;
+
+function readableQuestion(question: string): string {
+  const stripped = question.replace(QUESTION_PREFIX, "");
+  if (stripped.length <= QUESTION_LIMIT) return stripped;
+  return `${stripped.slice(0, QUESTION_LIMIT).trimEnd()}…`;
+}
+
+export function filterRuleSentence(plan: FilterPlan): RuleSentence {
+  const semantic =
+    plan.semantic === undefined
+      ? undefined
+      : `a model reads it as "${readableQuestion(plan.semantic.question)}"`;
+  const confidence =
+    plan.semantic === undefined
+      ? undefined
+      : `Decided by your configured model, at ${Math.round(
+          plan.semantic.minimumConfidence * 100,
+        ).toString()}% confidence or better. Nothing is checked on this device.`;
+
+  // A rule the compiler could not reduce to any deterministic predicate is a question for a model
+  // and nothing else. Leading such a rule with "if nothing is checked on this device" described the
+  // absence rather than the rule, and buried the clause that actually decides it in the line below.
+  if (plan.deterministic === undefined && semantic !== undefined) {
+    return { condition: semantic, semantic: confidence };
+  }
+  return { condition: describeCondition(plan.deterministic), semantic: confidence };
+}
+
+function describeCondition(expression: FilterExpression | undefined): string {
+  if (expression === undefined) return "nothing is checked on this device";
+  const lines = describeFilterExpression(expression);
+  const predicates = lines.filter((line) => line.kind === "predicate");
+  if (predicates.length === 1 && predicates[0]?.text === "Never matches") return "never";
+  // One connective governing a flat list of predicates reads as a sentence. Anything nested does
+  // not, and claiming otherwise would describe a rule as simpler than it is.
+  const groups = lines.filter((line) => line.kind === "group");
+  const nested =
+    groups.some((group) => group.depth > 0) || predicates.some((line) => line.depth > 1);
+  if (nested || predicates.length > SENTENCE_LIMIT) {
+    return `${predicates.length.toString()} ${predicates.length === 1 ? "check" : "checks"} match`;
+  }
+  const joiner = groups[0]?.text === "Any of" ? " or " : " and ";
+  return predicates.map((line) => lowerFirst(line.text)).join(joiner);
+}
+
+function lowerFirst(text: string): string {
+  const first = [...text][0];
+  return first === undefined ? text : first.toLowerCase() + text.slice(first.length);
+}
+
 /** Short summary for a rule card: what decides it, and whether a model is ever involved. */
 export function filterPlanSummary(plan: FilterPlan): string {
   const parts: string[] = [];

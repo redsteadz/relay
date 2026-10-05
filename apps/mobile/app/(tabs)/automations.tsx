@@ -1,6 +1,6 @@
 import type { FilterRuleVersion } from "@relay/contracts";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
@@ -11,8 +11,10 @@ import {
   EditorialSurface,
   EmptyState,
   LoadingState,
+  SectionHeading,
   StatusMessage,
 } from "@/components/ui";
+import { useCategoryManagement } from "@/features/categories/hooks/useCategoryManagement";
 import { RuleRow } from "@/features/filters/components/RuleRow";
 import { useFilterRules } from "@/features/filters/hooks/useFilterRules";
 import { filterDraftFor, filterSaveRequest } from "@/features/filters/models/filterPresentation";
@@ -37,8 +39,21 @@ function reportRuleUiFailure(error: unknown, operation: string): void {
 export default function AutomationsScreen() {
   const { client, session } = useAuth();
   const filters = useFilterRules(client, session?.user.id, session?.access_token);
+  const categories = useCategoryManagement(client, session?.user.id);
   const [disableTarget, setDisableTarget] = useState<FilterRuleVersion>();
   const signedIn = session !== null;
+
+  // Resolved once for the whole list rather than per row: a rule names a category by id, and a row
+  // that cannot say where a capture lands has to say "file it", which is true but much less useful.
+  const categoryNames = useMemo(() => {
+    const named = new Map<string, string>();
+    for (const category of [...categories.activeCustom, ...categories.systemCategories]) {
+      named.set(category.id, category.name);
+    }
+    return named;
+  }, [categories.activeCustom, categories.systemCategories]);
+
+  const active = filters.rules.filter((rule) => rule.enabled).length;
 
   async function applyDisable() {
     if (disableTarget === undefined) return;
@@ -76,13 +91,14 @@ export default function AutomationsScreen() {
         <AppButton
           accessibilityLabel="New rule"
           disabled={filters.saving}
-          label="New"
+          label="New rule"
           onPress={() => {
             filters.clearSaveError();
             router.push("/rules/editor");
           }}
         />
       }
+      pill={filters.rules.length === 0 ? undefined : `${String(active)} active`}
       title="Rules"
     >
       <ContextualNotice accessibilityLabel="How rules are evaluated">
@@ -116,9 +132,14 @@ export default function AutomationsScreen() {
         />
       ) : null}
 
+      {filters.rules.length === 0 ? null : <SectionHeading label="Your rules" />}
+
       {filters.rules.map((rule) => (
         <RuleRow
           busy={filters.saving}
+          categoryName={
+            rule.categoryId === undefined ? undefined : categoryNames.get(rule.categoryId)
+          }
           history={filters.historyFor(rule.seriesId)}
           key={rule.seriesId}
           onOpen={() => {

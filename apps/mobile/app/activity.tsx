@@ -53,7 +53,7 @@ export default function ActivityScreen() {
 
   if (session === null) {
     return (
-      <ReceiptScreen title="Activity">
+      <ReceiptScreen onBack={() => router.back()} title="Activity">
         <EditorialSurface icon="shield-check-outline" meta="Sign-in required" title="Activity">
           <AppText tone="muted">
             The timeline is account-owned. Sign in to see what Relay proposed, what you decided, and
@@ -89,6 +89,7 @@ export default function ActivityScreen() {
           tone="secondary"
         />
       }
+      onBack={() => router.back()}
       sticky={<FilterChips chips={activityFilters} onSelect={setFilter} selected={filter} />}
       title="Activity"
     >

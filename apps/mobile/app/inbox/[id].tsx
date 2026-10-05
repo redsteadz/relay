@@ -18,11 +18,7 @@ import { ProposedActionBlock } from "@/features/inbox/components/ProposedActionB
 import { ReceiptField, ReceiptStage } from "@/features/inbox/components/ReceiptStage";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
 import { formatCaptureTime, type InboxItem } from "@/features/inbox/models/inboxPresentation";
-import {
-  eventKindLabel,
-  receiptDecision,
-  receiptSourceLine,
-} from "@/features/inbox/models/receiptPresentation";
+import { eventKindLabel, receiptDecision } from "@/features/inbox/models/receiptPresentation";
 import { useAuth } from "@/lib/auth-context";
 import { logMobileError } from "@/lib/observability";
 import { useRelayTheme } from "@/theme";
@@ -121,8 +117,10 @@ export default function InboxItemScreen() {
             <StatusMessage tone="error">{proposals.error}</StatusMessage>
           )}
 
+          {/* The application, not the full source line: the title above is already the sender, and
+              "RECORD · GMAIL · GOOGLE" spent the screen's second line saying Google twice. */}
           <AppText tone="muted" variant="monoMeta">
-            {`${eventKindLabel(item.kind)} · ${receiptSourceLine(item)}`.toUpperCase()}
+            {`${eventKindLabel(item.kind)} · ${item.appLabel}`.toUpperCase()}
           </AppText>
 
           <ReceiptStage label="Arrived" ordinal={1}>

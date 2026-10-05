@@ -1,7 +1,6 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { AppIconButton, AppText, RelayIcon } from "@/components/ui";
-import { receiptGlyph } from "@/features/inbox/models/receiptPresentation";
+import { AppIconButton, AppText, RelayIcon, TintTile } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import type { SourceStatus } from "../../models/capturePresentation";
@@ -45,34 +44,21 @@ export function SourceSummaryRow({
         {
           backgroundColor: colors.surface,
           borderColor: colors.borderSubtle,
-          borderRadius: radii.md,
+          borderRadius: radii.lg,
           borderWidth: borders.hairline,
           gap: spacing.md,
           opacity: pressed ? interaction.pressedOpacity : 1,
-          padding: spacing.md,
+          padding: spacing.lg,
         },
       ]}
     >
-      <View
-        importantForAccessibility="no-hide-descendants"
-        style={[
-          styles.glyph,
-          {
-            backgroundColor: colors.surfaceRaised,
-            borderRadius: radii.sm,
-            height: sizes.glyph,
-            width: sizes.glyph,
-          },
-        ]}
-      >
-        <AppText tone="muted" variant="monoGlyph">
-          {receiptGlyph(source.name)}
-        </AppText>
-      </View>
+      <TintTile icon={source.icon} label={source.name} tintKey={source.id} />
 
       <View style={[styles.copy, { gap: spacing.xs }]}>
+        {/* Wrapping, because "Android notifications" beside an ACTIVE pill does not fit a phone
+            on one line and was being truncated to "Android notific...". */}
         <View style={[styles.heading, { gap: spacing.sm }]}>
-          <AppText numberOfLines={1} style={styles.name} variant="receiptTitle">
+          <AppText numberOfLines={2} style={styles.name} variant="title">
             {source.name}
           </AppText>
           <SourceStatusLabel status={status} />
@@ -82,11 +68,12 @@ export function SourceSummaryRow({
         </AppText>
       </View>
 
-      {!disclosure || onDisclosure === undefined ? (
-        <View importantForAccessibility="no-hide-descendants" style={styles.chevron}>
-          <RelayIcon color={colors.textMuted} name="chevron" size={sizes.icon.sm} />
-        </View>
-      ) : (
+      {/*
+       * Both controls, not one or the other. The row used to drop its chevron whenever a source
+       * carried a privacy notice, which left the lone information circle looking like the only
+       * thing the row did -- and it was the one thing that did not open the source.
+       */}
+      {!disclosure || onDisclosure === undefined ? null : (
         <AppIconButton
           accessibilityHint={`Shows the ${source.name} privacy notice`}
           accessibilityLabel={`About ${source.name} privacy`}
@@ -95,6 +82,9 @@ export function SourceSummaryRow({
           onPress={onDisclosure}
         />
       )}
+      <View importantForAccessibility="no-hide-descendants" style={styles.chevron}>
+        <RelayIcon color={colors.textMuted} name="chevron" size={sizes.icon.sm} />
+      </View>
     </Pressable>
   );
 }
@@ -102,8 +92,7 @@ export function SourceSummaryRow({
 const styles = StyleSheet.create({
   chevron: { alignSelf: "center" },
   copy: { flex: 1, minWidth: 0 },
-  glyph: { alignItems: "center", justifyContent: "center" },
-  heading: { alignItems: "center", flexDirection: "row" },
+  heading: { alignItems: "center", flexDirection: "row", flexWrap: "wrap" },
   name: { flexShrink: 1 },
   row: { alignItems: "center", flexDirection: "row" },
 });

@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
-import { IconButton, Menu } from "react-native-paper";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Icon } from "react-native-paper";
 
-import { getContextualNoticeWidth } from "@/components/page-layout";
 import { useRelayTheme } from "@/theme";
 
 import { AppText } from "./AppText";
@@ -10,6 +9,7 @@ import { AppText } from "./AppText";
 export type ContextualNoticeTone = "info" | "warning";
 
 type ContextualNoticeProps = {
+  /** The one line shown when collapsed. Say what the notice is about, not that it exists. */
   accessibilityLabel?: string;
   children: string;
   tone?: ContextualNoticeTone;
@@ -20,73 +20,76 @@ const toneDetails: Record<ContextualNoticeTone, { icon: string; label: string }>
   warning: { icon: "alert-outline", label: "Warning" },
 };
 
+/**
+ * A boundary worth stating, stated in place.
+ *
+ * This used to be a bare circled "i" floating alone above the content, with the sentence hidden in
+ * a pop-up menu behind it. On three screens it was the first thing on the page and said nothing:
+ * an unlabelled control is an invitation to find out what it does, which is the opposite of what a
+ * privacy notice is for -- and a person who never tapped it never learned the boundary at all.
+ *
+ * It is now a labelled strip. Collapsed, it names its subject on one line, which is the summary the
+ * icon was standing in for. Tapped, it says the whole thing in place, without covering the content
+ * it is about.
+ */
 export function ContextualNotice({
   accessibilityLabel,
   children,
   tone = "info",
 }: ContextualNoticeProps) {
   const theme = useRelayTheme();
-  const { width: viewportWidth } = useWindowDimensions();
-  const [visible, setVisible] = useState(false);
-  const [anchorX, setAnchorX] = useState<number>(theme.relay.layout.compactGutter);
-  const colors = theme.relay.colors;
+  const { borders, colors, interaction, radii, sizes, spacing } = theme.relay;
+  const [expanded, setExpanded] = useState(false);
   const details = toneDetails[tone];
   const [backgroundColor, color, emphasis] =
     tone === "warning"
       ? [colors.warningSurface, colors.onWarningSurface, colors.warning]
       : [colors.infoSurface, colors.onInfoSurface, colors.info];
-  const bubbleWidth = getContextualNoticeWidth(viewportWidth, anchorX);
+  const summary = accessibilityLabel ?? details.label;
 
   return (
-    <Menu
-      anchor={
-        <View onLayout={(event) => setAnchorX(event.nativeEvent.layout.x)}>
-          <IconButton
-            accessibilityHint={`Shows ${details.label.toLowerCase()} in a pop-up`}
-            accessibilityLabel={accessibilityLabel ?? `Show ${details.label.toLowerCase()}`}
-            icon={details.icon}
-            iconColor={emphasis}
-            hitSlop={theme.relay.spacing.xs}
-            onPress={() => setVisible(true)}
-            size={theme.relay.sizes.icon.md}
-            style={[
-              styles.trigger,
-              {
-                height: theme.relay.sizes.compactTouchTarget,
-                width: theme.relay.sizes.compactTouchTarget,
-              },
-            ]}
-          />
-        </View>
-      }
-      anchorPosition="bottom"
-      style={{ width: bubbleWidth }}
-      contentStyle={[
+    <Pressable
+      accessibilityHint={expanded ? "Collapses this notice" : "Shows the whole notice"}
+      accessibilityLabel={summary}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      onPress={() => setExpanded((open) => !open)}
+      style={({ pressed }) => [
+        styles.notice,
         {
           backgroundColor,
-          borderColor: emphasis,
-          borderRadius: theme.relay.radii.md,
-          borderLeftWidth: theme.relay.borders.emphasis,
-          width: bubbleWidth,
+          borderLeftColor: emphasis,
+          borderLeftWidth: borders.emphasis,
+          borderRadius: radii.sm,
+          gap: spacing.sm,
+          opacity: pressed ? interaction.pressedOpacity : 1,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
         },
       ]}
-      onDismiss={() => setVisible(false)}
-      visible={visible}
     >
-      <View
-        accessibilityLiveRegion="polite"
-        accessibilityRole="alert"
-        style={{ gap: theme.relay.spacing.xxs, padding: theme.relay.spacing.md }}
-      >
-        <AppText style={{ color }} variant="caption">
-          {details.label}
+      <View style={[styles.head, { gap: spacing.sm }]}>
+        <Icon color={emphasis} size={sizes.icon.sm} source={details.icon} />
+        <AppText numberOfLines={1} style={[styles.summary, { color }]} variant="caption">
+          {summary}
         </AppText>
-        <AppText style={{ color }}>{children}</AppText>
+        <Icon
+          color={emphasis}
+          size={sizes.icon.sm}
+          source={expanded ? "chevron-up" : "chevron-down"}
+        />
       </View>
-    </Menu>
+      {expanded ? (
+        <AppText accessibilityLiveRegion="polite" style={{ color }} variant="caption">
+          {children}
+        </AppText>
+      ) : null}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  trigger: { margin: 0 },
+  head: { alignItems: "center", flexDirection: "row", width: "100%" },
+  notice: { width: "100%" },
+  summary: { flex: 1 },
 });

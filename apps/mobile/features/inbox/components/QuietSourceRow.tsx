@@ -1,10 +1,9 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { AppText, RelayIcon } from "@/components/ui";
+import { AppText, RelayIcon, TintTile } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import { formatCaptureTime, type InboxAppSummary } from "../models/inboxPresentation";
-import { receiptGlyph } from "../models/receiptPresentation";
 
 /**
  * One quiet source, as a single line.
@@ -39,7 +38,7 @@ export function QuietSourceRow({
         {
           backgroundColor: colors.surface,
           borderColor: colors.borderSubtle,
-          borderRadius: radii.md,
+          borderRadius: radii.lg,
           borderWidth: borders.hairline,
           gap: spacing.md,
           opacity: pressed ? interaction.pressedOpacity : 1,
@@ -47,21 +46,7 @@ export function QuietSourceRow({
         },
       ]}
     >
-      <View
-        style={[
-          styles.glyph,
-          {
-            backgroundColor: colors.surfaceRaised,
-            borderRadius: radii.sm,
-            height: sizes.glyph,
-            width: sizes.glyph,
-          },
-        ]}
-      >
-        <AppText tone="muted" variant="monoGlyph">
-          {receiptGlyph(application.label)}
-        </AppText>
-      </View>
+      <TintTile compact label={application.label} tintKey={application.key} />
 
       <View style={styles.body}>
         <AppText numberOfLines={1} variant="bodyStrong">
@@ -82,6 +67,5 @@ export function QuietSourceRow({
 
 const styles = StyleSheet.create({
   body: { flexShrink: 1, flexGrow: 1 },
-  glyph: { alignItems: "center", justifyContent: "center" },
   row: { alignItems: "center", flexDirection: "row", width: "100%" },
 });

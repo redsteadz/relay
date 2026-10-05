@@ -10,4 +10,12 @@ export {
   sizes,
   themePreferences,
 } from "./tokens";
-export type { RelayColorScheme, RelaySemanticTokens, ThemePreference } from "./tokens";
+export { tintNameFor, tintNames } from "./tokens";
+export type {
+  RelayColorScheme,
+  RelaySemanticTokens,
+  RelayTint,
+  RelayTintName,
+  RelayTints,
+  ThemePreference,
+} from "./tokens";

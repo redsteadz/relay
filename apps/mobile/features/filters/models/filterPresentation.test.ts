@@ -17,6 +17,7 @@ import {
   filterFieldLabel,
   filterPlanSummary,
   filterRevisionHistory,
+  filterRuleSentence,
   filterSaveErrorMessage,
   filterSaveRequest,
   latestFilterRevisions,
@@ -479,5 +480,153 @@ describe("filter category selection", () => {
       version: 3,
     });
     expect(restored.categoryId).toBe("8f4b1c2d-0000-4000-8000-00000000ab01");
+  });
+});
+
+describe("filterRuleSentence", () => {
+  it('states a single predicate as a clause that reads after "if"', () => {
+    expect(filterRuleSentence(revision().plan).condition).toBe("source is sms");
+  });
+
+  it("joins a flat conjunction with and", () => {
+    expect(
+      filterRuleSentence(
+        revision({
+          plan: {
+            compilerVersion: 1,
+            deterministic: {
+              all: [
+                { field: "source.kind", operator: "equals", value: "sms" },
+                { field: "sender", operator: "contains", value: "bank" },
+              ],
+            },
+            intent: "Bank texts",
+            schemaVersion: 1,
+          },
+        }).plan,
+      ).condition,
+    ).toBe("source is sms and sender contains bank");
+  });
+
+  it("joins a flat disjunction with or", () => {
+    expect(
+      filterRuleSentence(
+        revision({
+          plan: {
+            compilerVersion: 1,
+            deterministic: {
+              any: [
+                { field: "sender", operator: "contains", value: "bank" },
+                { field: "sender", operator: "contains", value: "card" },
+              ],
+            },
+            intent: "Money",
+            schemaVersion: 1,
+          },
+        }).plan,
+      ).condition,
+    ).toBe("sender contains bank or sender contains card");
+  });
+
+  it("refuses to flatten nested logic into a misleading sentence", () => {
+    const condition = filterRuleSentence(
+      revision({
+        plan: {
+          compilerVersion: 1,
+          deterministic: {
+            all: [
+              { field: "source.kind", operator: "equals", value: "sms" },
+              {
+                any: [
+                  { field: "sender", operator: "contains", value: "bank" },
+                  { field: "sender", operator: "contains", value: "card" },
+                ],
+              },
+            ],
+          },
+          intent: "Money",
+          schemaVersion: 1,
+        },
+      }).plan,
+    ).condition;
+    expect(condition).toBe("3 checks match");
+  });
+
+  it("says plainly when a rule matches nothing", () => {
+    expect(
+      filterRuleSentence(
+        revision({
+          plan: {
+            compilerVersion: 1,
+            deterministic: { never: true },
+            intent: "Broken",
+            schemaVersion: 1,
+          },
+        }).plan,
+      ).condition,
+    ).toBe("never");
+  });
+
+  it("leads a model-only rule with the clause that decides it", () => {
+    const sentence = filterRuleSentence(
+      revision({
+        plan: {
+          compilerVersion: 1,
+          intent: "Is this spam",
+          schemaVersion: 1,
+          semantic: {
+            allowedFields: ["subject"],
+            minimumConfidence: 0.8,
+            question: "Is this spam?",
+          },
+        },
+      }).plan,
+    );
+    expect(sentence.condition).toBe('a model reads it as "Is this spam?"');
+    expect(sentence.semantic).toBe(
+      "Decided by your configured model, at 80% confidence or better. Nothing is checked on this device.",
+    );
+  });
+
+  it("leaves the semantic clause absent when a rule never reaches a model", () => {
+    expect(filterRuleSentence(revision().plan).semantic).toBeUndefined();
+  });
+
+  it("drops the compiler's boilerplate so the question itself leads", () => {
+    expect(
+      filterRuleSentence(
+        revision({
+          plan: {
+            compilerVersion: 1,
+            intent: "Marketing",
+            schemaVersion: 1,
+            semantic: {
+              allowedFields: ["subject"],
+              minimumConfidence: 0.8,
+              question: "Does this item satisfy: Marketing or promotional material",
+            },
+          },
+        }).plan,
+      ).condition,
+    ).toBe('a model reads it as "Marketing or promotional material"');
+  });
+
+  it("truncates a question long enough to push the outcome off the card", () => {
+    const condition = filterRuleSentence(
+      revision({
+        plan: {
+          compilerVersion: 1,
+          intent: "Long",
+          schemaVersion: 1,
+          semantic: {
+            allowedFields: ["subject"],
+            minimumConfidence: 0.8,
+            question: `Does this item satisfy: ${"a".repeat(200)}`,
+          },
+        },
+      }).plan,
+    ).condition;
+    expect(condition).toContain("…");
+    expect(condition.length).toBeLessThan(100);
   });
 });

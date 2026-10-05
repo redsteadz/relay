@@ -37,6 +37,8 @@ type ReceiptScreenProps = PropsWithChildren<{
    * runtime, so a screen that owns a list opts out and takes the padding on itself.
    */
   scroll?: boolean;
+  /** A count or a state set beside the title, such as how many captures the inbox holds. */
+  pill?: string | undefined;
   /** Pinned below the header and above the scroll: outcome tabs, a filter row, a search field. */
   sticky?: ReactNode;
   title: string;
@@ -55,6 +57,7 @@ export function ReceiptScreen({
   children,
   onBack,
   overlay,
+  pill,
   scroll = true,
   sticky,
   title,
@@ -85,7 +88,7 @@ export function ReceiptScreen({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.keyboard}
       >
-        <ScreenTopBar action={action} onBack={onBack} title={title} />
+        <ScreenTopBar action={action} onBack={onBack} pill={pill} title={title} />
         {sticky}
         {overlay}
         {scroll ? (

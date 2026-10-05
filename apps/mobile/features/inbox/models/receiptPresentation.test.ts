@@ -7,6 +7,8 @@ import {
   receiptDecision,
   receiptFactValue,
   receiptGlyph,
+  receiptLead,
+  receiptSender,
   receiptSourceLine,
   receiptTimeLine,
 } from "./receiptPresentation";
@@ -213,5 +215,81 @@ describe("fact values", () => {
   // A value Relay cannot format is still a value it holds, so it is shown rather than blanked.
   it("falls back to the raw value when an instant cannot be parsed", () => {
     expect(receiptFactValue({ isInstant: true, value: "sometime" }, now)).toBe("sometime");
+  });
+});
+
+describe("receiptSender", () => {
+  it("prefers the sender recorded on the source", () => {
+    expect(receiptSender(item())).toBe("Example Bank");
+  });
+
+  it("falls back to a sender Relay derived, for a notification that carries none", () => {
+    expect(
+      receiptSender(
+        item({
+          evidence: [
+            {
+              certain: true,
+              isInstant: false,
+              key: "sender",
+              kind: "sender",
+              value: "+92 335 2433756",
+            },
+          ],
+          source: { ...item().source, sender: undefined },
+        }),
+      ),
+    ).toBe("+92 335 2433756");
+  });
+
+  it("reads the title as the sender when the body is doing the louder job", () => {
+    expect(
+      receiptSender(
+        item({
+          source: { ...item().source, sender: undefined },
+          summary: "Your package is out for delivery",
+          title: "+92 335 2433756",
+        }),
+      ),
+    ).toBe("+92 335 2433756");
+  });
+
+  it("does not repeat a title that is already the lead line", () => {
+    expect(
+      receiptSender(item({ source: { ...item().source, sender: undefined }, summary: undefined })),
+    ).toBeUndefined();
+  });
+});
+
+describe("receiptLead", () => {
+  it("leads with what the capture said", () => {
+    expect(receiptLead(item({ summary: "Bas procom ki mail chahiye", title: "+92 335" }))).toBe(
+      "Bas procom ki mail chahiye",
+    );
+  });
+
+  it("falls back to the title when this device holds no readable copy", () => {
+    expect(receiptLead(item({ summary: undefined, title: "USD 14.20 transaction" }))).toBe(
+      "USD 14.20 transaction",
+    );
+  });
+});
+
+describe("listEvidence with values already on screen", () => {
+  it("drops a fact whose value the row has already stated", () => {
+    const evidence: readonly InboxEvidence[] = [
+      { certain: true, isInstant: false, key: "sender", kind: "sender", value: "Example Bank" },
+      { certain: true, isInstant: false, key: "amount", kind: "amount", value: "USD 14.20" },
+    ];
+    expect(listEvidence(evidence, ["Example Bank"]).map((fact) => fact.value)).toEqual([
+      "USD 14.20",
+    ]);
+  });
+
+  it("keeps everything when nothing has been shown", () => {
+    const evidence: readonly InboxEvidence[] = [
+      { certain: true, isInstant: false, key: "amount", kind: "amount", value: "USD 14.20" },
+    ];
+    expect(listEvidence(evidence)).toHaveLength(1);
   });
 });

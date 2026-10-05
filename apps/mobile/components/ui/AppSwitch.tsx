@@ -55,7 +55,9 @@ export function AppSwitch({
             },
           ]}
         >
-          <Switch value={value} />
+          {/* The accent, so an enabled rule reads as on at a glance. Paper's default takes the
+              theme's `primary`, which Relay maps to a near-white neutral for contained buttons. */}
+          <Switch color={theme.relay.colors.accent} value={value} />
         </View>
       </View>
     </TouchableRipple>
