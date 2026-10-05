@@ -1,12 +1,15 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-09-06
+last_verified: 2026-10-05
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
   - https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_SECURE
   - https://support.google.com/googleplay/android-developer/answer/10208820
+  - https://developer.android.com/reference/android/service/notification/NotificationListenerService
+  - https://developer.android.com/reference/android/provider/Settings#ACTION_APP_NOTIFICATION_SETTINGS
+  - https://docs.expo.dev/versions/latest/sdk/background-task/
 ---
 
 # Android Notifications And SMS
@@ -18,6 +21,9 @@ sideload APK and Continuous Native Generation.
 access. Capture must support app allowlists, field minimization, encrypted offline queue, server
 acknowledgement, and explicit revocation. Source cancellation is irreversible from Relay's point of
 view and follows the stronger gates in [action model](../architecture/action-model.md).
+
+Relay cannot stop a notification ringing; it can only clear one that has already rung. See
+[Acting On A Notification](#acting-on-a-notification).
 
 Relay skips a notification carrying `FLAG_GROUP_SUMMARY`. A grouped app must post a summary beside
 its children; that summary only aggregates content the children already carry and is rewritten
@@ -71,10 +77,111 @@ tenant. A device item is deleted only when `/api/ingest` returns `202` with a va
 revocation delete the Keystore key before deleting tenant rows, so an interrupted clear cannot leave
 decryptable source data.
 
+Capture survives a closed app; delivery used to not. The listener is bound by the system, so the
+encrypted queue fills whether or not Relay is running, but `syncDeviceCaptures` ran only on mount and
+on `AppState` becoming `active`. A capture therefore waited for the reader to open Relay, and the
+queue expires items seven days after capture, so a reader who did not open the app for a week lost
+them silently. Delivery now also runs from a WorkManager-backed headless JavaScript task
+(`expo-background-task`) calling the same `syncDeviceCaptures`, so there is one upload path with two
+triggers. It is opt-in, described on the Sources screen, and unregistered rather than short-circuited
+when switched off. WorkManager's floor is a fifteen-minute inexact interval and Doze stretches it
+further, so the promise is delivery without opening the app, never immediate delivery. A background
+run with no session records that and stops rather than retrying. Relay requests no battery-optimization
+exemption and runs no foreground service. See
+[ADR-0018](../decisions/0018-background-capture-delivery.md).
+
 `READ_SMS` and `RECEIVE_SMS` are sensitive Google Play permissions. Google documents possible
 exceptions for device automation and SMS-based money management, subject to review. MVP therefore
 uses sideload distribution and prominent consent. Non-SMS builds remain an architectural
 requirement for later Play distribution.
+
+## Acting On A Notification
+
+**Relay cannot stop a notification making a sound, and no permission a user can grant will change
+that.** `onNotificationPosted` is delivered after the system has ranked, posted and alerted, so by
+the time Relay sees a notification the phone has already rung. The listener's entire mutation surface
+is `cancelNotification`, `snoozeNotification`, `cancelAllNotifications`, `setNotificationsShown` and
+`requestInterruptionFilter`: remove it, hide it for a while, remove everything, mark it seen, or
+change device-wide Do Not Disturb. None of those is per-notification and pre-alert.
+
+The pre-posting hook, `NotificationAssistantService.onNotificationEnqueued` returning an `Adjustment`
+with `KEY_IMPORTANCE`, is `@SystemApi`. Neither class is in the public `android.jar` an app compiles
+against — verified against `android-36`, whose `android/service/notification/` package contains
+`NotificationListenerService`, `StatusBarNotification`, `ConditionProviderService`, `ZenPolicy` and
+`Condition`, and neither of the two a pre-posting adjustment needs. A sideloaded app cannot implement
+one.
+
+So an authorized rule does one of two things, both after the fact:
+
+| Action    | Call                          | Effect                                               | Reversible |
+| --------- | ----------------------------- | ---------------------------------------------------- | ---------- |
+| `snooze`  | `snoozeNotification(key, 2h)` | Removed from the shade; Android brings it back later | Yes        |
+| `dismiss` | `cancelNotification(key)`     | Cancelled; nothing brings it back                    | No         |
+
+`snooze` is what a newly reviewed rule gets, because a rule just out of its observation window is the
+one most likely to still be wrong and a two-hour delay is recoverable where a cancellation is not.
+The first matching rule decides, in snapshot order, whatever its action — one verdict per
+notification, mirroring how one rule claims a capture.
+
+Where Relay cannot act, it hands over the control that can. The quiet screen lists the applications
+the tenant's own rules name and opens each one's Android notification settings
+(`ACTION_APP_NOTIFICATION_SETTINGS`), which is the only thing on the device that stops the sound.
+
+Which of the two a rule does is chosen when its dry run starts, as two separate controls rather than
+one with a default: the choice between reversible and not is the whole decision. Changing it restarts
+the window.
+
+**Authorization lives beside the revision, not on it.** A filter revision is immutable --
+`filter_rules_enforce_immutability` refuses every update to `filter_rules` -- so the original
+`dismiss_source_notification` and `dismissal_dry_run_completed_at` columns could never have been
+written after insert, which is the likeliest reason nothing ever read them. They are dropped.
+`notification_dismissal_authorizations`, keyed by `(user_id, filter_rule_id)`, holds the action, the
+window, the evidence and `authorized_at`, the same way `hidden_inbox_events` sits beside
+`relay_events`. Keying it to a revision rather than a series makes withdrawal on edit automatic.
+
+**Authorization is the database's; the device holds a cache.** A rule may act only when
+`authorized_at` is set, and the only writers are `start_notification_dismissal_dry_run_v1`,
+`complete_notification_dismissal_dry_run_v1` and `set_notification_dismissal_v1`. They validate the
+deterministic plan, the absence of a semantic clause, and an explicit `source.applicationId`
+predicate that every satisfying assignment of the expression passes through; they measure the dry-run
+window on the server clock between two calls; and each writes `audit_log` in the same statement. The
+app writes the resulting snapshot natively with a monotonic revision, so a sync that loses a race
+cannot reinstate withdrawn authorization.
+
+**What the device may evaluate is narrower than what a rule may say.** The decision runs in a
+system-bound process with the app dead, holding a `StatusBarNotification` and nothing else, so
+`compileNotificationSilenceRule` flattens a plan into a bounded disjunction of literal tests over
+`source.applicationId`, `source.kind` and `subject` — the fields reliably present at that moment. It
+refuses negation, `sender`, `body`, `category`, `attributes.*`, and anything exceeding 16 clauses or
+16 tests per clause, each with a reason the UI states. Text comparison mirrors `evaluateFilterPlan`
+exactly — NFKC, collapse the JavaScript `\s` class, trim, lowercase `en-US` — and both suites assert
+the same vectors. A rule can be authorized server-side and still refused here; that is reported
+rather than hidden.
+
+Scope is the capture allowlist intersected with the applications a rule names. A notification no rule
+names is never evaluated and never recorded, so the ledger cannot become a log of every app a person
+uses.
+
+The dry-run ledger is device-local, plaintext and content-free: application id, rule id, capture
+identity, verdict, time. No title, no text, no sender, and it is never uploaded. It is bounded to
+1000 rows and thirty days, oldest dropped first, and keyed by the capture identity the same function
+derives for the capture — which is what makes an outcome reviewable against an item a person
+recognises. The verdict is written **before** the notification is touched: afterwards the row is the
+only remaining evidence, so a crash between the two leaves a record of an act that did not happen
+rather than an act with no record.
+
+Three stops, all immediate. A tenant-wide kill switch stored apart from the snapshot so engaging it
+is one preference write that waits on nothing; a per-application pause; and revoking listener access,
+which unbinds the service. A matched rule that is not acted on is recorded as `declined`, so a stop
+is distinguishable from the rule having stopped matching. Editing a rule writes a new revision with
+authorization withdrawn, because the evidence a person reviewed was evidence about the rule as it was
+written then.
+
+Hiding an inbox row (`hidden_inbox_events`) is none of this. It removes a row from Relay's own inbox
+and never touches the device. `features/inbox/models/dismissalBoundary.test.ts` asserts structurally
+that no inbox surface can reach the cancel or snooze capability, and that nothing in the module
+reaches for the pre-posting hook, so neither can be acquired by accident. See
+[ADR-0017](../decisions/0017-notification-dismissal-after-posting.md).
 
 ## Sideload SMS Capture
 

@@ -22,6 +22,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FeedbackState, LoadingState } from "@/components/ui";
 import { SubscriptionProvider } from "@/features/subscription/context/subscription-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { restoreBackgroundSyncRegistration } from "@/lib/background-capture-sync";
 import {
   canEnterApp,
   canEnterSignIn,
@@ -142,6 +143,7 @@ function AuthenticatedStack() {
           <Stack.Screen name="demo" />
           <Stack.Screen name="disclosures" />
           <Stack.Screen name="your-data" />
+          <Stack.Screen name="quiet" />
         </Stack.Protected>
         <Stack.Protected guard={introduced && canEnterSignIn(session !== null)}>
           <Stack.Screen name="sign-in" />
@@ -166,6 +168,18 @@ function DeviceCaptureSync() {
         operation: "syncDeviceCaptures",
       });
     sync();
+    // The scheduled work and the stored preference can fall out of step -- a reinstall, a restore to
+    // a new device, or a system that dropped the job -- so the choice a person last made is
+    // re-applied on launch rather than assumed to still be in force.
+    runInBackground(
+      restoreBackgroundSyncRegistration(),
+      "background.capture_sync_registration_failed",
+      {
+        code: "BACKGROUND_CAPTURE_SYNC_REGISTRATION_FAILED",
+        integration: "relay-device-ingress",
+        operation: "restoreBackgroundSyncRegistration",
+      },
+    );
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") sync();
     });

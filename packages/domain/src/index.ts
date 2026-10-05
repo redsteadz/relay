@@ -10,6 +10,7 @@ export * from "./facts.js";
 export * from "./field-access.js";
 export * from "./filter-compiler.js";
 export * from "./filter-evaluator.js";
+export * from "./notification-silence.js";
 export * from "./semantic-disclosure.js";
 export * from "./semantic-endpoint.js";
 export * from "./text-facts.js";

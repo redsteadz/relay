@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-09-04
+last_verified: 2026-10-05
 ---
 
 # Issue Dependency Map
@@ -77,6 +77,19 @@ entry points and cross-milestone flow without copying issue prose.
 - [#155 Remove fabricated screen data](https://github.com/redsteadz/relay/issues/155)
 - [#156 Navigation drawer](https://github.com/redsteadz/relay/issues/156)
 - [#158 Notification dismissal in the reworked surfaces](https://github.com/redsteadz/relay/issues/158)
+
+## Quiet And Delivery
+
+Acting on a notification spans three milestones, so its entry points are listed together rather
+than split across them. [ADR-0017](../decisions/0017-notification-dismissal-after-posting.md) is the
+authority on the mechanism -- including why Relay clears a notification rather than silencing one --
+and [ADR-0018](../decisions/0018-background-capture-delivery.md) on delivery.
+
+- [#38 Notification-dismissal dry run](https://github.com/redsteadz/relay/issues/38) owns the gates.
+- [#158 Dismissal across the reworked surfaces](https://github.com/redsteadz/relay/issues/158) owns
+  delivering them in the M6 interface and proving no surface routes around them.
+- [#182 Captures wait for the app to be opened](https://github.com/redsteadz/relay/issues/182) owns
+  background delivery.
 
 Primary flow:
 

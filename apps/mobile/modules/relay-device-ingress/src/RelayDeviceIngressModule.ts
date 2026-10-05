@@ -1,9 +1,15 @@
 import { requireOptionalNativeModule } from "expo";
 
+import type { NotificationSilenceMode } from "@relay/contracts";
+
 export type NativeDeviceCapabilities = {
   notificationAllowedPackages: string[];
   notificationCapturePaused: boolean;
   notificationListener: boolean;
+  notificationSilenceKillSwitch: boolean;
+  notificationSilenceMode: NotificationSilenceMode;
+  notificationSilenceRevision: number;
+  notificationSilenceRuleCount: number;
   smsAllowedSenders: string[];
   smsAvailable: boolean;
   smsCapturePaused: boolean;
@@ -38,6 +44,15 @@ export type SmsCapturePreview = {
 export type SmsSenderChoice = {
   label: string;
   sender: string;
+};
+
+/** One content-free verdict from the device's own silencing ledger. */
+export type NativeSilenceOutcome = {
+  applicationId: string;
+  decidedAt: number;
+  decision: string;
+  envelopeId: string;
+  filterRuleId?: string;
 };
 
 type RelayDeviceIngressNativeModule = {
@@ -101,6 +116,29 @@ type RelayDeviceIngressNativeModule = {
     envelopeIds: string[],
     generation: number,
   ): Promise<Record<string, string>>;
+  openApplicationNotificationSettings(packageName: string): Promise<void>;
+  configureNotificationSilence(
+    tenantId: string,
+    snapshotJson: string,
+    revision: number,
+    generation: number,
+  ): Promise<void>;
+  setNotificationSilenceKillSwitch(
+    tenantId: string,
+    engaged: boolean,
+    generation: number,
+  ): Promise<void>;
+  getNotificationSilenceOutcomes(
+    tenantId: string,
+    limit: number,
+    generation: number,
+  ): Promise<NativeSilenceOutcome[]>;
+  getNotificationSilenceCounts(
+    tenantId: string,
+    filterRuleId: string,
+    since: number,
+    generation: number,
+  ): Promise<{ matched: number; observed: number }>;
 };
 
 export default requireOptionalNativeModule<RelayDeviceIngressNativeModule>("RelayDeviceIngress");

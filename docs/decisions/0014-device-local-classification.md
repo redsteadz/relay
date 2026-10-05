@@ -63,7 +63,9 @@ there.
   code yet; it is recorded here and in `docs/architecture/action-model.md`, and a blocking issue
   names this ADR and the dispatch path.
 - Filing happens when the inbox is opened. There is no background JavaScript runtime in the app, so a
-  capture that arrives while the app is closed is filed on the next open.
+  capture that arrives while the app is closed is filed on the next open. **Amended by
+  [ADR-0018](0018-background-capture-delivery.md):** a WorkManager-backed headless task now runs the
+  derivation pass and the upload while the app is closed, within the platform's latency.
 - Two devices can file the same capture. Supersession plus the partial unique index makes that
   last-writer-wins with history intact.
 - A modified client can write any category for its own captures. It is the user's own tenant, and

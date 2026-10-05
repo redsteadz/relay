@@ -3,6 +3,16 @@ package com.redsteadz.relaydeviceingress
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
+/**
+ * How long a snoozed notification stays away before Android brings it back.
+ *
+ * Two hours: long enough that a batch of matching notifications stops interrupting an afternoon,
+ * short enough that nothing is effectively lost if the rule was wrong. A snooze is the reversible
+ * half of the capability, so its duration is chosen to keep it reversible in practice and not only
+ * in principle.
+ */
+private const val SNOOZE_DURATION_MS = 2L * 60 * 60 * 1000
+
 class RelayNotificationListenerService : NotificationListenerService() {
   override fun onListenerConnected() {
     NotificationDebugDiagnostics.event("listener connected")
@@ -26,6 +36,79 @@ class RelayNotificationListenerService : NotificationListenerService() {
       } catch (error: RuntimeException) {
         NotificationDebugDiagnostics.failure("capture enqueue threw an exception", error)
       }
+      // After the capture, always. Clearing a notification Relay failed to record would destroy the
+      // only copy of something the reader asked it to keep.
+      actIfAuthorized(configuration, notification)
+    }
+  }
+
+  /**
+   * Clears a notification a rule was authorized to clear, and nothing else.
+   *
+   * **This cannot stop a sound, and nothing a sideloaded app can do will.** Android ranks, posts and
+   * alerts a notification before any listener is told it exists, so by the time this runs the phone
+   * has already made its noise. The only hook that runs earlier is `NotificationAssistantService`,
+   * which is `@SystemApi` -- absent from the public SDK and available to privileged system apps
+   * only. So Relay clears a notification after the fact, and the quiet controls say so plainly and
+   * point a person at Android's own per-app notification settings for the part Relay cannot do. See
+   * [ADR-0017](../../../../../../../../docs/decisions/0017-notification-dismissal-after-posting.md).
+   *
+   * Snoozing is offered alongside cancelling because it is the reversible one: Android brings a
+   * snoozed notification back, so a rule that turns out to be wrong costs a delay rather than a
+   * message.
+   *
+   * Ordering is the part that matters most. The outcome is recorded before the notification is
+   * touched, because afterwards this ledger is the only remaining evidence that Relay did it, and a
+   * crash between the two must leave a record of an act that did not happen rather than an act with
+   * no record.
+   */
+  private fun actIfAuthorized(
+    configuration: NotificationCaptureConfiguration,
+    notification: StatusBarNotification
+  ) {
+    try {
+      val settings = NotificationSilenceSettings(applicationContext)
+      val snapshot = settings.read(configuration.tenantId)
+      if (snapshot.mode == "off") return
+
+      val visible = NotificationEnvelopeFactory.view(notification.notification)
+      val outcome = NotificationSilencePolicy.decide(
+        snapshot,
+        notification.packageName,
+        "notification",
+        visible.subject
+      )
+      if (outcome.decision == SilenceDecision.IGNORED) return
+
+      val envelopeId = NotificationEnvelopeFactory.envelopeId(
+        notification.packageName,
+        notification.key,
+        visible.subject,
+        visible.body,
+        visible.sender
+      )
+      CaptureQueueStore(applicationContext).use { queue ->
+        queue.recordSilenceOutcome(
+          configuration.tenantId,
+          envelopeId,
+          notification.packageName,
+          outcome.filterRuleId,
+          outcome.decision.wireName(),
+          System.currentTimeMillis()
+        )
+      }
+      NotificationDebugDiagnostics.event("quiet decision=${outcome.decision.wireName()}")
+
+      // Only this notification's own key. Never `cancelAllNotifications`, and never a key derived
+      // from anything but the notification that was just decided about.
+      when (outcome.decision) {
+        SilenceDecision.DISMISS -> cancelNotification(notification.key)
+        SilenceDecision.SNOOZE -> snoozeNotification(notification.key, SNOOZE_DURATION_MS)
+        else -> Unit
+      }
+    } catch (error: RuntimeException) {
+      // A failure leaves the notification where it is, which is the safe direction.
+      NotificationDebugDiagnostics.failure("quiet decision threw an exception", error)
     }
   }
 

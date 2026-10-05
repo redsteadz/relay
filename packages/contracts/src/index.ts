@@ -1666,3 +1666,191 @@ export const healthResponseSchema = z.object({
   status: z.literal("ok"),
   version: z.string(),
 });
+
+// Notification silencing ---------------------------------------------------------------------------
+
+/**
+ * The fields the listener can read when it decides whether to clear a notification.
+ *
+ * Deliberately a fraction of `filterFieldSchema`. The decision is made in a system-bound process
+ * with the app dead, holding a `StatusBarNotification` and nothing else -- no session, no derived
+ * facts, no classification, and no Gmail body. `category` and `attributes.*` do not exist yet at
+ * that moment, and `category` is a classification besides, which can never authorize an irreversible
+ * act. `sender` and `body` are excluded because they are present only sometimes -- `sender` only
+ * when an app used `MessagingStyle` -- and a predicate whose field may silently be absent is a
+ * predicate that stops narrowing.
+ *
+ * See [ADR-0017](../../../docs/decisions/0017-notification-dismissal-after-posting.md).
+ */
+export const notificationSilenceFieldSchema = z.enum([
+  "source.applicationId",
+  "source.kind",
+  "subject",
+]);
+export type NotificationSilenceField = z.infer<typeof notificationSilenceFieldSchema>;
+
+export const notificationSilenceOperatorSchema = z.enum([
+  "equals",
+  "contains",
+  "starts-with",
+  "in",
+  "exists",
+]);
+export type NotificationSilenceOperator = z.infer<typeof notificationSilenceOperatorSchema>;
+
+/**
+ * One literal comparison, already flattened out of the filter expression it came from.
+ *
+ * `values` holds one entry for the single-value operators and up to the contract's `in` bound for
+ * `in`; `exists` carries none. Keeping the shape uniform is what lets the Kotlin evaluator stay a
+ * loop over tests rather than a second expression interpreter.
+ */
+export const notificationSilenceTestSchema = z
+  .object({
+    field: notificationSilenceFieldSchema,
+    operator: notificationSilenceOperatorSchema,
+    values: z.array(z.string().min(1).max(1024)).max(32),
+  })
+  .strict()
+  .superRefine((test, context) => {
+    const expected = test.operator === "exists" ? 0 : test.operator === "in" ? -1 : 1;
+    if (expected === 0 && test.values.length !== 0) {
+      context.addIssue({ code: "custom", message: "An exists test carries no values" });
+    }
+    if (expected === 1 && test.values.length !== 1) {
+      context.addIssue({ code: "custom", message: "This operator takes exactly one value" });
+    }
+    if (expected === -1 && test.values.length === 0) {
+      context.addIssue({ code: "custom", message: "An in test needs at least one value" });
+    }
+  });
+export type NotificationSilenceTest = z.infer<typeof notificationSilenceTestSchema>;
+
+/**
+ * A conjunction every one of whose tests must pass.
+ *
+ * At least one test must *name* an application with `equals` or `in`. A clause that only describes
+ * one -- `contains "courier"` -- would let an unrelated app satisfy it, and #38's first criterion is
+ * that a rule naming no application cannot act on a notification. The database routine enforces the
+ * same thing against the stored plan; this enforces it against what actually reaches the device.
+ */
+export const notificationSilenceClauseSchema = z
+  .object({ tests: z.array(notificationSilenceTestSchema).min(1).max(16) })
+  .strict()
+  .refine(
+    (clause) =>
+      clause.tests.some(
+        (test) =>
+          test.field === "source.applicationId" &&
+          (test.operator === "equals" || test.operator === "in"),
+      ),
+    { message: "A silence clause must name an application" },
+  );
+export type NotificationSilenceClause = z.infer<typeof notificationSilenceClauseSchema>;
+
+/**
+ * What a rule is authorized to do.
+ *
+ * Both happen after Android has posted and alerted, because that is the only point a listener is
+ * given. Neither can stop a sound: the pre-posting hook is `@SystemApi` and unavailable to a
+ * sideloaded app.
+ *
+ * `snooze` removes the notification and Android brings it back later, so a rule that turns out to be
+ * wrong costs a delay. `dismiss` cancels it and nothing brings it back, which is why it carries the
+ * heavier gates.
+ */
+export const notificationSilenceActionSchema = z.enum(["snooze", "dismiss"]);
+export type NotificationSilenceAction = z.infer<typeof notificationSilenceActionSchema>;
+
+export const notificationSilenceRuleSchema = z
+  .object({
+    action: notificationSilenceActionSchema,
+    clauses: z.array(notificationSilenceClauseSchema).min(1).max(16),
+    filterRuleId: canonicalUuidSchema,
+    /**
+     * Whether this rule is still being observed rather than acted on.
+     *
+     * Per rule rather than per snapshot, because a tenant reaches the end of one rule's dry run
+     * while another has just started. A single mode across the snapshot would have forced the
+     * observing rule to act or the authorized one to wait.
+     */
+    observing: z.boolean(),
+  })
+  .strict();
+export type NotificationSilenceRule = z.infer<typeof notificationSilenceRuleSchema>;
+
+/**
+ * The snapshot's overall state, for reporting and for one short-circuit.
+ *
+ * `off` is the only value the listener reads as an instruction: it means stop before evaluating
+ * anything. `dry-run` and `enforcing` describe what the rules collectively are doing, and each
+ * rule's own `observing` flag is what decides whether it acts. `dry-run` means every authorized rule
+ * is still being observed and nothing can change a notification.
+ */
+export const notificationSilenceModeSchema = z.enum(["off", "dry-run", "enforcing"]);
+export type NotificationSilenceMode = z.infer<typeof notificationSilenceModeSchema>;
+
+/**
+ * Everything the native services are allowed to act on, written by the app after the database said
+ * so.
+ *
+ * Carries no notification content, no credential, and no tenant identifier beyond the one the
+ * module already holds -- rule ids and the literal predicate values the tenant typed. `revision`
+ * is monotonic so a snapshot write that loses a race with a newer one is ignored rather than
+ * reinstating authorization the tenant has since withdrawn.
+ *
+ * Read by `RelayNotificationListenerService`, which runs with the app dead and has no caller to
+ * reject a bad snapshot back to, so it is validated again natively on every read.
+ */
+export const notificationSilenceSnapshotSchema = z
+  .object({
+    disabledPackages: z.array(z.string().min(1).max(256)).max(256),
+    killSwitchEngaged: z.boolean(),
+    mode: notificationSilenceModeSchema,
+    revision: z.int().min(0),
+    rules: z.array(notificationSilenceRuleSchema).max(32),
+  })
+  .strict();
+export type NotificationSilenceSnapshot = z.infer<typeof notificationSilenceSnapshotSchema>;
+
+/**
+ * What the device decided about one notification.
+ *
+ * `would-*` are dry-run observations and mean nothing happened. `declined` records that a rule
+ * matched and the device deliberately did not act -- kill switch engaged, the app disabled
+ * individually, or the capability withdrawn between the match and the act -- which is the outcome
+ * that would otherwise be indistinguishable from the rule never matching.
+ *
+ * `envelopeId` is the capture's own identity, derived by the same function that builds the capture,
+ * so a dry-run outcome is reviewable against an item a person recognises rather than an abstract log
+ * line.
+ */
+export const notificationSilenceDecisionSchema = z.enum([
+  "declined",
+  "dismissed",
+  "no-match",
+  "snoozed",
+  "would-dismiss",
+  "would-snooze",
+]);
+export type NotificationSilenceDecision = z.infer<typeof notificationSilenceDecisionSchema>;
+
+export const notificationSilenceOutcomeSchema = z
+  .object({
+    applicationId: z.string().min(1).max(256),
+    decidedAt: z.iso.datetime({ offset: true }),
+    decision: notificationSilenceDecisionSchema,
+    envelopeId: canonicalUuidSchema,
+    filterRuleId: canonicalUuidSchema.optional(),
+  })
+  .strict()
+  .refine((outcome) => outcome.decision === "no-match" || outcome.filterRuleId !== undefined, {
+    message: "Every decision but no-match names the rule that produced it",
+  });
+export type NotificationSilenceOutcome = z.infer<typeof notificationSilenceOutcomeSchema>;
+
+/** The tenant-wide stop, as the API reports it. */
+export const notificationDismissalSettingsSchema = z
+  .object({ killSwitchEngaged: z.boolean(), updatedAt: z.iso.datetime({ offset: true }) })
+  .strict();
+export type NotificationDismissalSettings = z.infer<typeof notificationDismissalSettingsSchema>;

@@ -21,8 +21,19 @@ internal const val CAPTURE_CONTENT_MAX_BYTES = 4 * 1024 * 1024
 internal const val CAPTURE_MAX_BYTES = 2 * 1024 * 1024
 internal const val CAPTURE_MAX_ITEMS = 500
 
+/**
+ * How much of its own silencing history the device keeps.
+ *
+ * The dry-run review in #38 is done against this, so it has to outlive the observation window with
+ * room to spare. It is bounded by count and age like every other device-local store, oldest dropped
+ * first, so a long-running tenant degrades by forgetting old decisions rather than by refusing to
+ * record new ones.
+ */
+internal const val SILENCE_OUTCOME_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000
+internal const val SILENCE_OUTCOME_MAX_ITEMS = 1000
+
 internal class CaptureQueueStore(context: Context) :
-  SQLiteOpenHelper(context, "relay-capture.db", null, 3) {
+  SQLiteOpenHelper(context, "relay-capture.db", null, 4) {
   private val crypto = CaptureQueueCrypto()
 
   override fun onCreate(db: SQLiteDatabase) {
@@ -43,6 +54,38 @@ internal class CaptureQueueStore(context: Context) :
     """.trimIndent())
     db.execSQL("CREATE INDEX capture_ready ON capture_queue(tenant_id, state, captured_at)")
     createContentTable(db)
+    createSilenceOutcomeTable(db)
+  }
+
+  /**
+   * What Relay decided about notifications from applications its rules name.
+   *
+   * Not encrypted, and deliberately holds nothing that would need to be. A row is an application id,
+   * a rule id, a capture identity, and a verdict -- no title, no text, no sender. The application
+   * allowlist it is scoped to is already stored in plaintext preferences, so this adds no category of
+   * data to the device that was not already there, and the ledger is never uploaded.
+   *
+   * Keyed by capture identity, derived by the same function that builds the capture, so a verdict
+   * can be reviewed against an item a person recognises. A re-decision of one notification replaces
+   * its row; an edited notification has a different identity and becomes its own observation,
+   * exactly as it does in the queue.
+   */
+  private fun createSilenceOutcomeTable(db: SQLiteDatabase) {
+    db.execSQL("""
+      CREATE TABLE IF NOT EXISTS silence_outcome (
+        tenant_id TEXT NOT NULL,
+        envelope_id TEXT NOT NULL,
+        application_id TEXT NOT NULL,
+        filter_rule_id TEXT,
+        decision TEXT NOT NULL,
+        decided_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        PRIMARY KEY (tenant_id, envelope_id)
+      )
+    """.trimIndent())
+    db.execSQL(
+      "CREATE INDEX IF NOT EXISTS silence_outcome_recent ON silence_outcome(tenant_id, decided_at DESC)"
+    )
   }
 
   private fun createContentTable(db: SQLiteDatabase) {
@@ -66,6 +109,102 @@ internal class CaptureQueueStore(context: Context) :
       db.execSQL("ALTER TABLE capture_queue ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'notification'")
     }
     if (oldVersion < 3) createContentTable(db)
+    if (oldVersion < 4) createSilenceOutcomeTable(db)
+  }
+
+  /**
+   * Records one decision about one notification.
+   *
+   * Written before the notification is acted on, never after. Once a notification is cancelled this
+   * row is the only remaining evidence that anything happened to it, so a crash between the two must
+   * leave a record of an act that did not happen rather than an act with no record.
+   */
+  fun recordSilenceOutcome(
+    tenantId: String,
+    envelopeId: String,
+    applicationId: String,
+    filterRuleId: String?,
+    decision: String,
+    decidedAt: Long
+  ) {
+    writableDatabase.beginTransaction()
+    try {
+      expireSilenceOutcomes(writableDatabase, decidedAt)
+      trimSilenceOutcomes(writableDatabase, tenantId)
+      val values = ContentValues().apply {
+        put("tenant_id", tenantId); put("envelope_id", envelopeId)
+        put("application_id", applicationId)
+        put("filter_rule_id", filterRuleId)
+        put("decision", decision)
+        put("decided_at", decidedAt)
+        put("expires_at", decidedAt + SILENCE_OUTCOME_MAX_AGE_MS)
+      }
+      writableDatabase.insertWithOnConflict(
+        "silence_outcome", null, values, SQLiteDatabase.CONFLICT_REPLACE
+      )
+      writableDatabase.setTransactionSuccessful()
+    } finally {
+      writableDatabase.endTransaction()
+    }
+  }
+
+  /** The decisions a person reviews, newest first. */
+  fun silenceOutcomes(tenantId: String, limit: Int): List<Map<String, Any>> {
+    expireSilenceOutcomes(writableDatabase, System.currentTimeMillis())
+    val bounded = limit.coerceIn(1, SILENCE_OUTCOME_MAX_ITEMS)
+    val result = mutableListOf<Map<String, Any>>()
+    readableDatabase.query(
+      "silence_outcome",
+      arrayOf("envelope_id", "application_id", "filter_rule_id", "decision", "decided_at"),
+      "tenant_id=?", arrayOf(tenantId), null, null, "decided_at DESC", bounded.toString()
+    ).use { cursor ->
+      while (cursor.moveToNext()) {
+        val row = mutableMapOf<String, Any>(
+          "envelopeId" to cursor.getString(0),
+          "applicationId" to cursor.getString(1),
+          "decision" to cursor.getString(3),
+          "decidedAt" to cursor.getLong(4)
+        )
+        if (!cursor.isNull(2)) row["filterRuleId"] = cursor.getString(2)
+        result += row
+      }
+    }
+    return result
+  }
+
+  /**
+   * How much one rule was observed deciding, which is the evidence the enable transition records.
+   *
+   * `observed` counts every notification from an application the rule names, matched or not, because
+   * a window in which a rule matched nothing is as informative as one in which it matched
+   * everything. `matched` counts only the decisions the rule produced.
+   */
+  fun silenceOutcomeCounts(tenantId: String, filterRuleId: String, since: Long): Map<String, Any> {
+    val observed = readableDatabase.rawQuery(
+      "SELECT COUNT(*) FROM silence_outcome WHERE tenant_id=? AND decided_at>=?",
+      arrayOf(tenantId, since.toString())
+    ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+    val matched = readableDatabase.rawQuery(
+      "SELECT COUNT(*) FROM silence_outcome WHERE tenant_id=? AND decided_at>=? AND filter_rule_id=?",
+      arrayOf(tenantId, since.toString(), filterRuleId)
+    ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+    return mapOf("observed" to observed, "matched" to matched)
+  }
+
+  private fun expireSilenceOutcomes(db: SQLiteDatabase, now: Long) {
+    db.delete("silence_outcome", "expires_at<=?", arrayOf(now.toString()))
+  }
+
+  private fun trimSilenceOutcomes(db: SQLiteDatabase, tenantId: String) {
+    val count = db.rawQuery(
+      "SELECT COUNT(*) FROM silence_outcome WHERE tenant_id=?", arrayOf(tenantId)
+    ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+    if (count < SILENCE_OUTCOME_MAX_ITEMS) return
+    db.delete(
+      "silence_outcome",
+      "rowid IN (SELECT rowid FROM silence_outcome WHERE tenant_id=? ORDER BY decided_at ASC LIMIT ?)",
+      arrayOf(tenantId, (count - SILENCE_OUTCOME_MAX_ITEMS + 1).toString())
+    )
   }
 
   /**
@@ -310,5 +449,6 @@ internal class CaptureQueueStore(context: Context) :
     crypto.deleteKey(tenantId)
     writableDatabase.delete("capture_queue", "tenant_id=?", arrayOf(tenantId))
     writableDatabase.delete("capture_content", "tenant_id=?", arrayOf(tenantId))
+    writableDatabase.delete("silence_outcome", "tenant_id=?", arrayOf(tenantId))
   }
 }
