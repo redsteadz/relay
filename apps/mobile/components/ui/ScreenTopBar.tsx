@@ -118,7 +118,10 @@ export function TopBarIconButton({
 }
 
 const styles = StyleSheet.create({
-  action: { flex: 0 },
+  // `flexShrink: 0`, not `flex: 0`. Native reads `flex: 0` as "size to content", but
+  // react-native-web compiles it to a zero flex-basis, which collapsed this slot to no width and
+  // pushed every header action off the right edge of a phone-sized viewport.
+  action: { flexShrink: 0 },
   header: { width: "100%" },
   iconButton: { alignItems: "center", justifyContent: "center" },
   pill: { flexShrink: 0 },
