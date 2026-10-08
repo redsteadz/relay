@@ -1854,3 +1854,34 @@ export const notificationDismissalSettingsSchema = z
   .object({ killSwitchEngaged: z.boolean(), updatedAt: z.iso.datetime({ offset: true }) })
   .strict();
 export type NotificationDismissalSettings = z.infer<typeof notificationDismissalSettingsSchema>;
+
+/**
+ * An OpenAI-compatible endpoint the reader configured on their own device.
+ *
+ * Distinct from the server's BYOK connection on purpose. The API stores that credential encrypted
+ * and never returns it, which is correct and unchanged; this one lives in the device's Keystore-backed
+ * secure store and is never uploaded. A reader may configure both, and neither learns the other's
+ * key. See [ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md).
+ */
+export const deviceSemanticConfigSchema = z
+  .object({
+    /**
+     * Optional, because the common local case has no credential at all: Ollama and llama.cpp accept
+     * requests on a LAN address without one. Requiring a key here would have meant inventing a
+     * placeholder for the configuration this exists to support.
+     */
+    apiKey: openAiApiKeySchema.optional(),
+    baseUrl: z.string().min(1).max(2048),
+    model: semanticModelSchema,
+    /**
+     * Defaults to `json-object` rather than the server's `json-schema`.
+     *
+     * Locally hosted servers widely implement the older `{"type":"json_object"}` form and widely do
+     * not implement OpenAI's strict JSON-schema form. Relay validates every answer against
+     * `semanticEvaluationSchema` regardless, so this only chooses how much the endpoint is asked to
+     * enforce — and defaulting to the stricter form would make the default configuration fail.
+     */
+    responseFormat: semanticResponseFormatSchema.default("json-object"),
+  })
+  .strict();
+export type DeviceSemanticConfig = z.infer<typeof deviceSemanticConfigSchema>;

@@ -56,6 +56,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0016: Glance-first information architecture](../decisions/0016-glance-first-information-architecture.md)
 - [ADR-0017: Notification dismissal after posting](../decisions/0017-notification-dismissal-after-posting.md)
 - [ADR-0018: Background capture delivery](../decisions/0018-background-capture-delivery.md)
+- [ADR-0019: Device semantic evaluation](../decisions/0019-device-semantic-evaluation.md)
 
 ## Delivery
 
