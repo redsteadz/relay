@@ -68,11 +68,24 @@ type ConnectionMetadata = {
   lastValidatedAt?: unknown;
   model?: unknown;
   responseFormat?: unknown;
+  serverEvaluation?: unknown;
 };
 
 function readLastValidatedAt(metadata: unknown): string | undefined {
   const candidate = metadata as ConnectionMetadata | null;
   return typeof candidate?.lastValidatedAt === "string" ? candidate.lastValidatedAt : undefined;
+}
+
+/**
+ * Whether Relay's own runtime may spend this key.
+ *
+ * Anything but an explicit `true` is off, including a missing key and a value of the wrong type. A
+ * credential stored before this flag existed therefore does not grant the server path, which is the
+ * safe direction: having a key is consent to Relay holding it, not consent to Relay spending it.
+ * Read by the pipeline from the same metadata object, so there is one answer rather than two.
+ */
+function readServerEvaluation(metadata: unknown): boolean {
+  return (metadata as ConnectionMetadata | null)?.serverEvaluation === true;
 }
 
 function readStoredEndpoint(metadata: unknown): SemanticEndpointOverride | undefined {
@@ -206,8 +219,94 @@ export async function getOpenAiCredentialStatus(
     configured: true,
     ...(lastValidatedAt !== undefined ? { lastValidatedAt } : {}),
     ...(endpoint === undefined ? {} : { endpoint }),
+    serverEvaluation: readServerEvaluation(data.metadata),
     validated: lastValidatedAt !== undefined,
   };
+}
+
+/**
+ * Turns the server path on or off for this tenant's key.
+ *
+ * A metadata merge rather than a replacement, because the endpoint and the validation timestamp are
+ * in the same object and a write that dropped them would make a validated key look unvalidated and
+ * a gateway key look like an OpenAI one.
+ *
+ * The key is never touched, read or re-validated. Turning the path off leaves the credential exactly
+ * where it was, so a reader who wants the device to keep using it is not forced to re-enter it --
+ * and turning it back on costs one tap rather than a round trip to their provider.
+ *
+ * Nothing here checks an entitlement, and that is a known gap rather than an oversight. The Pro
+ * entitlement lives in RevenueCat and on the device; no server-side record of it exists until
+ * [#201](https://github.com/redsteadz/relay/issues/201) syncs one, so the gate on this control is
+ * presentational today. See ADR-0019.
+ */
+export async function setServerSemanticEvaluation(
+  userId: string,
+  enabled: boolean,
+  env: OpenAiEnv,
+): Promise<OpenAiCredentialStatus> {
+  const supabase = serviceClient(env);
+  const { data: existing, error: readError } = await supabase
+    .from("connections")
+    .select("id, metadata")
+    .eq("user_id", userId)
+    .eq("provider", OPENAI_PROVIDER)
+    .maybeSingle();
+
+  if (readError !== null) {
+    throw databaseError(
+      readError,
+      "OPENAI_SERVER_EVALUATION_QUERY_FAILED",
+      "setServerSemanticEvaluation",
+    );
+  }
+  // There is nothing to let the server use. Reported rather than stored, because a preference about
+  // a credential that does not exist would silently become policy the moment one was added.
+  if (existing === null) throw new CredentialNotFoundError("No OpenAI key is configured");
+
+  const metadata = (existing.metadata ?? {}) as Record<string, unknown>;
+  const { error } = await supabase
+    .from("connections")
+    .update({
+      metadata: { ...metadata, serverEvaluation: enabled },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", existing.id)
+    .eq("user_id", userId);
+
+  if (error !== null) {
+    throw databaseError(
+      error,
+      "OPENAI_SERVER_EVALUATION_WRITE_FAILED",
+      "setServerSemanticEvaluation",
+    );
+  }
+
+  const { error: auditError } = await supabase.from("audit_log").insert({
+    user_id: userId,
+    actor_type: "user",
+    actor_id: userId,
+    action: enabled
+      ? "connector.server_evaluation_enabled"
+      : "connector.server_evaluation_disabled",
+    target_type: "connection",
+    target_id: existing.id,
+    metadata: { provider: OPENAI_PROVIDER },
+  });
+  if (auditError !== null) {
+    logApiIntegrationError(
+      databaseError(auditError, "OPENAI_AUDIT_WRITE_FAILED", "setServerSemanticEvaluation.audit"),
+      {
+        code: "OPENAI_AUDIT_WRITE_FAILED",
+        event: "database.audit_write_failed",
+        integration: "supabase",
+        operation: "setServerSemanticEvaluation.audit",
+        requestId: crypto.randomUUID(),
+      },
+    );
+  }
+
+  return getOpenAiCredentialStatus(userId, env);
 }
 
 export async function submitOpenAiCredential(

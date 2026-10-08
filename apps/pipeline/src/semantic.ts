@@ -186,6 +186,23 @@ export function readEndpointOverrides(metadata: unknown): EndpointOverrides {
   };
 }
 
+/**
+ * Whether this tenant asked Relay's runtime to use their key.
+ *
+ * Anything but an explicit `true` is off, including a credential stored before the flag existed.
+ * Having a key is consent to Relay holding it, not consent to Relay spending it: the server path
+ * costs Relay's hosted runtime and a provider call, which makes it an opt-in rather than an
+ * inference from the key's presence. The device evaluates against an endpoint its reader configured
+ * and needs none of this. See
+ * [ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md).
+ *
+ * Read from the same metadata object the API writes, so the two cannot disagree.
+ */
+export function readServerEvaluationEnabled(metadata: unknown): boolean {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return false;
+  return (metadata as Record<string, unknown>).serverEvaluation === true;
+}
+
 function exactRow(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new SemanticEvaluationError("unavailable");
@@ -256,6 +273,12 @@ export async function loadOpenAiCredential(
     row.key_version < 1
   ) {
     throw new SemanticEvaluationError("unavailable");
+  }
+
+  // Before the key is unwrapped, because a path the tenant turned off must not decrypt a credential
+  // to discover that it is turned off.
+  if (!readServerEvaluationEnabled(row.metadata)) {
+    throw new SemanticEvaluationError("server-evaluation-disabled");
   }
 
   let apiKey: string;

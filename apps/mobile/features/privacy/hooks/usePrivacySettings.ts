@@ -9,6 +9,7 @@ import {
   purgeRawPayloads,
   revokeOpenAiKey,
   rotateOpenAiKey,
+  setServerSemanticEvaluation,
   submitOpenAiKey,
 } from "../api/privacy";
 
@@ -54,6 +55,12 @@ export function usePrivacySettings(userId: string | undefined, accessToken: stri
         : submitOpenAiKey(accessToken as string, request),
     onSuccess: (status) => queryClient.setQueryData(privacyQueryKeys.openAi(userId), status),
   });
+  // Whether Relay's own runtime may spend the stored key. Separate from saving it, because the two
+  // are different decisions and the key is neither sent nor re-validated here.
+  const serverEvaluation = useMutation({
+    mutationFn: (enabled: boolean) => setServerSemanticEvaluation(accessToken as string, enabled),
+    onSuccess: (status) => queryClient.setQueryData(privacyQueryKeys.openAi(userId), status),
+  });
   const deletion = useMutation({ mutationFn: () => deleteRelayAccount(accessToken as string) });
 
   return {
@@ -67,6 +74,8 @@ export function usePrivacySettings(userId: string | undefined, accessToken: stri
     revokeOpenAiKey: revoke.mutateAsync,
     saveKey,
     saveOpenAiKey: saveKey.mutateAsync,
+    serverEvaluation,
+    setServerEvaluation: serverEvaluation.mutateAsync,
   };
 }
 

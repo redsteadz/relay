@@ -8,6 +8,8 @@ import {
   StatusMessage,
 } from "@/components/ui";
 
+import { useSubscription } from "@/features/subscription/context/subscription-context";
+
 import { usePrivacySettings } from "../hooks/usePrivacySettings";
 import { openAiSubmitRequest } from "../models/openAiPresentation";
 import { AccountDeletionPanel } from "./AccountDeletionPanel";
@@ -31,6 +33,9 @@ export function PrivacySettings({
   userId,
 }: PrivacySettingsProps) {
   const privacy = usePrivacySettings(userId, accessToken);
+  // The server path spends Relay's hosted runtime, so it is the one part of semantic evaluation that
+  // is not free. The device path needs no entitlement at all (ADR-0019).
+  const { pro } = useSubscription();
 
   if (accessToken === undefined || userId === undefined) {
     return (
@@ -95,9 +100,13 @@ export function PrivacySettings({
             request: openAiSubmitRequest(values),
           })
         }
+        onSetServerEvaluation={privacy.setServerEvaluation}
+        pro={pro}
         revoking={privacy.revoke.isPending}
         saveError={privacy.saveKey.error}
         saving={privacy.saveKey.isPending}
+        serverEvaluationError={privacy.serverEvaluation.error}
+        settingServerEvaluation={privacy.serverEvaluation.isPending}
         status={privacy.openAi.data}
       />
       {/*

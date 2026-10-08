@@ -108,6 +108,27 @@ export async function rotateOpenAiKey(
   );
 }
 
+/**
+ * Lets Relay's own runtime use the stored key, or stops it.
+ *
+ * Its own route rather than another method on the connector, because the key is neither sent nor
+ * re-validated: turning the server path off leaves the credential where it is, so a reader whose
+ * phone uses the same key is not made to re-enter it.
+ */
+export async function setServerSemanticEvaluation(
+  accessToken: string,
+  enabled: boolean,
+): Promise<OpenAiCredentialStatus> {
+  return parseResponse(
+    openAiCredentialStatusSchema,
+    await requestRelayApi(accessToken, "/api/connectors/openai/server-evaluation", {
+      body: { enabled },
+      method: "PUT",
+    }),
+    "setServerSemanticEvaluation",
+  );
+}
+
 export async function revokeOpenAiKey(accessToken: string): Promise<OpenAiCredentialStatus> {
   return parseResponse(
     openAiCredentialStatusSchema,

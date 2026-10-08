@@ -263,9 +263,23 @@ describe("getOpenAiCredentialStatus", () => {
       provider: "openai",
       configured: true,
       lastValidatedAt: "2026-08-27T00:00:00Z",
+      // A credential stored before the flag existed does not grant the server path. Having a key is
+      // consent to Relay holding it, not consent to Relay spending it (ADR-0019).
+      serverEvaluation: false,
       validated: true,
     });
     expect(selectStatus.select).toHaveBeenCalledWith("metadata");
+  });
+
+  it("reports the server path as on only when the tenant turned it on", async () => {
+    const selectStatus = chainable({ data: { metadata: { serverEvaluation: true } }, error: null });
+    const from = vi.fn().mockReturnValue(selectStatus);
+    supabase.createClient.mockReturnValue({ from });
+
+    const { getOpenAiCredentialStatus } = await importSubject();
+    await expect(getOpenAiCredentialStatus(userId, env)).resolves.toMatchObject({
+      serverEvaluation: true,
+    });
   });
 
   it("reports not configured when no row exists", async () => {
@@ -465,5 +479,99 @@ describe("configurable endpoint", () => {
       model: "anthropic/claude-sonnet-4",
     });
     expect(selectStatus.select).toHaveBeenCalledWith("metadata");
+  });
+});
+
+describe("setServerSemanticEvaluation", () => {
+  // The endpoint and the validation timestamp live in the same metadata object. A write that
+  // replaced it would make a validated key look unvalidated and a gateway key look like an OpenAI
+  // one -- which would then send the tenant's data somewhere they did not configure.
+  it("merges the flag into the metadata rather than replacing it", async () => {
+    const read = chainable({
+      data: {
+        id: connectionId,
+        metadata: {
+          baseUrl: "https://api.together.xyz/v1",
+          lastValidatedAt: "2026-08-27T00:00:00Z",
+          model: "zai-org/GLM-4.6",
+        },
+      },
+      error: null,
+    });
+    const write = chainable({ data: null, error: null });
+    const audit = chainable({ data: null, error: null });
+    const status = chainable({ data: { metadata: { serverEvaluation: true } }, error: null });
+    const calls = [read, write, audit, status];
+    let index = 0;
+    const from = vi.fn(() => calls[index++]);
+    supabase.createClient.mockReturnValue({ from });
+
+    const { setServerSemanticEvaluation } = await importSubject();
+    await setServerSemanticEvaluation(userId, true, env);
+
+    expect(write.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          baseUrl: "https://api.together.xyz/v1",
+          lastValidatedAt: "2026-08-27T00:00:00Z",
+          model: "zai-org/GLM-4.6",
+          serverEvaluation: true,
+        },
+      }),
+    );
+  });
+
+  // A preference about a credential that does not exist would silently become policy the moment one
+  // was added.
+  it("refuses when no key is configured", async () => {
+    const read = chainable({ data: null, error: null });
+    const from = vi.fn().mockReturnValue(read);
+    supabase.createClient.mockReturnValue({ from });
+
+    const { CredentialNotFoundError, setServerSemanticEvaluation } = await importSubject();
+    await expect(setServerSemanticEvaluation(userId, true, env)).rejects.toBeInstanceOf(
+      CredentialNotFoundError,
+    );
+  });
+
+  // Turning the path off must not touch the key: a reader who wants the device to keep using it is
+  // not made to re-enter it at their provider.
+  it("never reads or rewrites the credential columns", async () => {
+    const read = chainable({ data: { id: connectionId, metadata: {} }, error: null });
+    const write = chainable({ data: null, error: null });
+    const audit = chainable({ data: null, error: null });
+    const status = chainable({ data: { metadata: {} }, error: null });
+    const calls = [read, write, audit, status];
+    let index = 0;
+    const from = vi.fn(() => calls[index++]);
+    supabase.createClient.mockReturnValue({ from });
+
+    const { setServerSemanticEvaluation } = await importSubject();
+    await setServerSemanticEvaluation(userId, false, env);
+
+    expect(read.select).toHaveBeenCalledWith("id, metadata");
+    const [written] = write.update.mock.calls[0] as [Record<string, unknown>];
+    expect(Object.keys(written).sort()).toStrictEqual(["metadata", "updated_at"]);
+    expect(written.metadata).toStrictEqual({ serverEvaluation: false });
+  });
+
+  it("records which way it was turned", async () => {
+    for (const [enabled, action] of [
+      [true, "connector.server_evaluation_enabled"],
+      [false, "connector.server_evaluation_disabled"],
+    ] as const) {
+      const read = chainable({ data: { id: connectionId, metadata: {} }, error: null });
+      const write = chainable({ data: null, error: null });
+      const audit = chainable({ data: null, error: null });
+      const status = chainable({ data: { metadata: {} }, error: null });
+      const calls = [read, write, audit, status];
+      let index = 0;
+      const from = vi.fn(() => calls[index++]);
+      supabase.createClient.mockReturnValue({ from });
+
+      const { setServerSemanticEvaluation } = await importSubject();
+      await setServerSemanticEvaluation(userId, enabled, env);
+      expect(audit.insert).toHaveBeenCalledWith(expect.objectContaining({ action }));
+    }
   });
 });

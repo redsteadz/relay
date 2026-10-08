@@ -60,6 +60,24 @@ and the pipeline's provider call, so it is the paid convenience rather than the 
 Both paths run the same `packages/domain` code over the same allowlist and redaction. Which endpoint
 answered is recorded on the disclosure, so history says where data actually went.
 
+The server path is an explicit opt-in rather than an inference from a stored key. `serverEvaluation`
+on the OpenAI connection's metadata is written only by
+`PUT /api/connectors/openai/server-evaluation` and read by the pipeline before the credential is
+unwrapped; off yields the fixed reason `server-evaluation-disabled`, distinct from
+`credential-missing`. It defaults to off, including for a credential stored before the flag existed,
+because holding a key is consent to Relay holding it and not consent to Relay spending it. A reader
+who wants only the device to use their key stores it once and leaves this off.
+
+The gate on turning it on is **presentational today, and that is a known gap**. The Pro entitlement
+lives in RevenueCat and on the device; no server-side record of it exists, so the route is reachable
+by any authenticated tenant. [#201](https://github.com/redsteadz/relay/issues/201) owns syncing the
+entitlement, and the route and the UI both say so rather than implying an enforcement boundary that
+is not there. What _is_ enforced is the opt-in: without it the pipeline does not use the key at all.
+
+One consequence worth stating plainly: a rule over an email body cannot be decided on the device.
+Gmail keeps its body only in `raw_ciphertext`, encrypted to a key the device does not hold, so
+semantic rules over email are exactly the case the server path exists for.
+
 ### The device credential is device-local
 
 The key the device uses is held in `expo-secure-store`, Keystore-backed, and is never uploaded. It is

@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: integrations
-last_verified: 2026-08-30
+last_verified: 2026-10-08
 sources:
   - https://platform.openai.com/docs/api-reference/models/list
   - https://platform.openai.com/docs/api-reference/chat/create
@@ -29,8 +29,15 @@ endpoint stored beside them.
 - `DELETE` deletes the stored credential outright (matching the Gmail connector's disconnect
   behavior) and disables any enabled filter rule whose plan has a `semantic` clause, since those
   rules can no longer be evaluated without a live key.
-- `GET` returns only `{ provider, configured, lastValidatedAt? }`. It never reads or returns the
-  ciphertext, wrapped key, or nonce columns, so mobile only ever sees configuration metadata.
+- `GET` returns only `{ provider, configured, lastValidatedAt?, endpoint?, serverEvaluation,
+validated? }`. It never reads or returns the ciphertext, wrapped key, or nonce columns, so mobile
+  only ever sees configuration metadata.
+- `PUT /api/connectors/openai/server-evaluation` takes `{ enabled }` and sets whether Relay's own
+  runtime may use the key. Its own route because the key is neither sent nor re-validated: turning
+  the path off leaves the credential where it is, so a reader whose phone uses the same key is not
+  made to re-enter it. `404` if nothing is configured, since a preference about a credential that
+  does not exist would become policy the moment one was added. The write is a `metadata` merge, never
+  a replacement — the endpoint and the validation timestamp are in the same object.
 
 Validation always happens server-side against the live key at submission/rotation time; Relay does
 not currently run a periodic background re-validation of stored keys (tracked as future work, see
@@ -43,6 +50,14 @@ calls out of `apps/api`. It selects the tenant's single active `openai` connecti
 role, decrypts the key in memory under the connection's own AAD context, and discards it with the
 request. More than one active row for a tenant is ambiguous consent, so evaluation fails closed
 rather than choosing one.
+
+**It uses the key only when the tenant released it.** `serverEvaluation` on the connection's
+metadata is checked before the credential is unwrapped, so a path the tenant turned off does not
+decrypt a key to discover that it is off. Absent or non-`true` is off, including for a credential
+stored before the flag existed, and yields the fixed reason `server-evaluation-disabled` — distinct
+from `credential-missing`, because one says the reader chose where their data goes and the other says
+there is nothing to use. The device evaluates against an endpoint its reader configured and needs
+none of this; see [ADR-0019](../decisions/0019-device-semantic-evaluation.md).
 
 Requests go to `POST {baseUrl}/chat/completions` with `temperature` 0, a 200-token completion cap, a
 15-second deadline, a 32 KB bounded response read, and no tools. The key travels only as a bearer

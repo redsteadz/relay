@@ -147,17 +147,27 @@ uncertain rejection is as unusable as an uncertain acceptance.
 
 Every provider condition also yields `undecided`, so no failure can be mistaken for a match:
 
-| Condition                                                      | Reason                  |
-| -------------------------------------------------------------- | ----------------------- |
-| No key configured, or a key that cannot unwrap                 | `credential-missing`    |
-| 401 or 403 from the provider                                   | `credential-revoked`    |
-| 429 with `insufficient_quota`                                  | `quota-exhausted`       |
-| Any other 429                                                  | `rate-limited`          |
-| Deadline exceeded                                              | `timed-out`             |
-| Body over 32 KB                                                | `response-too-large`    |
-| Unparseable, refused, or off-schema answer                     | `invalid-response`      |
-| No allowlisted field held a value                              | `no-disclosable-fields` |
-| Anything else, including more than one active key for a tenant | `unavailable`           |
+| Condition                                                      | Reason                       |
+| -------------------------------------------------------------- | ---------------------------- |
+| No key configured, or a key that cannot unwrap                 | `credential-missing`         |
+| A key the tenant has not released to Relay's runtime           | `server-evaluation-disabled` |
+| 401 or 403 from the provider                                   | `credential-revoked`         |
+| 429 with `insufficient_quota`                                  | `quota-exhausted`            |
+| Any other 429                                                  | `rate-limited`               |
+| Deadline exceeded                                              | `timed-out`                  |
+| Body over 32 KB                                                | `response-too-large`         |
+| Unparseable, refused, or off-schema answer                     | `invalid-response`           |
+| No allowlisted field held a value                              | `no-disclosable-fields`      |
+| Anything else, including more than one active key for a tenant | `unavailable`                |
+
+`server-evaluation-disabled` is deliberately distinct from `credential-missing`. The first says the
+reader chose where their data goes; the second says there is nothing to use. The flag lives on the
+connection's `metadata` as `serverEvaluation`, is written only by
+`PUT /api/connectors/openai/server-evaluation`, and is read by the pipeline before the credential is
+unwrapped — so a path the tenant turned off does not decrypt a key to discover that it is off. It
+defaults to off, including for a credential stored before the flag existed: holding a key is consent
+to Relay holding it, not to Relay spending it
+([ADR-0019](../decisions/0019-device-semantic-evaluation.md)).
 
 Only the fixed reason string leaves the provider boundary. The 429 split reads the provider's
 `error.code` and nothing else, so no provider message text is retained.

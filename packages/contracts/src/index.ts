@@ -1200,6 +1200,14 @@ export const semanticFailureReasonSchema = z.enum([
   "quota-exhausted",
   "rate-limited",
   "response-too-large",
+  /**
+   * The tenant has a key and has not asked Relay's servers to use it.
+   *
+   * Distinct from `credential-missing`, which says there is nothing to use. This says the reader
+   * chose to keep semantic evaluation on their own device, so the clause is theirs to answer -- see
+   * [ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md).
+   */
+  "server-evaluation-disabled",
   "timed-out",
   "unavailable",
 ]);
@@ -1565,6 +1573,15 @@ export const openAiCredentialStatusSchema = z
      */
     endpoint: semanticEndpointOverrideSchema.optional(),
     /**
+     * Whether Relay's own runtime may use this key.
+     *
+     * Off by default, and separate from having a key at all. A reader can store a credential for the
+     * device to use and never let the server spend it: the server path costs Relay's hosted runtime
+     * and a provider call, which makes it the paid convenience rather than the baseline
+     * ([ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md)).
+     */
+    serverEvaluation: z.boolean().optional(),
+    /**
      * False when the endpoint accepted the key but exposes no way to check it, so the key was
      * stored without confirmation rather than silently treated as verified.
      */
@@ -1572,6 +1589,10 @@ export const openAiCredentialStatusSchema = z
   })
   .strict();
 export type OpenAiCredentialStatus = z.infer<typeof openAiCredentialStatusSchema>;
+
+/** Turning the server path on or off. One boolean, because that is the whole decision. */
+export const serverSemanticEvaluationRequestSchema = z.object({ enabled: z.boolean() }).strict();
+export type ServerSemanticEvaluationRequest = z.infer<typeof serverSemanticEvaluationRequestSchema>;
 
 export const privacyRetentionStatusSchema = z
   .object({
