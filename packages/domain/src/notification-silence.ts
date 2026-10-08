@@ -50,7 +50,15 @@ export type SilenceRefusal =
   | "no-deterministic-clause"
   | "too-complex"
   | "unbounded-application"
-  | "unreadable-field";
+  | "unreadable-field"
+  /**
+   * The stored plan is not a plan this build can read.
+   *
+   * Separate from every other reason here because it is not a property of how the rule was written
+   * -- nothing the reader phrased differently would avoid it -- and the advice is different:
+   * rebuild the rule rather than reword it.
+   */
+  | "unreadable-plan";
 
 export type SilenceCompilation =
   | { refusal: SilenceRefusal; status: "refused"; unreadableFields?: NotificationSilenceField[] }

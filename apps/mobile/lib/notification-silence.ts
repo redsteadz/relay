@@ -109,9 +109,11 @@ export function compileSilencePlan(
     // started, which rendered a live "start watching" control. The database then refused the write
     // on plan shape, and the reason, which this function had already been able to name, was thrown
     // away in favour of a generic failure.
+    // A plan this build cannot read is its own refusal. Reporting it as "no deterministic clause"
+    // sent a reader off to add an application condition to a rule whose saved form was the problem.
     const plan = filterPlanSchema.safeParse(rule.plan);
     if (!plan.success) {
-      statuses.push({ refusal: "no-deterministic-clause", rule, stage: "refused" });
+      statuses.push({ refusal: "unreadable-plan", rule, stage: "refused" });
       continue;
     }
 
@@ -192,12 +194,14 @@ export function refusalExplanation(refusal: SilenceRefusal): string {
     case "negation-unsupported":
       return "This rule says what a notification must not be. Your phone cannot tell an absent field from one it could not read, so it would clear more than you asked.";
     case "no-deterministic-clause":
-      return "This rule has no conditions your phone can check.";
+      return "This rule only describes what to look for, so deciding it would mean asking your model about every notification from every app. Add a condition naming the app — “app is …” — and the rest can still ask a model.";
     case "too-complex":
       return "This rule has too many combinations to check as each notification arrives. Splitting it into separate rules will work.";
     case "unbounded-application":
       return "This rule does not name an app exactly. Clearing a notification needs an app named with “is”, not described.";
     case "unreadable-field":
       return "This rule reads something that does not exist yet when the decision is made — a category, a message body, or a sender. Only the app and the title are reliably there.";
+    case "unreadable-plan":
+      return "Relay cannot read this rule’s saved form. Open it in Rules and save it again to rebuild it.";
   }
 }

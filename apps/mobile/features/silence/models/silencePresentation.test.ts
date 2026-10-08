@@ -209,9 +209,15 @@ describe("what a row says", () => {
 
   it("explains a refusal in terms of the rule", () => {
     expect(row("refused", { refusal: "unreadable-field" }).detail).toContain("does not exist yet");
-    expect(row("refused", { refusal: "no-deterministic-clause" }).detail).toContain(
-      "no conditions",
-    );
+    // Names what to change rather than reporting that the phone cannot cope. A rule compiled from a
+    // purely descriptive intent carries no deterministic part at all, which is the common way to
+    // land here.
+    const describing = row("refused", { refusal: "no-deterministic-clause" }).detail;
+    expect(describing).toContain("naming the app");
+    expect(describing).toContain("can still ask a model");
+
+    // A different situation with different advice: reword nothing, rebuild the rule.
+    expect(row("refused", { refusal: "unreadable-plan" }).detail).toContain("save it again");
     expect(row("refused", { refusal: "unbounded-application" }).detail).toContain("name an app");
   });
 });

@@ -193,14 +193,21 @@ describe("what the device is told it cannot evaluate", () => {
     ],
     // A rule that is only a model's judgement would hand the scope to the model, which is the
     // ordering ADR-0003 forbids. Refused here, and by `dismissible_filter_rule` in the database.
+    //
+    // This is the shape `compileFilterPlan` produces from a purely descriptive intent -- every
+    // clause `semantic-required`, so no `deterministic` key at all -- which is how a real rule
+    // reaches this branch rather than a hand-written fixture.
     [
       "a plan with no deterministic part",
       {
-        allowedFields: ["subject"],
         compilerVersion: 1,
         intent: "synthetic intent",
-        minimumConfidence: 0.8,
         schemaVersion: 1,
+        semantic: {
+          allowedFields: ["subject"],
+          minimumConfidence: 0.8,
+          question: "is this marketing?",
+        },
       },
       "no-deterministic-clause",
     ],
@@ -251,12 +258,16 @@ describe("what the device is told it cannot evaluate", () => {
   // A plan that no longer satisfies the wire contract is refused rather than guessed at. It can only
   // arise from a stored plan written by an older compiler, and acting on a plan this build cannot
   // parse would be acting on something nobody wrote.
+  //
+  // Its own reason, not `no-deterministic-clause`. Sharing one sent a reader off to add an
+  // application condition to a rule whose saved form was the problem, and nothing they could have
+  // typed would have fixed it.
   it("refuses a plan that does not satisfy the contract", () => {
     const result = compile([
       rule({ dryRunStartedAt: "2026-10-01T00:00:00.000Z", plan: { schemaVersion: 99 } }),
     ]);
     expect(result.statuses[0]?.stage).toBe("refused");
-    expect(result.statuses[0]?.refusal).toBe("no-deterministic-clause");
+    expect(result.statuses[0]?.refusal).toBe("unreadable-plan");
   });
 });
 
