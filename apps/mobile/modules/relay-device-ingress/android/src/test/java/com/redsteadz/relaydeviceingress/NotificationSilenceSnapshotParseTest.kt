@@ -20,7 +20,7 @@ class NotificationSilenceSnapshotParseTest {
   private fun snapshotJson(
     mode: String = "enforcing",
     killSwitchEngaged: Boolean = false,
-    rules: String = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}]""",
+    rules: String = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}]""",
     disabledPackages: String = "[]"
   ) = """
     {"mode":"$mode","killSwitchEngaged":$killSwitchEngaged,"revision":7,
@@ -36,6 +36,7 @@ class NotificationSilenceSnapshotParseTest {
     assertEquals(ruleId, snapshot.rules[0].filterRuleId)
     assertEquals(NotificationSilencePolicy.ACTION_SNOOZE, snapshot.rules[0].action)
     assertEquals(false, snapshot.rules[0].observing)
+    assertEquals(false, snapshot.rules[0].awaitsModel)
     assertEquals(1, snapshot.rules[0].clauses[0].tests.size)
   }
 
@@ -50,6 +51,19 @@ class NotificationSilenceSnapshotParseTest {
     )
     assertEquals(1, snapshot.rules.size)
     assertTrue(snapshot.rules[0].observing)
+  }
+
+  // Same fail-safe, for the flag an older snapshot cannot carry: a rule this version cannot fully
+  // read is treated as owing a model an answer, so it records a candidate rather than acting.
+  @Test
+  fun `a rule omitting its model flag owes an answer`() {
+    val snapshot = NotificationSilencePolicy.parse(
+      snapshotJson(
+        rules = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}]"""
+      )
+    )
+    assertEquals(1, snapshot.rules.size)
+    assertTrue(snapshot.rules[0].awaitsModel)
   }
 
   @Test

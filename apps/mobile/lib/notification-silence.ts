@@ -3,10 +3,16 @@
  *
  * Two questions have to answer yes before a notification is cleared, and they are separate. The
  * database decides *whether* a rule may act: `set_notification_dismissal_v1` validates the
- * deterministic plan, the absence of a semantic clause, the explicit application predicate, and the
- * completed dry-run window, and it is the only writer of `notification_dismissal_authorizations`.
- * `compileNotificationSilenceRule` decides whether the device can evaluate the rule *faithfully*,
- * refusing anything that is not reliably available at decision time rather than approximating it.
+ * deterministic plan, the explicit application predicate, and the completed dry-run window, and it
+ * is the only writer of `notification_dismissal_authorizations`. `compileNotificationSilenceRule`
+ * decides whether the device can evaluate the rule *faithfully*, refusing anything that is not
+ * reliably available at decision time rather than approximating it.
+ *
+ * A semantic clause is compiled rather than refused, and marked `awaitsModel`. The listener records
+ * such a notification as a candidate and does not act; `resolvePendingSilences` asks the reader's own
+ * model afterwards and hands the answer back to the device (ADR-0019). The deterministic part is
+ * still required, because it is what bounds both the rule's scope and how often a model is asked
+ * anything.
  *
  * A rule can therefore be authorized server-side and still be refused here. That asymmetry is
  * surfaced with its reason rather than hidden, because a rule that looks like it is working and
@@ -181,8 +187,6 @@ export function remainingWindowHours(
  */
 export function refusalExplanation(refusal: SilenceRefusal): string {
   switch (refusal) {
-    case "awaits-model":
-      return "This rule asks a model to decide, and only a rule your phone can decide by itself may clear a notification.";
     case "matches-nothing":
       return "This rule cannot match anything, so there is nothing for it to clear.";
     case "negation-unsupported":

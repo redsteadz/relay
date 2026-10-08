@@ -34,8 +34,14 @@ export type SilenceRuleRow = {
 };
 
 const DECISION_LABELS: Record<NotificationSilenceDecision, string> = {
+  // Not a verdict yet. Your phone cannot ask a model from inside the notification listener, so it
+  // waits for the next pass -- see ADR-0019.
+  "awaiting-model": "Waiting on your model",
   declined: "Matched, not acted on",
   dismissed: "Cleared for good",
+  // The honest end of a deferred decision: the rule matched, and by the time the answer came back
+  // there was nothing left on screen.
+  "no-longer-posted": "Already gone by then",
   "no-match": "Did not match",
   snoozed: "Put away for two hours",
   "would-dismiss": "Would have been cleared for good",
@@ -43,9 +49,12 @@ const DECISION_LABELS: Record<NotificationSilenceDecision, string> = {
 };
 
 const DECISION_TONES: Record<NotificationSilenceDecision, StatusPillTone> = {
+  "awaiting-model": "accent",
   declined: "warning",
   // Cancelling is the one verdict a person cannot undo, so it does not share a tone with snoozing.
   dismissed: "warning",
+  // Nothing happened and nothing went wrong, which is what muted means here.
+  "no-longer-posted": "muted",
   "no-match": "muted",
   snoozed: "success",
   "would-dismiss": "accent",
@@ -66,10 +75,20 @@ export function decisionTone(decision: NotificationSilenceDecision): StatusPillT
  * `remainingHours` is the gate a person is waiting on, so it is stated as a number rather than as
  * "soon". The review control appears only once it reaches zero, because the database refuses the
  * transition before then and offering a button that cannot work is worse than offering none.
+ *
+ * `modelConfigured` is the fourth distinction the copy carries. A rule that asks a model acts on the
+ * next pass rather than as the notification arrives, and if no model is configured it never acts at
+ * all. Both have to be said: a reader who authorized such a rule and was told it clears
+ * notifications "once they arrive" has been promised something that will not happen.
  */
+/** Whether a rule still needs a model's answer before it decides anything. */
+function awaitsModelFor(status: SilenceRuleStatus): boolean {
+  return status.compiled?.awaitsModel ?? false;
+}
+
 export function silenceRuleRow(
   status: SilenceRuleStatus,
-  options: { killSwitchEngaged: boolean; remainingHours: number },
+  options: { killSwitchEngaged: boolean; modelConfigured: boolean; remainingHours: number },
 ): SilenceRuleRow {
   const base = {
     filterRuleId: status.rule.id,
@@ -113,7 +132,9 @@ export function silenceRuleRow(
               ? "clear a notification for good"
               : "put a notification away"
           }.`
-        : `Watching. Nothing is being changed on your phone. ${options.remainingHours} ${options.remainingHours === 1 ? "hour" : "hours"} left.`,
+        : awaitsModelFor(status) && !options.modelConfigured
+          ? "Watching, but this rule asks a model and no model is set up on this phone, so it will record nothing. Add one on the Your data screen."
+          : `Watching. Nothing is being changed on your phone. ${options.remainingHours} ${options.remainingHours === 1 ? "hour" : "hours"} left.`,
       pill: elapsed
         ? { label: "Ready to review", tone: "accent" }
         : { label: "Watching", tone: "muted" },
@@ -124,20 +145,39 @@ export function silenceRuleRow(
   // The two acting states never share wording. A person who authorized a snooze and reads a
   // sentence about clearing for good has been told their notifications are gone when they are not,
   // and the reverse is worse.
-  const acting =
+  const awaitsModel = awaitsModelFor(status);
+  // A rule that asks a model acts on the next pass, not as the notification arrives. Saying "once
+  // they arrive" would promise a speed this cannot deliver -- see ADR-0019.
+  const when = awaitsModel
+    ? "a few minutes after they arrive, once your phone has asked your model"
+    : "once they arrive";
+  const effect =
     status.rule.action === "dismiss"
-      ? "Notifications this rule matches are cleared for good once they arrive. Nothing brings them back. They stay in Relay, and your phone still makes its sound first."
-      : "Notifications this rule matches are put away for two hours once they arrive, then Android brings them back. They stay in Relay, and your phone still makes its sound first.";
+      ? `cleared for good ${when}. Nothing brings them back.`
+      : `put away for two hours ${when}, then Android brings them back.`;
+  const acting = `Notifications this rule matches are ${effect} They stay in Relay, and your phone still makes its sound first.`;
+
+  // A rule that asks a model and has no model will never decide anything. Saying it is clearing
+  // notifications would be the screen's own false statement, not the rule's.
+  const unanswerable =
+    "This rule asks a model, and no model is set up on this phone. Nothing will be cleared until you add one on the Your data screen.";
 
   return {
     ...base,
     action: "withdraw",
     detail: options.killSwitchEngaged
       ? "Allowed to clear notifications, but everything is stopped right now."
-      : acting,
+      : awaitsModel && !options.modelConfigured
+        ? unanswerable
+        : acting,
     pill: options.killSwitchEngaged
       ? { label: "Stopped", tone: "warning" }
-      : { label: status.rule.action === "dismiss" ? "Clearing" : "Putting away", tone: "success" },
+      : awaitsModel && !options.modelConfigured
+        ? { label: "Waiting on a model", tone: "warning" }
+        : {
+            label: status.rule.action === "dismiss" ? "Clearing" : "Putting away",
+            tone: "success",
+          },
     remainingHours: undefined,
   };
 }

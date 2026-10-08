@@ -1765,6 +1765,15 @@ export type NotificationSilenceAction = z.infer<typeof notificationSilenceAction
 export const notificationSilenceRuleSchema = z
   .object({
     action: notificationSilenceActionSchema,
+    /**
+     * Whether a model still has to answer before this rule may act.
+     *
+     * The listener evaluates the literal tests in its own process and cannot call a model, so a rule
+     * carrying a semantic clause matches in two steps: the clauses below decide that the notification
+     * is a candidate, and a model decides whether it actually matches. A candidate is recorded and
+     * left alone until that answer exists (ADR-0019).
+     */
+    awaitsModel: z.boolean(),
     clauses: z.array(notificationSilenceClauseSchema).min(1).max(16),
     filterRuleId: canonicalUuidSchema,
     /**
@@ -1821,13 +1830,25 @@ export type NotificationSilenceSnapshot = z.infer<typeof notificationSilenceSnap
  * individually, or the capability withdrawn between the match and the act -- which is the outcome
  * that would otherwise be indistinguishable from the rule never matching.
  *
+ * `awaiting-model` means the literal tests matched and a model has not answered yet. It is the one
+ * verdict that is not final: a later pass resolves the clause and replaces it with what was actually
+ * done.
+ *
+ * `no-longer-posted` closes that pass honestly. The device cannot ask a model from inside the
+ * notification listener, so by the time an answer arrives the notification may have been read,
+ * swiped, or replaced by the application. Relay was authorized and the rule did match -- there was
+ * simply nothing left to quiet -- and recording `snoozed` for a notification nothing touched would
+ * make the ledger claim an act that never happened.
+ *
  * `envelopeId` is the capture's own identity, derived by the same function that builds the capture,
  * so a dry-run outcome is reviewable against an item a person recognises rather than an abstract log
  * line.
  */
 export const notificationSilenceDecisionSchema = z.enum([
+  "awaiting-model",
   "declined",
   "dismissed",
+  "no-longer-posted",
   "no-match",
   "snoozed",
   "would-dismiss",

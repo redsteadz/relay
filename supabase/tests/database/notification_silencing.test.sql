@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(37);
+select plan(38);
 
 -- Fixtures run as the migration role. Filter revisions are immutable, so every rule below is created
 -- in its final shape -- which is also why the authorization lives in its own table.
@@ -35,12 +35,21 @@ insert into public.filter_rules (id, user_id, name, intent, plan) values (
   '{"schemaVersion":1,"compilerVersion":1,"intent":"from the bank","deterministic":{"field":"sender","operator":"contains","value":"bank"}}'
 );
 
--- R3 names an application and also asks a model. The semantic clause disqualifies it.
+-- R3 names an application and also asks a model. The device evaluates the clause itself, so this is
+-- authorizable: the deterministic part still bounds what reaches a model (ADR-0019).
 insert into public.filter_rules (id, user_id, name, intent, plan) values (
   '80300000-0000-4000-8000-000000000003',
   '80000000-0000-4000-8000-000000000001',
   'Maybe urgent', 'urgent courier notifications',
   '{"schemaVersion":1,"compilerVersion":1,"intent":"urgent courier notifications","deterministic":{"field":"source.applicationId","operator":"equals","value":"com.courier.app"},"semantic":{"question":"is this urgent?","minimumConfidence":0.8,"allowedFields":["subject"]}}'
+);
+
+-- R5 is only a semantic clause: nothing literal bounds what would reach a model.
+insert into public.filter_rules (id, user_id, name, intent, plan) values (
+  '80300000-0000-4000-8000-000000000005',
+  '80000000-0000-4000-8000-000000000001',
+  'Only a model', 'anything urgent',
+  '{"schemaVersion":1,"compilerVersion":1,"intent":"anything urgent","semantic":{"question":"is this urgent?","minimumConfidence":0.8,"allowedFields":["subject"]}}'
 );
 
 insert into public.filter_rules (id, user_id, name, intent, plan, enabled) values (
@@ -141,11 +150,18 @@ select throws_ok(
   'a rule naming no application cannot start a dry run'
 );
 
-select throws_ok(
+select lives_ok(
   $q$select public.start_notification_dismissal_dry_run_v1('80300000-0000-4000-8000-000000000003')$q$,
+  'a rule carrying a semantic clause can start a dry run'
+);
+
+-- A rule that is only a semantic clause would hand the scope to the model, which is exactly the
+-- ordering ADR-0003 forbids.
+select throws_ok(
+  $q$select public.start_notification_dismissal_dry_run_v1('80300000-0000-4000-8000-000000000005')$q$,
   '22023',
   null,
-  'a rule carrying a semantic clause cannot start a dry run'
+  'a rule with no deterministic part cannot start a dry run'
 );
 
 select throws_ok(

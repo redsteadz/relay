@@ -19,7 +19,23 @@ internal enum class SilenceDecision {
   SNOOZE,
   DISMISS,
   /** A rule matched and Relay deliberately did not act. */
-  DECLINED;
+  DECLINED,
+  /**
+   * The literal tests matched and a model has not answered yet.
+   *
+   * The only verdict here that is not final. The listener cannot call a model -- it runs in a
+   * system-bound process with no session -- so a rule carrying a semantic clause is recorded as a
+   * candidate and left alone until a pass in JavaScript resolves it and acts (ADR-0019).
+   */
+  AWAITING_MODEL,
+  /**
+   * A model answered in favour of acting and the notification was already gone.
+   *
+   * Not a failure and not a refusal. Deferring to a model costs time, and in that time a person can
+   * read, swipe or replace the notification. Recording `DISMISS` for a notification nothing touched
+   * would make the ledger claim an act that never happened.
+   */
+  NO_LONGER_POSTED;
 
   /** The wire vocabulary in `notificationSilenceDecisionSchema`. */
   fun wireName(): String = when (this) {
@@ -30,6 +46,8 @@ internal enum class SilenceDecision {
     SNOOZE -> "snoozed"
     DISMISS -> "dismissed"
     DECLINED -> "declined"
+    AWAITING_MODEL -> "awaiting-model"
+    NO_LONGER_POSTED -> "no-longer-posted"
   }
 }
 
@@ -51,6 +69,8 @@ internal data class SilenceRule(
   val action: String,
   /** Still being observed rather than acted on. Per rule, because dry runs do not end together. */
   val observing: Boolean,
+  /** A model still owes an answer before this rule may act. */
+  val awaitsModel: Boolean,
   val clauses: List<SilenceClause>
 )
 
@@ -159,13 +179,16 @@ internal object NotificationSilencePolicy {
     if (clausesJson.length() == 0 || clausesJson.length() > MAX_CLAUSES) return null
     // A rule that does not say observes. A missing flag must never read as permission to act.
     val observing = json.optBoolean("observing", true)
+    // Likewise: a rule that does not say whether a model owes an answer is treated as owing one, so
+    // a snapshot this version cannot fully read cannot act on its own.
+    val awaitsModel = json.optBoolean("awaitsModel", true)
 
     val clauses = mutableListOf<SilenceClause>()
     for (index in 0 until clausesJson.length()) {
       val clause = parseClause(clausesJson.optJSONObject(index)) ?: return null
       clauses += clause
     }
-    return SilenceRule(filterRuleId, action, observing, clauses)
+    return SilenceRule(filterRuleId, action, observing, awaitsModel, clauses)
   }
 
   private fun parseClause(json: JSONObject?): SilenceClause? {
@@ -271,23 +294,75 @@ internal object NotificationSilencePolicy {
 
     // A matched rule the device will not act on is still recorded. Without it, the kill switch and a
     // per-application pause are indistinguishable from the rule having stopped matching.
-    //
-    // The pause is compared the same way a rule's application test is, because a stop that failed to
-    // apply over a difference in case would fail in the direction that acts on a notification.
-    val paused = snapshot.disabledPackages.any { value -> normalize(value) == normalize(packageName) }
-    if (snapshot.killSwitchEngaged || paused) {
+    if (stopped(snapshot, packageName)) {
       return SilenceOutcome(SilenceDecision.DECLINED, matched.filterRuleId)
     }
 
-    // The rule's own flag, not the snapshot's mode: one rule can be authorized while another is
-    // still inside its observation window.
-    val decision = when {
-      matched.action == ACTION_SNOOZE && matched.observing -> SilenceDecision.WOULD_SNOOZE
-      matched.action == ACTION_SNOOZE -> SilenceDecision.SNOOZE
-      matched.observing -> SilenceDecision.WOULD_DISMISS
-      else -> SilenceDecision.DISMISS
+    // A clause the listener cannot evaluate is not a refusal and not a match: the notification is a
+    // candidate, recorded so a pass that can reach a model finds it. Checked before the dry-run
+    // branch so an observing rule carrying a clause is still only a candidate.
+    if (matched.awaitsModel) {
+      return SilenceOutcome(SilenceDecision.AWAITING_MODEL, matched.filterRuleId)
     }
-    return SilenceOutcome(decision, matched.filterRuleId)
+
+    return SilenceOutcome(verdict(matched), matched.filterRuleId)
+  }
+
+  /**
+   * What to do about a notification a model has now answered about.
+   *
+   * The answer is an input to this decision and never the decision itself. Everything that decides
+   * whether Relay may act -- the kill switch, a per-application pause, the rule's own observation
+   * window, whether the rule still exists -- is re-read from the current snapshot rather than from
+   * whatever was true when the notification was posted, because asking a model takes time and a
+   * reader can withdraw the capability inside it. That ordering is what ADR-0019 preserves from
+   * ADR-0003: a model narrows what a reader already authorized, and cannot widen it.
+   *
+   * `DECLINED` rather than `IGNORED` covers a rule that has since been removed or an application
+   * that has since left scope. `IGNORED` means nothing was ever evaluated and nothing recorded,
+   * which is no longer true once a candidate exists.
+   */
+  fun resolve(
+    snapshot: SilenceSnapshot,
+    packageName: String,
+    filterRuleId: String,
+    matched: Boolean
+  ): SilenceOutcome {
+    val rule = snapshot.rules.firstOrNull { rule -> rule.filterRuleId == filterRuleId }
+    if (rule == null || !inScope(snapshot, packageName)) {
+      return SilenceOutcome(SilenceDecision.DECLINED, filterRuleId)
+    }
+    // A model that says no is the rule not matching, which is recorded the same way the literal
+    // tests failing is. Checked before the stop, exactly as `decide` reports a miss before it
+    // reports a refusal: a rule that did not match was not refused.
+    if (!matched) return SilenceOutcome(SilenceDecision.NO_MATCH, filterRuleId)
+    if (stopped(snapshot, packageName)) {
+      return SilenceOutcome(SilenceDecision.DECLINED, filterRuleId)
+    }
+    return SilenceOutcome(verdict(rule), filterRuleId)
+  }
+
+  /**
+   * Whether the tenant has stopped Relay acting on this application.
+   *
+   * The pause is compared the same way a rule's application test is, because a stop that failed to
+   * apply over a difference in case would fail in the direction that acts on a notification.
+   */
+  private fun stopped(snapshot: SilenceSnapshot, packageName: String): Boolean =
+    snapshot.killSwitchEngaged ||
+      snapshot.disabledPackages.any { value -> normalize(value) == normalize(packageName) }
+
+  /**
+   * The rule's action, as its own observation window qualifies it.
+   *
+   * The rule's flag, not the snapshot's mode: one rule can be authorized while another is still
+   * inside its window, because dry runs do not start or end together.
+   */
+  private fun verdict(rule: SilenceRule): SilenceDecision = when {
+    rule.action == ACTION_SNOOZE && rule.observing -> SilenceDecision.WOULD_SNOOZE
+    rule.action == ACTION_SNOOZE -> SilenceDecision.SNOOZE
+    rule.observing -> SilenceDecision.WOULD_DISMISS
+    else -> SilenceDecision.DISMISS
   }
 
   private fun passes(

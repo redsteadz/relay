@@ -1,9 +1,11 @@
 import Constants from "expo-constants";
 import {
   ingressEnvelopeSchema,
+  notificationSilenceDecisionSchema,
   notificationSilenceOutcomeSchema,
   notificationSilenceSnapshotSchema,
   type IngressEnvelope,
+  type NotificationSilenceDecision,
   type NotificationSilenceOutcome,
   type NotificationSilenceSnapshot,
 } from "@relay/contracts";
@@ -15,6 +17,7 @@ import { demoModeEnabled } from "../../lib/demo/mode";
 import { normalizeNotificationAppChoices } from "../../lib/notification-capture";
 import NativeRelayDeviceIngress, {
   type NativeDeviceCapabilities,
+  type NativePendingSilence,
   type NativeSilenceOutcome,
   type NotificationCapturePreview,
   type SelectableNotificationApp,
@@ -25,6 +28,7 @@ import NativeRelayDeviceIngress, {
 export type RelayBuildVariant = keyof typeof buildConstants.buildVariants;
 export type DeviceCapabilities = NativeDeviceCapabilities & { buildVariant: RelayBuildVariant };
 export type {
+  NativePendingSilence,
   NotificationCapturePreview,
   SelectableNotificationApp,
   SmsCapturePreview,
@@ -65,6 +69,14 @@ function parseRetainedContent(raw: string): RetainedCaptureContent | undefined {
 
 /** How much history one review reads. Bounded natively too; this is the ordinary page. */
 export const SILENCE_OUTCOME_LIMIT = 200;
+
+/**
+ * How many candidates one pass is handed.
+ *
+ * Matches `SILENCE_OUTCOME_MAX_PENDING` natively and `DEVICE_SEMANTIC_PASS_LIMIT` in filing, because
+ * all three bound the same thing: requests to a model the reader is hosting themselves.
+ */
+export const PENDING_SILENCE_LIMIT = 8;
 
 /**
  * One ledger row, as the wire contract defines it.
@@ -270,6 +282,50 @@ const RelayDeviceIngress = {
             currentCaptureGeneration(),
           );
     return rows.flatMap((row) => parseSilenceOutcome(row) ?? []);
+  },
+  /**
+   * The notifications waiting on a model, for the pass that can ask one.
+   *
+   * Empty on anything but a prepared Android device, and empty while quieting is off or stopped --
+   * the device decides that, not this, so a candidate is never offered under a stop. Demo mode has
+   * no shade to act on, so it has nothing pending either.
+   */
+  async getPendingNotificationSilences(
+    tenantId: string,
+    limit = PENDING_SILENCE_LIMIT,
+  ): Promise<NativePendingSilence[]> {
+    if (demoModeEnabled()) return [];
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return [];
+    return NativeRelayDeviceIngress.getPendingNotificationSilences(
+      tenantId,
+      limit,
+      currentCaptureGeneration(),
+    );
+  },
+  /**
+   * Hands the device a model's answer about one candidate.
+   *
+   * `matched` is an input and not the decision. The device re-reads the rule, the stop and the
+   * application scope before it touches a notification, so this call cannot authorize anything the
+   * reader has not -- see `resolvePendingSilences`. The returned verdict is what was recorded;
+   * `undefined` means the candidate was already resolved, expired, or cleared.
+   */
+  async resolveNotificationSilence(
+    tenantId: string,
+    envelopeId: string,
+    matched: boolean,
+  ): Promise<NotificationSilenceDecision | undefined> {
+    if (demoModeEnabled()) return undefined;
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return undefined;
+    const decision = await NativeRelayDeviceIngress.resolveNotificationSilence(
+      tenantId,
+      envelopeId,
+      matched,
+      currentCaptureGeneration(),
+    );
+    if (decision === null) return undefined;
+    const parsed = notificationSilenceDecisionSchema.safeParse(decision);
+    return parsed.success ? parsed.data : undefined;
   },
   /** The observation counts the enable transition records as its evidence. */
   async getNotificationSilenceCounts(

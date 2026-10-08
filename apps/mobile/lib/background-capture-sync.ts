@@ -12,6 +12,10 @@
  * and the background run is the foreground run with a different trigger. See
  * [ADR-0018](../../../docs/decisions/0018-background-capture-delivery.md).
  *
+ * It carries the deferred quiet pass for the same reason. A notification listener cannot reach a
+ * model, so a rule with a semantic clause records a candidate and leaves the notification alone; a
+ * reader who has not opened Relay would otherwise never get the answer (ADR-0019).
+ *
  * Two things this deliberately does not do. It does not promise immediacy: WorkManager's floor is a
  * fifteen-minute inexact interval and Doze stretches it further, so the UI says a capture arrives
  * without the app being opened rather than that it arrives now. And it does not run unless the
@@ -23,6 +27,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as BackgroundTask from "expo-background-task";
 import * as TaskManager from "expo-task-manager";
 import { Platform } from "react-native";
+
+import { resolvePendingSilencesForTenant } from "@/features/silence/api/silenceResolution";
 
 import { demoModeEnabled } from "./demo/mode";
 import { logMobileError } from "./observability";
@@ -82,6 +88,22 @@ export async function runBackgroundCaptureSync(): Promise<BackgroundSyncOutcome>
   if (session === null) return "no-session";
 
   await syncDeviceCaptures(session);
+
+  // The other thing that cannot happen without a running app. A notification listener cannot reach a
+  // model, so a rule carrying a semantic clause records a candidate and leaves the notification
+  // alone; this is the only pass a reader who has not opened Relay will get. It comes after delivery
+  // because delivery is what this task exists for and must not be held behind a model that answers
+  // in seconds -- or not at all. Its own failure is reported on its own terms rather than failing
+  // the run, since the captures are already uploaded by here.
+  try {
+    await resolvePendingSilencesForTenant(client, session.user.id);
+  } catch (error: unknown) {
+    logMobileError("background.silence_resolution_failed", error, {
+      code: "BACKGROUND_SILENCE_RESOLUTION_FAILED",
+      integration: "relay-device-ingress",
+      operation: "resolvePendingSilencesForTenant",
+    });
+  }
   return "delivered";
 }
 

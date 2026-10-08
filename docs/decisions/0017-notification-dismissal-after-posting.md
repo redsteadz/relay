@@ -11,7 +11,8 @@ owners: maintainers
 The product promise is a quieter phone, and the gates for acting on a source notification were
 already written. [#38](https://github.com/redsteadz/relay/issues/38) requires an explicit application
 predicate, no semantic clause, a completed dry-run period, a reviewed match/miss history, an explicit
-enable transition, an audit record, and kill switches. `filter_rules.dismiss_source_notification` and
+enable transition, an audit record, and kill switches. (The semantic restriction was lifted by
+[ADR-0019](0019-device-semantic-evaluation.md); every other gate here stands unchanged.) `filter_rules.dismiss_source_notification` and
 `filter_rules.dismissal_dry_run_completed_at` have existed since the initial schema. Nothing read
 either column, and `RelayNotificationListenerService` had no cancellation capability at all.
 
@@ -87,8 +88,8 @@ row — so the "an edit costs another window" behaviour is structural rather tha
 **Authorization is the database's; the device holds a cache.** A rule may act only when
 `authorized_at` is set, and the only writers are `start_notification_dismissal_dry_run_v1`,
 `complete_notification_dismissal_dry_run_v1`, and `set_notification_dismissal_v1`. They validate the
-deterministic plan, the absence of a semantic clause, and an explicit `source.applicationId`
-predicate that every satisfying assignment of the expression passes through; they measure the dry-run
+deterministic plan and an explicit `source.applicationId` predicate that every satisfying assignment
+of the expression passes through; they measure the dry-run
 window on the server clock between two calls, so a device cannot report a window it never ran; and
 each writes `audit_log` in the same statement as the change. Two check constraints carry the gate in
 the schema as well: nothing may be authorized without a completed window, and a window cannot
@@ -137,10 +138,16 @@ uses.
 
 ### What this does not relax
 
-Category, AI result, and confidence alone can never authorize acting on a notification. The compiler
-refuses a `category` predicate outright, so the device cannot express the rule that would violate
-this even if asked to. A semantic clause disqualifies a plan in the contract, in the database check,
-and again in the compiler.
+Category, AI result, and confidence **alone** can never authorize acting on a notification. The
+compiler refuses a `category` predicate outright, so the device cannot express the rule that would
+violate this even if asked to. The deterministic part of a plan is required in the database routine
+and again in the compiler, so a rule that is only a model's judgement is refused at both ends.
+
+A semantic clause alongside that deterministic part no longer disqualifies a plan;
+[ADR-0019](0019-device-semantic-evaluation.md) lifted that and records why. The substance of this
+section is unchanged: a model answers one question inside a scope a person wrote, named an
+application in, observed, and reviewed. It never selects the application, the action, or whether the
+rule may act.
 
 ## Schema conflict resolved in the same change
 

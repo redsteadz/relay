@@ -230,6 +230,85 @@ class RelayDeviceIngressModule : Module() {
       }
     }
 
+    /**
+     * The notifications waiting on a model, for the pass that can ask one.
+     *
+     * Nothing is returned while quieting is off or stopped. A candidate that cannot act is not worth
+     * a request to the reader's own model, and an answer obtained under a stop would be an answer
+     * Relay was not authorized to seek.
+     */
+    AsyncFunction("getPendingNotificationSilences") {
+      tenantId: String, limit: Int, generation: Double ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        val snapshot = NotificationSilenceSettings(context).read(tenantId)
+        if (snapshot.mode == "off" || snapshot.killSwitchEngaged) {
+          emptyList()
+        } else {
+          queue.pendingSilenceOutcomes(tenantId, limit)
+        }
+      }
+    }
+
+    /**
+     * Finishes one deferred decision, with the model's answer as an input and nothing more.
+     *
+     * JavaScript supplies `matched` and this decides what it permits. Everything that authorizes an
+     * act -- whether the rule still exists, whether the application is still in scope, the stop, the
+     * rule's own observation window -- is re-read here from the current snapshot, so a reader who
+     * withdrew the capability while a model was thinking is obeyed. That is ADR-0003's ordering kept
+     * intact across a boundary the deferral introduced: a model narrows what was already authorized
+     * and can never widen it, and it never names the notification or the action.
+     *
+     * The returned verdict is what was recorded, so a caller can report it without deciding it.
+     */
+    AsyncFunction("resolveNotificationSilence") {
+      tenantId: String, envelopeId: String, matched: Boolean, generation: Double ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        val pending = queue.pendingSilenceOutcome(tenantId, envelopeId)
+        if (pending == null) {
+          // Resolved by another pass, expired, or cleared by a withdrawal. Not an error, and not a
+          // reason to act.
+          null
+        } else {
+          val applicationId = pending["applicationId"] as String
+          val filterRuleId = pending["filterRuleId"] as String
+          val snapshot = NotificationSilenceSettings(context).read(tenantId)
+          val outcome =
+            NotificationSilencePolicy.resolve(snapshot, applicationId, filterRuleId, matched)
+          val acting =
+            outcome.decision == SilenceDecision.SNOOZE || outcome.decision == SilenceDecision.DISMISS
+          // The key is looked up before the verdict is written, because a notification that is gone
+          // gets a different verdict. Recorded before acting either way, so a crash in between
+          // leaves a record of an act that did not happen rather than an act with no record.
+          val key = if (acting) RelayNotificationListenerService.postedKey(envelopeId) else null
+          val decision =
+            if (acting && key == null) SilenceDecision.NO_LONGER_POSTED else outcome.decision
+          queue.recordSilenceOutcome(
+            tenantId,
+            envelopeId,
+            applicationId,
+            filterRuleId,
+            decision.wireName(),
+            System.currentTimeMillis()
+          )
+          if (key != null) {
+            val action =
+              if (decision == SilenceDecision.SNOOZE) {
+                NotificationSilencePolicy.ACTION_SNOOZE
+              } else {
+                NotificationSilencePolicy.ACTION_DISMISS
+              }
+            RelayNotificationListenerService.actOnKey(key, action)
+          }
+          decision.wireName()
+        }
+      }
+    }
+
     /** The observation counts the enable transition records as evidence. */
     AsyncFunction("getNotificationSilenceCounts") {
       tenantId: String, filterRuleId: String, since: Double, generation: Double ->

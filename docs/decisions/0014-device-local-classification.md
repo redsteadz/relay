@@ -44,6 +44,11 @@ The device decides deterministically only. It never holds the tenant's model cre
 semantic clause is reported as awaiting a model and files nothing — a database check constraint
 refuses a `device` row that claims a `semantic` method.
 
+> **Amended by [ADR-0019](0019-device-semantic-evaluation.md).** The device may hold a credential for
+> an endpoint its reader configured, and may evaluate a semantic clause against it. That was an
+> architecture boundary rather than a platform limit. The check constraint on classification method
+> stands: a device-filed classification is still recorded as `device`, because the device made it.
+
 Field availability is declared before evaluation rather than inferred. A capture Relay received
 through Gmail keeps its body only in `raw_ciphertext`, encrypted to a key the device does not hold,
 while a capture the device made itself keeps a local copy for thirty days. The evaluator cannot tell
@@ -86,8 +91,12 @@ It does **not** supersede [ADR-0002](0002-cloudflare-processing-boundary.md): no
 credential moves to the device.
 
 It does **not** supersede [ADR-0003](0003-deterministic-before-ai.md). Deterministic-before-AI is
-strengthened rather than bent — the device is structurally incapable of semantic evaluation, so
-deterministic predicates are the only thing it can run.
+strengthened rather than bent — the device runs the deterministic predicates first and a capture
+reaches a model only once they have matched.
+
+[ADR-0019](0019-device-semantic-evaluation.md) amends the credential limit above. The reasoning
+recorded here — that the device was _structurally incapable_ of semantic evaluation — was wrong: it
+described a boundary this project had drawn, not one the platform imposed.
 
 ## References
 

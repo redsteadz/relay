@@ -45,16 +45,44 @@ function status(
 function row(
   stage: SilenceRuleStatus["stage"],
   options: {
+    awaitsModel?: boolean;
     killSwitchEngaged?: boolean;
+    modelConfigured?: boolean;
     refusal?: SilenceRuleStatus["refusal"];
     remainingHours?: number;
     rule?: Partial<SilenceAuthorization>;
   } = {},
 ) {
-  return silenceRuleRow(status(stage, options.rule ?? {}, options.refusal), {
-    killSwitchEngaged: options.killSwitchEngaged ?? false,
-    remainingHours: options.remainingHours ?? 72,
-  });
+  const base = status(stage, options.rule ?? {}, options.refusal);
+  return silenceRuleRow(
+    options.awaitsModel === undefined
+      ? base
+      : {
+          ...base,
+          compiled: {
+            action: base.rule.action,
+            awaitsModel: options.awaitsModel,
+            clauses: [
+              {
+                tests: [
+                  {
+                    field: "source.applicationId",
+                    operator: "equals",
+                    values: ["com.courier.app"],
+                  },
+                ],
+              },
+            ],
+            filterRuleId: base.rule.id,
+            observing: stage === "observing",
+          },
+        },
+    {
+      killSwitchEngaged: options.killSwitchEngaged ?? false,
+      modelConfigured: options.modelConfigured ?? true,
+      remainingHours: options.remainingHours ?? 72,
+    },
+  );
 }
 
 describe("the control a row offers", () => {
@@ -137,9 +165,53 @@ describe("what a row says", () => {
     expect(dismissing.detail).toContain("Nothing brings them back");
   });
 
+  // A rule that asks a model acts on the next pass, not as the notification arrives, and the copy
+  // must not promise a speed it cannot deliver.
+  it("says a rule asking a model acts a few minutes later", () => {
+    const deferred = row("acting", { awaitsModel: true, rule: { action: "snooze" } });
+    expect(deferred.detail).toContain("a few minutes after they arrive");
+    expect(deferred.detail).not.toContain("put away for two hours once they arrive");
+
+    const immediate = row("acting", { awaitsModel: false, rule: { action: "snooze" } });
+    expect(immediate.detail).toContain("once they arrive");
+    expect(immediate.detail).not.toContain("a few minutes");
+  });
+
+  // Authorizing such a rule with no endpoint configured would otherwise read as working. The screen
+  // must not make a promise the device cannot keep.
+  it("says plainly when a rule asks a model this phone does not have", () => {
+    const result = row("acting", { awaitsModel: true, modelConfigured: false });
+    expect(result.pill.label).toBe("Waiting on a model");
+    expect(result.detail).toContain("no model is set up");
+    expect(result.detail).toContain("Your data");
+  });
+
+  // The stop outranks it. A reader who stopped everything is told that, not told to go configure a
+  // model for a rule that could not act anyway.
+  it("reports the stop ahead of a missing model", () => {
+    const result = row("acting", {
+      awaitsModel: true,
+      killSwitchEngaged: true,
+      modelConfigured: false,
+    });
+    expect(result.pill.label).toBe("Stopped");
+  });
+
+  it("says an observing rule records nothing without the model it asks", () => {
+    const result = row("observing", {
+      awaitsModel: true,
+      modelConfigured: false,
+      remainingHours: 40,
+    });
+    expect(result.detail).toContain("record nothing");
+    expect(result.detail).not.toContain("40 hours left");
+  });
+
   it("explains a refusal in terms of the rule", () => {
     expect(row("refused", { refusal: "unreadable-field" }).detail).toContain("does not exist yet");
-    expect(row("refused", { refusal: "awaits-model" }).detail).toContain("model");
+    expect(row("refused", { refusal: "no-deterministic-clause" }).detail).toContain(
+      "no conditions",
+    );
     expect(row("refused", { refusal: "unbounded-application" }).detail).toContain("name an app");
   });
 });
@@ -220,6 +292,7 @@ describe("the apps a person can silence themselves", () => {
             ],
           },
         ],
+        awaitsModel: false,
         filterRuleId,
         observing: false,
       },

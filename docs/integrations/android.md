@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-10-05
+last_verified: 2026-10-08
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -142,11 +142,11 @@ window, the evidence and `authorized_at`, the same way `hidden_inbox_events` sit
 **Authorization is the database's; the device holds a cache.** A rule may act only when
 `authorized_at` is set, and the only writers are `start_notification_dismissal_dry_run_v1`,
 `complete_notification_dismissal_dry_run_v1` and `set_notification_dismissal_v1`. They validate the
-deterministic plan, the absence of a semantic clause, and an explicit `source.applicationId`
-predicate that every satisfying assignment of the expression passes through; they measure the dry-run
-window on the server clock between two calls; and each writes `audit_log` in the same statement. The
-app writes the resulting snapshot natively with a monotonic revision, so a sync that loses a race
-cannot reinstate withdrawn authorization.
+deterministic plan and an explicit `source.applicationId` predicate that every satisfying assignment
+of the expression passes through; they measure the dry-run window on the server clock between two
+calls; and each writes `audit_log` in the same statement. The app writes the resulting snapshot
+natively with a monotonic revision, so a sync that loses a race cannot reinstate withdrawn
+authorization.
 
 **What the device may evaluate is narrower than what a rule may say.** The decision runs in a
 system-bound process with the app dead, holding a `StatusBarNotification` and nothing else, so
@@ -157,6 +157,19 @@ refuses negation, `sender`, `body`, `category`, `attributes.*`, and anything exc
 exactly — NFKC, collapse the JavaScript `\s` class, trim, lowercase `en-US` — and both suites assert
 the same vectors. A rule can be authorized server-side and still refused here; that is reported
 rather than hidden.
+
+**A rule that asks a model acts on a later pass.** A plan may carry a semantic clause as well as its
+deterministic part, and the compiled rule is marked `awaitsModel`. The listener cannot reach an
+endpoint — it is a system-bound process with no session — so such a notification is recorded as
+`awaiting-model` and left alone. The next time the app runs, on open or on the background delivery
+task, `resolvePendingSilences` asks the endpoint the reader configured and hands the answer to
+`resolveNotificationSilence`, which re-reads the rule, the kill switch and the application scope
+before touching anything. The notification is found again by re-deriving capture identity across
+`activeNotifications` with the same function that recorded it, so no notification key is stored. A
+notification already gone by then is recorded as `no-longer-posted` rather than claimed as quieted,
+and a model that does not answer leaves the candidate for a later pass. The deterministic part stays
+required: it is what bounds both the rule's scope and how often a model is asked anything. See
+[ADR-0019](../decisions/0019-device-semantic-evaluation.md).
 
 Scope is the capture allowlist intersected with the applications a rule names. A notification no rule
 names is never evaluated and never recorded, so the ledger cannot become a log of every app a person

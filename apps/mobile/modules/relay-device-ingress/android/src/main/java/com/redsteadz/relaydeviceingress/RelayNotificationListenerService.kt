@@ -14,13 +14,51 @@ import android.service.notification.StatusBarNotification
 private const val SNOOZE_DURATION_MS = 2L * 60 * 60 * 1000
 
 class RelayNotificationListenerService : NotificationListenerService() {
+  /**
+   * The one thing only a bound listener can do, reachable from the app process.
+   *
+   * Android offers no API for cancelling or snoozing a notification from outside a bound
+   * `NotificationListenerService`, and the deferred half of quieting needs exactly that: a model is
+   * asked in JavaScript, after the notification was posted, and something then has to act. The
+   * alternatives were a second native service or storing Android's notification key, and the key is
+   * worse -- a durable handle to someone else's notification, kept for no other purpose. A capture
+   * identity Relay already derived is enough, because it can be derived again from the shade.
+   *
+   * The reference is held only while the system says the listener is bound, and the shade is never
+   * read for its own sake: both functions answer about identities this device already recorded.
+   */
+  internal companion object {
+    @Volatile private var bound: RelayNotificationListenerService? = null
+
+    /**
+     * Android's key for a notification Relay captured, if that notification is still on screen.
+     *
+     * `null` also when no listener is bound, which is the same answer for the caller's purpose:
+     * nothing can be acted on. Separate from acting so a verdict can be recorded first -- see
+     * `actOnKey`.
+     */
+    fun postedKey(envelopeId: String): String? = bound?.keyFor(envelopeId)
+
+    /** Snoozes or cancels one notification by the key `postedKey` just returned. */
+    fun actOnKey(key: String, action: String): Boolean = bound?.applyAction(key, action) ?: false
+  }
+
   override fun onListenerConnected() {
     NotificationDebugDiagnostics.event("listener connected")
+    bound = this
     captureAlreadyPosted()
   }
 
   override fun onListenerDisconnected() {
     NotificationDebugDiagnostics.event("listener disconnected")
+    bound = null
+  }
+
+  override fun onDestroy() {
+    // `onListenerDisconnected` is not guaranteed on every teardown, and a reference to a destroyed
+    // service would act on a shade it can no longer read.
+    bound = null
+    super.onDestroy()
   }
 
   override fun onNotificationPosted(notification: StatusBarNotification) {
@@ -109,6 +147,57 @@ class RelayNotificationListenerService : NotificationListenerService() {
     } catch (error: RuntimeException) {
       // A failure leaves the notification where it is, which is the safe direction.
       NotificationDebugDiagnostics.failure("quiet decision threw an exception", error)
+    }
+  }
+
+  /**
+   * Re-derives capture identity across the shade to find one notification again.
+   *
+   * The same function that built the identity, over the same three visible values, so an unchanged
+   * notification yields the identity it was recorded under. An edited one does not, and that is
+   * correct: the reader's rule was judged against what the notification said at the time, and the
+   * replacement is a different observation that the live path decides about on its own.
+   */
+  private fun keyFor(envelopeId: String): String? {
+    val active =
+      try {
+        activeNotifications
+      } catch (error: RuntimeException) {
+        NotificationDebugDiagnostics.failure("active notifications unavailable", error)
+        return null
+      } ?: return null
+    return active.firstOrNull { notification ->
+        val visible = NotificationEnvelopeFactory.view(notification.notification)
+        NotificationEnvelopeFactory.envelopeId(
+          notification.packageName,
+          notification.key,
+          visible.subject,
+          visible.body,
+          visible.sender
+        ) == envelopeId
+      }
+      ?.key
+  }
+
+  /**
+   * Snoozes or cancels one notification, and refuses anything else.
+   *
+   * The key is one this service produced from its own shade a moment ago, never a value that crossed
+   * the bridge. An unrecognised action does nothing rather than defaulting to either act: the two
+   * differ in whether the notification comes back.
+   */
+  private fun applyAction(key: String, action: String): Boolean {
+    return try {
+      when (action) {
+        NotificationSilencePolicy.ACTION_SNOOZE -> snoozeNotification(key, SNOOZE_DURATION_MS)
+        NotificationSilencePolicy.ACTION_DISMISS -> cancelNotification(key)
+        else -> return false
+      }
+      true
+    } catch (error: RuntimeException) {
+      // The notification stays where it is, which is the safe direction.
+      NotificationDebugDiagnostics.failure("deferred quiet threw an exception", error)
+      false
     }
   }
 

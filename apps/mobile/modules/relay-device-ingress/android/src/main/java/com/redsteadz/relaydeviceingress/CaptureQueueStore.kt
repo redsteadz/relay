@@ -32,6 +32,15 @@ internal const val CAPTURE_MAX_ITEMS = 500
 internal const val SILENCE_OUTCOME_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000
 internal const val SILENCE_OUTCOME_MAX_ITEMS = 1000
 
+/**
+ * The verdict that is not final, and how many of them one pass is handed.
+ *
+ * The cap matches the eight clauses `resolveAwaitingModel` resolves per filing pass, because this is
+ * the same bound on the same thing: requests to a model the reader is hosting themselves.
+ */
+internal const val PENDING_SILENCE_DECISION = "awaiting-model"
+internal const val SILENCE_OUTCOME_MAX_PENDING = 8
+
 internal class CaptureQueueStore(context: Context) :
   SQLiteOpenHelper(context, "relay-capture.db", null, 4) {
   private val crypto = CaptureQueueCrypto()
@@ -171,6 +180,68 @@ internal class CaptureQueueStore(context: Context) :
     }
     return result
   }
+
+  /**
+   * The notifications whose rule still owes a model's answer, oldest first.
+   *
+   * Oldest first, and bounded, for the same reason the connection sweep is: a backlog is worked in
+   * the order the notifications arrived, and one pass asks a model about a few of them rather than
+   * all of them. Quieting a notification is only worth anything while it is still on screen, so a
+   * pass that fell behind is better off making progress than making every request.
+   *
+   * `awaiting-model` is the only decision read back here because it is the only one that is not
+   * final. Every other row is history.
+   */
+  fun pendingSilenceOutcomes(tenantId: String, limit: Int): List<Map<String, Any>> {
+    expireSilenceOutcomes(writableDatabase, System.currentTimeMillis())
+    val bounded = limit.coerceIn(1, SILENCE_OUTCOME_MAX_PENDING)
+    val result = mutableListOf<Map<String, Any>>()
+    readableDatabase.query(
+      "silence_outcome",
+      arrayOf("envelope_id", "application_id", "filter_rule_id", "decided_at"),
+      "tenant_id=? AND decision=?",
+      arrayOf(tenantId, PENDING_SILENCE_DECISION),
+      null,
+      null,
+      "decided_at ASC",
+      bounded.toString()
+    ).use { cursor ->
+      while (cursor.moveToNext()) {
+        // A candidate with no rule cannot be resolved against one, and the live path never writes
+        // one. Skipped rather than reported, so the pass is not handed a row it cannot finish.
+        if (cursor.isNull(2)) continue
+        result += mapOf(
+          "envelopeId" to cursor.getString(0),
+          "applicationId" to cursor.getString(1),
+          "filterRuleId" to cursor.getString(2),
+          "decidedAt" to cursor.getLong(3)
+        )
+      }
+    }
+    return result
+  }
+
+  /**
+   * One candidate, or nothing.
+   *
+   * Re-read at the moment of acting rather than trusted from the listing, because the row may have
+   * been resolved by another pass, expired, or cleared by a withdrawal in between. Nothing here is a
+   * reason to act.
+   */
+  fun pendingSilenceOutcome(tenantId: String, envelopeId: String): Map<String, Any>? =
+    readableDatabase.query(
+      "silence_outcome",
+      arrayOf("application_id", "filter_rule_id"),
+      "tenant_id=? AND envelope_id=? AND decision=?",
+      arrayOf(tenantId, envelopeId, PENDING_SILENCE_DECISION),
+      null,
+      null,
+      null,
+      "1"
+    ).use { cursor ->
+      if (!cursor.moveToNext() || cursor.isNull(1)) return null
+      mapOf("applicationId" to cursor.getString(0), "filterRuleId" to cursor.getString(1))
+    }
 
   /**
    * How much one rule was observed deciding, which is the evidence the enable transition records.

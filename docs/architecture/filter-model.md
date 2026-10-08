@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-30
+last_verified: 2026-10-08
 ---
 
 # Filter Model
@@ -11,7 +11,9 @@ inspectable deterministic predicates and, only when necessary, an explicit seman
 
 Evaluation has three results: `match`, `no-match`, and `undecided`. A failed deterministic
 predicate is `no-match`. A passing plan without semantic clause is `match`. A passing plan with a
-semantic clause is `undecided` until minimized fields are evaluated through the user's OpenAI key.
+semantic clause is `undecided` until minimized fields are evaluated through an OpenAI-compatible
+endpoint — the pipeline's, using the account's BYOK key, or one the reader configured on their own
+device ([ADR-0019](../decisions/0019-device-semantic-evaluation.md)).
 
 Every semantic clause declares allowed fields and minimum confidence. Relay records model,
 disclosed fields, redactions, purpose, confidence, and rationale. Low confidence remains
@@ -63,9 +65,16 @@ over `body` normalizes a megabyte-sized body once rather than once per predicate
 ## Semantic Evaluation
 
 A plan that passes deterministically and carries a semantic clause is `undecided` until the clause
-is resolved through the user's own OpenAI key. `evaluateFilterWithSemantics` in `apps/pipeline`
+is resolved through an OpenAI-compatible endpoint. `evaluateFilterWithSemantics` in `apps/pipeline`
 runs the deterministic evaluator first and only then loads a credential, so a plan the user already
 excluded is never disclosed in order to discover that it was excluded.
+
+The device can resolve the same clause against an endpoint its reader configured, which is local by
+default and never uploads its key ([ADR-0019](../decisions/0019-device-semantic-evaluation.md)). Both
+paths run the same minimization, the same field allowlist and the same confidence threshold from
+`packages/domain`; only the credential and the host differ, and the disclosure records which answered.
+The ordering above holds identically on the device, and for notification quieting it is what bounds
+how often a model is asked anything.
 
 ### Minimization
 

@@ -15,6 +15,7 @@ import {
   StatusPill,
 } from "@/components/ui";
 import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
+import { useDeviceModel } from "@/features/privacy/hooks/useDeviceModel";
 import { useAuth } from "@/lib/auth-context";
 import { remainingWindowHours } from "@/lib/notification-silence";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
@@ -57,6 +58,9 @@ export function QuietScreen() {
   const tenantId = session?.user.id;
   const { capabilities, refresh: refreshCapabilities } = useDeviceCaptureCapabilities();
   const silence = useNotificationSilence(client, tenantId);
+  // A rule that asks a model decides nothing without one, so the rows have to know whether this
+  // phone has an endpoint rather than describing an effect that cannot happen (ADR-0019).
+  const { config: deviceModel } = useDeviceModel(tenantId);
 
   // Until the first capability read lands, report the state that promises least. A screen that
   // briefly claims a capability it has not confirmed is worse than one that waits a frame.
@@ -71,6 +75,7 @@ export function QuietScreen() {
       silence.statuses.map((status) =>
         silenceRuleRow(status, {
           killSwitchEngaged: silence.killSwitchEngaged,
+          modelConfigured: deviceModel !== undefined,
           remainingHours: remainingWindowHours(
             status.rule.dryRunStartedAt,
             silence.minimumWindowHours,
@@ -78,7 +83,7 @@ export function QuietScreen() {
           ),
         }),
       ),
-    [silence.killSwitchEngaged, silence.minimumWindowHours, silence.statuses],
+    [deviceModel, silence.killSwitchEngaged, silence.minimumWindowHours, silence.statuses],
   );
 
   if (session === null || tenantId === undefined) {
@@ -139,7 +144,7 @@ export function QuietScreen() {
         <LoadingState label="Reading which rules are allowed to clear notifications" />
       ) : rows.length === 0 ? (
         <EmptyState
-          detail="A rule here has to name an app exactly and decide without a model. Write one in Rules and it will appear here."
+          detail="A rule here has to name an app exactly, using “is” rather than a description. Write one in Rules and it will appear here."
           title="No rule can clear notifications yet"
         />
       ) : (

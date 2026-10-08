@@ -83,13 +83,18 @@ entry points and cross-milestone flow without copying issue prose.
 Acting on a notification spans three milestones, so its entry points are listed together rather
 than split across them. [ADR-0017](../decisions/0017-notification-dismissal-after-posting.md) is the
 authority on the mechanism -- including why Relay clears a notification rather than silencing one --
-and [ADR-0018](../decisions/0018-background-capture-delivery.md) on delivery.
+[ADR-0018](../decisions/0018-background-capture-delivery.md) on delivery, and
+[ADR-0019](../decisions/0019-device-semantic-evaluation.md) on a rule that asks a model, which acts
+on a later pass rather than as the notification arrives.
 
 - [#38 Notification-dismissal dry run](https://github.com/redsteadz/relay/issues/38) owns the gates.
 - [#158 Dismissal across the reworked surfaces](https://github.com/redsteadz/relay/issues/158) owns
   delivering them in the M6 interface and proving no surface routes around them.
 - [#182 Captures wait for the app to be opened](https://github.com/redsteadz/relay/issues/182) owns
   background delivery.
+- [#201 Pro entitlement](https://github.com/redsteadz/relay/issues/201) owns the gate on the server
+  semantic path. The device path is unmetered and needs no entitlement; only spending Relay's hosted
+  runtime does.
 
 Primary flow:
 

@@ -195,6 +195,13 @@ as $$ select interval '72 hours' $$;
 -- Common validation for a revision a tenant is asking to authorize.
 --
 -- Returns the revision. Raises rather than returning null, so no caller can forget to check.
+--
+-- A semantic clause is allowed, and the deterministic part is still required. The device evaluates
+-- the clause itself against an endpoint its reader configured, and does so only after every literal
+-- predicate has already matched, so the deterministic part is what bounds both the scope of the rule
+-- and how often a model is asked anything. A rule that was only a semantic clause would hand an
+-- unbounded stream of notifications to a model and let it decide the scope, which is the ordering
+-- ADR-0003 exists to prevent. See ADR-0019.
 create function public.dismissible_filter_rule(p_filter_rule_id uuid)
 returns public.filter_rules
 language plpgsql
@@ -216,9 +223,8 @@ begin
     raise exception 'Filter rule is unavailable' using errcode = 'P0002';
   end if;
 
-  if not (rule.plan ? 'deterministic') or rule.plan ? 'semantic' then
-    raise exception 'Acting on a notification needs a deterministic plan with no semantic clause'
-      using errcode = '22023';
+  if not (rule.plan ? 'deterministic') then
+    raise exception 'Acting on a notification needs a deterministic plan' using errcode = '22023';
   end if;
 
   if not public.filter_expression_binds_application(rule.plan -> 'deterministic') then

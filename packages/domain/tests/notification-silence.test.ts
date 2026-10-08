@@ -61,6 +61,34 @@ describe("normalizeSilenceText", () => {
 });
 
 describe("what compiles", () => {
+  /**
+   * A semantic clause is a second step, not a disqualification.
+   *
+   * The literal tests decide that a notification is a candidate and a model decides whether it
+   * matches, so the compiled rule carries the fact that an answer is still owed. The device can
+   * reach a model now (ADR-0019); before, this was refused outright.
+   */
+  it("compiles a rule carrying a semantic clause, marked as awaiting a model", () => {
+    const result = compile(courier, {
+      question: "is this urgent?",
+      minimumConfidence: 0.8,
+      allowedFields: ["subject"],
+    });
+    expect(result.status).toBe("compiled");
+    if (result.status !== "compiled") return;
+    expect(result.rule.awaitsModel).toBe(true);
+    // The application predicate still has to be there: a model answers within the scope the
+    // deterministic part already established, never instead of it.
+    expect(result.rule.clauses[0]?.tests[0]?.field).toBe("source.applicationId");
+  });
+
+  it("marks a purely deterministic rule as owing no answer", () => {
+    const result = compile(courier);
+    expect(result.status).toBe("compiled");
+    if (result.status !== "compiled") return;
+    expect(result.rule.awaitsModel).toBe(false);
+  });
+
   it("compiles a bare application predicate", () => {
     const result = compile(courier);
     expect(result.status).toBe("compiled");
@@ -78,6 +106,7 @@ describe("what compiles", () => {
           ],
         },
       ],
+      awaitsModel: false,
       filterRuleId: RULE_ID,
       observing: false,
     });
@@ -155,13 +184,19 @@ describe("what compiles", () => {
 });
 
 describe("what is refused", () => {
-  it("refuses a plan carrying a semantic clause", () => {
-    const result = compile(courier, {
-      question: "is this urgent?",
-      minimumConfidence: 0.8,
-      allowedFields: ["subject"],
-    });
-    expect(result).toStrictEqual({ refusal: "awaits-model", status: "refused" });
+  // A rule that is only a semantic clause names no application, so it could never act whatever a
+  // model said.
+  it("refuses a plan with no deterministic part", () => {
+    const result = compileNotificationSilenceRule(
+      filterPlanSchema.parse({
+        schemaVersion: 1,
+        compilerVersion: 1,
+        intent: "synthetic intent",
+        semantic: { question: "urgent?", minimumConfidence: 0.8, allowedFields: ["subject"] },
+      }),
+      { action: "snooze", filterRuleId: RULE_ID, observing: false },
+    );
+    expect(result).toStrictEqual({ refusal: "no-deterministic-clause", status: "refused" });
   });
 
   // Absence reads as false, so `not(subject contains "x")` is satisfied by a notification Android

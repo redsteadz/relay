@@ -45,7 +45,6 @@ const SILENCE_READABLE_FIELDS = new Set<string>(["source.applicationId", "source
  * which is a property of how far the expression expands when flattened.
  */
 export type SilenceRefusal =
-  | "awaits-model"
   | "matches-nothing"
   | "negation-unsupported"
   | "no-deterministic-clause"
@@ -188,7 +187,11 @@ export function compileNotificationSilenceRule(
   plan: FilterPlan,
   options: { action: NotificationSilenceAction; filterRuleId: string; observing: boolean },
 ): SilenceCompilation {
-  if (plan.semantic !== undefined) return { refusal: "awaits-model", status: "refused" };
+  // A semantic clause no longer disqualifies a rule. The device can resolve one against an endpoint
+  // the reader configured (ADR-0019), so the clause becomes a second step rather than a refusal:
+  // the literal tests below decide that a notification is a candidate, and a model decides whether
+  // it matches. What has not changed is that the deterministic part must still exist and must still
+  // compile -- a rule that is *only* a semantic clause names no application and could never act.
   if (plan.deterministic === undefined) {
     return { refusal: "no-deterministic-clause", status: "refused" };
   }
@@ -208,6 +211,7 @@ export function compileNotificationSilenceRule(
 
   const rule = notificationSilenceRuleSchema.safeParse({
     action: options.action,
+    awaitsModel: plan.semantic !== undefined,
     clauses,
     filterRuleId: options.filterRuleId,
     observing: options.observing,

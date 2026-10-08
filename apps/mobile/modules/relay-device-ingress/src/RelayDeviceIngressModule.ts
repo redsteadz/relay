@@ -55,6 +55,19 @@ export type NativeSilenceOutcome = {
   filterRuleId?: string;
 };
 
+/**
+ * One notification whose rule is still waiting on a model.
+ *
+ * `filterRuleId` is required, unlike on a recorded outcome: a candidate that names no rule cannot be
+ * resolved against one, and the device omits such a row rather than offering work that cannot finish.
+ */
+export type NativePendingSilence = {
+  applicationId: string;
+  decidedAt: number;
+  envelopeId: string;
+  filterRuleId: string;
+};
+
 type RelayDeviceIngressNativeModule = {
   getCapabilities(): Promise<NativeDeviceCapabilities>;
   getSelectableNotificationApps(): Promise<SelectableNotificationApp[]>;
@@ -139,6 +152,24 @@ type RelayDeviceIngressNativeModule = {
     since: number,
     generation: number,
   ): Promise<{ matched: number; observed: number }>;
+  getPendingNotificationSilences(
+    tenantId: string,
+    limit: number,
+    generation: number,
+  ): Promise<NativePendingSilence[]>;
+  /**
+   * Hands the device a model's answer and gets back what the device did with it.
+   *
+   * `matched` is an input to the decision, never the decision. The device re-reads the rule, the
+   * stop and the application scope before acting, so this cannot authorize anything the reader has
+   * not. `null` means the candidate was already resolved, expired, or cleared.
+   */
+  resolveNotificationSilence(
+    tenantId: string,
+    envelopeId: string,
+    matched: boolean,
+    generation: number,
+  ): Promise<string | null>;
 };
 
 export default requireOptionalNativeModule<RelayDeviceIngressNativeModule>("RelayDeviceIngress");

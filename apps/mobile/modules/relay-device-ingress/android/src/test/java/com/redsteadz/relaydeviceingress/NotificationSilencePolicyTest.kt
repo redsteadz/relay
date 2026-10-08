@@ -28,8 +28,9 @@ class NotificationSilencePolicyTest {
     action: String = NotificationSilencePolicy.ACTION_SNOOZE,
     filterRuleId: String = ruleId,
     observing: Boolean = false,
+    awaitsModel: Boolean = false,
     vararg clauses: SilenceClause
-  ) = SilenceRule(filterRuleId, action, observing, clauses.toList())
+  ) = SilenceRule(filterRuleId, action, observing, awaitsModel, clauses.toList())
 
   private fun snapshot(
     mode: String = "enforcing",
@@ -327,5 +328,139 @@ class NotificationSilencePolicyTest {
       )
     )
     assertFalse(NotificationSilencePolicy.inScope(describing, courier))
+  }
+
+  // Waiting on a model ------------------------------------------------------------------------------
+
+  private val awaiting =
+    snapshot(rules = arrayOf(rule(awaitsModel = true, clauses = arrayOf(courierClause))))
+
+  // The listener runs in a system-bound process with no session and cannot reach an endpoint. A rule
+  // whose semantic clause is unanswered is a candidate, which is neither a match nor a miss.
+  @Test
+  fun `a rule owing a model an answer is recorded as a candidate`() {
+    val outcome = decide(awaiting)
+    assertEquals(SilenceDecision.AWAITING_MODEL, outcome.decision)
+    assertEquals(ruleId, outcome.filterRuleId)
+  }
+
+  // An observing rule that also awaits a model is still only a candidate. Reporting `would-snooze`
+  // here would put an unevaluated clause into the evidence that unlocks enforcement.
+  @Test
+  fun `an observing rule owing an answer is a candidate rather than an observation`() {
+    val observing = snapshot(
+      mode = "dry-run",
+      rules = arrayOf(rule(observing = true, awaitsModel = true, clauses = arrayOf(courierClause)))
+    )
+    assertEquals(SilenceDecision.AWAITING_MODEL, decide(observing).decision)
+  }
+
+  // The stop comes first, so a stopped tenant never produces a candidate and no model is ever asked
+  // about their notification.
+  @Test
+  fun `the kill switch declines before a candidate is created`() {
+    val stopped = snapshot(
+      killSwitchEngaged = true,
+      rules = arrayOf(rule(awaitsModel = true, clauses = arrayOf(courierClause)))
+    )
+    assertEquals(SilenceDecision.DECLINED, decide(stopped).decision)
+  }
+
+  // A notification the literal tests reject never becomes a candidate, which is what bounds how many
+  // requests a reader's own model receives: the rules they wrote select them, not the arrival rate.
+  @Test
+  fun `a literal miss is not a candidate`() {
+    val narrowed = snapshot(
+      rules = arrayOf(
+        rule(
+          awaitsModel = true,
+          clauses = arrayOf(
+            SilenceClause(
+              listOf(
+                test("source.applicationId", "equals", courier),
+                test("subject", "contains", "delivered")
+              )
+            )
+          )
+        )
+      )
+    )
+    assertEquals(SilenceDecision.NO_MATCH, decide(narrowed, subject = "Order placed").decision)
+  }
+
+  // Resolving a candidate ---------------------------------------------------------------------------
+
+  private fun resolve(snapshot: SilenceSnapshot, matched: Boolean, packageName: String = courier) =
+    NotificationSilencePolicy.resolve(snapshot, packageName, ruleId, matched)
+
+  @Test
+  fun `a model answering yes authorizes the rules own action`() {
+    val outcome = resolve(awaiting, matched = true)
+    assertEquals(SilenceDecision.SNOOZE, outcome.decision)
+    assertEquals(ruleId, outcome.filterRuleId)
+  }
+
+  @Test
+  fun `a model answering no is recorded as a miss`() {
+    val outcome = resolve(awaiting, matched = false)
+    assertEquals(SilenceDecision.NO_MATCH, outcome.decision)
+    assertEquals(ruleId, outcome.filterRuleId)
+  }
+
+  // The whole point of re-reading the snapshot. Asking a model takes time, and a reader who stopped
+  // Relay inside that time is obeyed rather than raced.
+  @Test
+  fun `a stop engaged while a model was thinking declines the answer`() {
+    val stopped = snapshot(
+      killSwitchEngaged = true,
+      rules = arrayOf(rule(awaitsModel = true, clauses = arrayOf(courierClause)))
+    )
+    assertEquals(SilenceDecision.DECLINED, resolve(stopped, matched = true).decision)
+  }
+
+  @Test
+  fun `an application paused while a model was thinking declines the answer`() {
+    val paused = snapshot(
+      disabledPackages = setOf(courier),
+      rules = arrayOf(rule(awaitsModel = true, clauses = arrayOf(courierClause)))
+    )
+    assertEquals(SilenceDecision.DECLINED, resolve(paused, matched = true).decision)
+  }
+
+  // A rule the reader deleted, or one replaced by a new revision under a new id, cannot act on an
+  // answer that was sought on its behalf.
+  @Test
+  fun `an answer for a rule that no longer exists declines`() {
+    val replaced = snapshot(
+      rules = arrayOf(rule(filterRuleId = otherRuleId, clauses = arrayOf(courierClause)))
+    )
+    assertEquals(SilenceDecision.DECLINED, resolve(replaced, matched = true).decision)
+  }
+
+  @Test
+  fun `an observing rule records what it would have done`() {
+    val observing = snapshot(
+      mode = "dry-run",
+      rules = arrayOf(
+        rule(
+          action = NotificationSilencePolicy.ACTION_DISMISS,
+          observing = true,
+          awaitsModel = true,
+          clauses = arrayOf(courierClause)
+        )
+      )
+    )
+    assertEquals(SilenceDecision.WOULD_DISMISS, resolve(observing, matched = true).decision)
+  }
+
+  // A miss is reported as a miss even under a stop, exactly as `decide` reports a miss before it
+  // reports a refusal: a rule that did not match was not refused.
+  @Test
+  fun `a stop does not turn a miss into a refusal`() {
+    val stopped = snapshot(
+      killSwitchEngaged = true,
+      rules = arrayOf(rule(awaitsModel = true, clauses = arrayOf(courierClause)))
+    )
+    assertEquals(SilenceDecision.NO_MATCH, resolve(stopped, matched = false).decision)
   }
 }

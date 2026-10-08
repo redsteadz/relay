@@ -141,13 +141,41 @@ describe("what reaches the device", () => {
   });
 });
 
+describe("a rule that asks a model", () => {
+  const SEMANTIC = { allowedFields: ["subject"], minimumConfidence: 0.8, question: "urgent?" };
+
+  // It used to be refused outright. The device can reach an endpoint its reader configured, so the
+  // rule compiles and carries the flag that says it may not act until a model has answered.
+  it("compiles, marked as owing a model an answer", () => {
+    const result = compile([
+      rule({ dryRunStartedAt: "2026-10-01T00:00:00.000Z", plan: plan(COURIER, SEMANTIC) }),
+    ]);
+    expect(result.statuses[0]?.stage).toBe("observing");
+    expect(result.snapshot.rules).toHaveLength(1);
+    expect(result.snapshot.rules[0]?.awaitsModel).toBe(true);
+  });
+
+  // The literal tests still reach the device. They are what the listener evaluates before anything
+  // is a candidate, so they are also what bounds how often a model is asked anything.
+  it("keeps the deterministic tests the listener evaluates first", () => {
+    const result = compile([
+      rule({ dryRunStartedAt: "2026-10-01T00:00:00.000Z", plan: plan(COURIER, SEMANTIC) }),
+    ]);
+    expect(result.snapshot.rules[0]?.clauses).toStrictEqual([
+      {
+        tests: [{ field: "source.applicationId", operator: "equals", values: ["com.courier.app"] }],
+      },
+    ]);
+  });
+
+  it("marks a purely deterministic rule as owing nothing", () => {
+    const result = compile([rule({ dryRunStartedAt: "2026-10-01T00:00:00.000Z" })]);
+    expect(result.snapshot.rules[0]?.awaitsModel).toBe(false);
+  });
+});
+
 describe("what the device is told it cannot evaluate", () => {
   it.each([
-    [
-      "a semantic clause",
-      plan(COURIER, { question: "urgent?", minimumConfidence: 0.8, allowedFields: ["subject"] }),
-      "awaits-model",
-    ],
     [
       "a rule naming no application",
       plan({ field: "subject", operator: "contains", value: "delivery" }),
@@ -162,6 +190,19 @@ describe("what the device is told it cannot evaluate", () => {
       "a negated predicate",
       plan({ all: [COURIER, { not: { field: "subject", operator: "exists" } }] }),
       "negation-unsupported",
+    ],
+    // A rule that is only a model's judgement would hand the scope to the model, which is the
+    // ordering ADR-0003 forbids. Refused here, and by `dismissible_filter_rule` in the database.
+    [
+      "a plan with no deterministic part",
+      {
+        allowedFields: ["subject"],
+        compilerVersion: 1,
+        intent: "synthetic intent",
+        minimumConfidence: 0.8,
+        schemaVersion: 1,
+      },
+      "no-deterministic-clause",
     ],
   ])("refuses %s", (_label, refusedPlan, refusal) => {
     const result = compile([

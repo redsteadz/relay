@@ -128,11 +128,41 @@ once, in TypeScript; a Kotlin port would be a second implementation of the rule 
 leaves the device.
 
 That settles the sequence for notification quieting. The listener decides the deterministic part in
-process, and when a matched rule carries a semantic clause it defers rather than acting: it records
-the capture as awaiting a model and starts a short-lived headless JavaScript task, which makes the
-call and then acts through the module function it would have used anyway. The cost is a second or two
-between the notification appearing and being put away, which is acceptable for a snooze and
-honest — the phone has already made its sound regardless, as ADR-0017 records.
+process, and when a matched rule carries a semantic clause it records the notification as
+`awaiting-model` and leaves it alone.
+
+### Quieting a semantic rule is deferred, not immediate
+
+The pass that finishes the decision runs when the app next runs: on open, or on the background
+delivery task's fifteen-minute floor ([ADR-0018](0018-background-capture-delivery.md)). It reads the
+candidates, asks the configured model, and hands each answer to a native function that re-reads the
+rule, the kill switch and the application scope before touching anything.
+
+Starting a headless JavaScript task from inside the listener was the intended design and was
+attempted first. It was rejected on implementation: driving Expo's headless app loader from a bound
+`NotificationListenerService` requires a custom `TaskConsumer` against Expo internals that are not
+public API, and its failure mode — a JavaScript runtime that does not start, inside a system-bound
+service — is invisible until it is on hardware. A deferred act that is honest about being late is
+better than an immediate one that silently does not happen.
+
+This is a real reduction in what the feature does, and it is stated in the product copy rather than
+glossed. A deterministic quiet rule still acts within milliseconds of the notification posting. A
+semantic one acts on the next pass, which may be a quarter of an hour later, and by then the reader
+may have dealt with the notification themselves. That outcome has its own recorded verdict,
+`no-longer-posted`: the rule matched, Relay was authorized, and there was nothing left to quiet.
+Recording `snoozed` there would make the ledger a person reviews claim an act that never happened.
+
+Two properties make the deferral tolerable. The phone has already made its sound either way — ADR-0017
+is the record of that — so the deferral costs the removal of a notification from the shade, not the
+interruption. And the reversible action is the default: a snooze that lands late costs a delay.
+
+Nothing in the deferred path decides whether Relay may act. The model's answer crosses back as a
+boolean, and the native side re-derives the authorization from the current snapshot, so a reader who
+engaged the kill switch, paused the application or edited the rule while a model was thinking is
+obeyed rather than raced. Finding the notification again uses no stored notification key: the listener
+re-derives capture identity across `activeNotifications` with the same function that recorded it,
+which also means an edited notification is correctly not found — the rule was judged against what it
+said at the time.
 
 ## Consequences
 
@@ -148,7 +178,12 @@ honest — the phone has already made its sound regardless, as ADR-0017 records.
   history reads both. This does not fix #205 for the pipeline, and must not be mistaken for having
   done so.
 - A model that is slow or unreachable must not block anything. A device semantic evaluation that
-  fails leaves the capture awaiting a model, exactly as before, and leaves a notification alone.
+  fails leaves the capture awaiting a model, exactly as before, and leaves a notification alone. No
+  answer is never handed over as an answer of no: the candidate keeps its row and a later pass tries
+  again.
+- A semantic quiet rule acts late, by a pass rather than on arrival, and the quiet review shows
+  `awaiting-model` and `no-longer-posted` as ordinary outcomes. A reader who needs a notification
+  removed the instant it posts needs a deterministic rule.
 - A local endpoint on a LAN is reachable only while the phone is on that network. A rule that depends
   on it stops deciding when the reader leaves the house, which is a property of their configuration
   rather than a fault, and is reported as awaiting a model rather than as an error.

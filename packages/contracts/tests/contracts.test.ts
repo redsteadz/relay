@@ -1071,6 +1071,7 @@ describe("notification silencing", () => {
       rules: [
         {
           action: "snooze",
+          awaitsModel: false,
           clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
           filterRuleId: RULE_ID,
           observing: false,
@@ -1090,16 +1091,21 @@ describe("notification silencing", () => {
     ).toBe(false);
   });
 
-  // A rule that does not say whether it is still being observed has not said it may act.
-  it("requires the observing flag on every rule", () => {
-    const rules = [
-      {
-        action: "snooze",
-        clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
-        filterRuleId: RULE_ID,
-      },
-    ];
-    expect(notificationSilenceSnapshotSchema.safeParse(snapshot({ rules })).success).toBe(false);
+  // A rule that does not say whether it is still being observed has not said it may act. Same for
+  // the flag that says a model still owes an answer: the device defaults a missing one to "owes one",
+  // and the contract refuses to produce one that is missing at all.
+  it.each([["observing"], ["awaitsModel"]])("requires the %s flag on every rule", (flag) => {
+    const rule: Record<string, unknown> = {
+      action: "snooze",
+      awaitsModel: false,
+      clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
+      filterRuleId: RULE_ID,
+      observing: false,
+    };
+    delete rule[flag];
+    expect(notificationSilenceSnapshotSchema.safeParse(snapshot({ rules: [rule] })).success).toBe(
+      false,
+    );
   });
 
   it.each([

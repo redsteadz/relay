@@ -66,12 +66,22 @@ function codeOf(path: string): string {
     .replace(/\/\/[^\n]*/gu, " ");
 }
 
-/** Everything a surface would have to touch to make a notification go away. */
+/**
+ * Everything a surface would have to touch to make a notification go away.
+ *
+ * `resolveNotificationSilence` is on the list because it ends in a cancellation. It takes a model's
+ * answer about a candidate the listener already recorded, and the device re-derives the whole
+ * authorization before acting -- but the path still terminates in `cancelNotification`, so the inbox
+ * must not be able to reach it. The pass that does call it is mounted in `app/_layout.tsx`, which is
+ * device work rather than an inbox surface; putting it in `useInbox` was the first attempt and is
+ * what this list exists to prevent.
+ */
 const DISMISSAL_CAPABILITY = [
   "cancelNotification",
   "snoozeNotification",
   "configureNotificationSilence",
   "setNotificationSilenceKillSwitch",
+  "resolveNotificationSilence",
 ];
 
 describe("no inbox path can act on a device notification", () => {
@@ -121,10 +131,26 @@ describe("the native capability is confined to one call site", () => {
     },
   );
 
-  it("each call appears exactly once", () => {
+  // Two call sites each, and exactly two: the live decision in `actIfAuthorized`, and the deferred
+  // one in `applyAction` for a rule that had to wait on a model (ADR-0019). A third would be a path
+  // that reached the capability without going through either.
+  it("each call appears exactly twice, once per decision path", () => {
     const listener = codeOf(`${nativeRoot}RelayNotificationListenerService.kt`);
-    expect(listener.split("cancelNotification(").length - 1).toBe(1);
-    expect(listener.split("snoozeNotification(").length - 1).toBe(1);
+    expect(listener.split("cancelNotification(").length - 1).toBe(2);
+    expect(listener.split("snoozeNotification(").length - 1).toBe(2);
+  });
+
+  // Both deferred entry points take a key this service produced from its own shade a moment before.
+  // A key that crossed the bridge would be a handle to an arbitrary notification, supplied by a
+  // caller that cannot have read the shade to obtain it.
+  it("the deferred path acts only on a key it derived itself", () => {
+    const listener = codeOf(`${nativeRoot}RelayNotificationListenerService.kt`);
+    expect(listener).toContain("fun postedKey(envelopeId: String): String?");
+    expect(listener).toContain("fun keyFor(envelopeId: String): String?");
+    // The module hands over an envelope id, never a notification key.
+    const module = codeOf(`${nativeRoot}RelayDeviceIngressModule.kt`);
+    expect(module).toContain("RelayNotificationListenerService.postedKey(envelopeId)");
+    expect(module).not.toContain("notificationKey");
   });
 
   // `cancelAllNotifications` clears the shade wholesale. Relay cancels one key, decided one
