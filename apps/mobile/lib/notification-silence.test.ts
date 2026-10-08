@@ -172,15 +172,36 @@ describe("a rule that asks a model", () => {
     const result = compile([rule({ dryRunStartedAt: "2026-10-01T00:00:00.000Z" })]);
     expect(result.snapshot.rules[0]?.awaitsModel).toBe(false);
   });
+
+  // The shape a purely descriptive intent compiles to -- "Marketing", "Communication". It used to
+  // be refused for naming no application; ADR-0020 makes it the feature, and it reaches the device
+  // as a rule with no literal tests that the model decides per notification.
+  it("sends a describing rule to the device with no literal tests", () => {
+    const result = compile([
+      rule({
+        dryRunStartedAt: "2026-10-01T00:00:00.000Z",
+        plan: {
+          compilerVersion: 1,
+          intent: "marketing",
+          schemaVersion: 1,
+          semantic: {
+            allowedFields: ["subject"],
+            minimumConfidence: 0.8,
+            question: "is this marketing?",
+          },
+        },
+      }),
+    ]);
+    expect(result.statuses[0]?.stage).toBe("observing");
+    expect(result.snapshot.rules).toHaveLength(1);
+    expect(result.snapshot.rules[0]?.unscoped).toBe(true);
+    expect(result.snapshot.rules[0]?.clauses).toStrictEqual([]);
+    expect(result.snapshot.rules[0]?.awaitsModel).toBe(true);
+  });
 });
 
 describe("what the device is told it cannot evaluate", () => {
   it.each([
-    [
-      "a rule naming no application",
-      plan({ field: "subject", operator: "contains", value: "delivery" }),
-      "unbounded-application",
-    ],
     [
       "a category predicate",
       plan({ all: [COURIER, { field: "category", operator: "equals", value: "finance" }] }),
@@ -190,26 +211,6 @@ describe("what the device is told it cannot evaluate", () => {
       "a negated predicate",
       plan({ all: [COURIER, { not: { field: "subject", operator: "exists" } }] }),
       "negation-unsupported",
-    ],
-    // A rule that is only a model's judgement would hand the scope to the model, which is the
-    // ordering ADR-0003 forbids. Refused here, and by `dismissible_filter_rule` in the database.
-    //
-    // This is the shape `compileFilterPlan` produces from a purely descriptive intent -- every
-    // clause `semantic-required`, so no `deterministic` key at all -- which is how a real rule
-    // reaches this branch rather than a hand-written fixture.
-    [
-      "a plan with no deterministic part",
-      {
-        compilerVersion: 1,
-        intent: "synthetic intent",
-        schemaVersion: 1,
-        semantic: {
-          allowedFields: ["subject"],
-          minimumConfidence: 0.8,
-          question: "is this marketing?",
-        },
-      },
-      "no-deterministic-clause",
     ],
   ])("refuses %s", (_label, refusedPlan, refusal) => {
     const result = compile([
@@ -226,10 +227,12 @@ describe("what the device is told it cannot evaluate", () => {
   // on plan shape -- discarding the reason this function could already name.
   it("refuses an unevaluable rule even when no dry run has started", () => {
     const result = compile([
-      rule({ plan: plan({ field: "subject", operator: "contains", value: "delivery" }) }),
+      rule({
+        plan: plan({ all: [COURIER, { field: "category", operator: "equals", value: "finance" }] }),
+      }),
     ]);
     expect(result.statuses[0]?.stage).toBe("refused");
-    expect(result.statuses[0]?.refusal).toBe("unbounded-application");
+    expect(result.statuses[0]?.refusal).toBe("unreadable-field");
     expect(result.snapshot.rules).toStrictEqual([]);
   });
 

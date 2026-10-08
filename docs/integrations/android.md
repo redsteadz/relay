@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-10-08
+last_verified: 2026-10-09
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -141,9 +141,10 @@ window, the evidence and `authorized_at`, the same way `hidden_inbox_events` sit
 
 **Authorization is the database's; the device holds a cache.** A rule may act only when
 `authorized_at` is set, and the only writers are `start_notification_dismissal_dry_run_v1`,
-`complete_notification_dismissal_dry_run_v1` and `set_notification_dismissal_v1`. They validate the
-deterministic plan and an explicit `source.applicationId` predicate that every satisfying assignment
-of the expression passes through; they measure the dry-run window on the server clock between two
+`complete_notification_dismissal_dry_run_v1` and `set_notification_dismissal_v1`. They validate only
+that the plan has something to decide with -- a deterministic part, a semantic one, or both; the
+explicit application predicate #38 required was dropped by
+[ADR-0020](../decisions/0020-unscoped-quiet-rules.md). They measure the dry-run window on the server clock between two
 calls; and each writes `audit_log` in the same statement. The app writes the resulting snapshot
 natively with a monotonic revision, so a sync that loses a race cannot reinstate withdrawn
 authorization.
@@ -157,6 +158,13 @@ refuses negation, `sender`, `body`, `category`, `attributes.*`, and anything exc
 exactly — NFKC, collapse the JavaScript `\s` class, trim, lowercase `en-US` — and both suites assert
 the same vectors. A rule can be authorized server-side and still refused here; that is reported
 rather than hidden.
+
+**A rule may name no application at all.** A plan with no deterministic part compiles to a rule with
+no clauses, which every captured notification satisfies, and the model decides each one. The
+compiled rule carries an explicit `unscoped` flag that the contract and the Kotlin parser both check
+against `clauses.length == 0`, because an empty disjunction read as "matches everything" is
+fail-open. The capture allowlist still bounds the reach. See
+[ADR-0020](../decisions/0020-unscoped-quiet-rules.md).
 
 **A rule that asks a model acts on a later pass.** A plan may carry a semantic clause as well as its
 deterministic part, and the compiled rule is marked `awaitsModel`. The listener cannot reach an

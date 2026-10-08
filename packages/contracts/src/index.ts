@@ -1750,23 +1750,18 @@ export type NotificationSilenceTest = z.infer<typeof notificationSilenceTestSche
 /**
  * A conjunction every one of whose tests must pass.
  *
- * At least one test must *name* an application with `equals` or `in`. A clause that only describes
- * one -- `contains "courier"` -- would let an unrelated app satisfy it, and #38's first criterion is
- * that a rule naming no application cannot act on a notification. The database routine enforces the
- * same thing against the stored plan; this enforces it against what actually reaches the device.
+ * A clause no longer has to *name* an application. #38's first criterion required one, and
+ * [ADR-0020](../../../docs/decisions/0020-unscoped-quiet-rules.md) lifts it: a reader whose rule is
+ * "anything my model calls marketing" is describing the feature rather than evading a safeguard, and
+ * the gates that make quieting safe -- the observed dry run, the reviewed history, the explicit
+ * enable, and the stops -- do not depend on an application being named.
+ *
+ * The capture allowlist still bounds everything. A notification from an application the reader never
+ * allowed Relay to capture is never evaluated, because the listener returns before it gets here.
  */
 export const notificationSilenceClauseSchema = z
   .object({ tests: z.array(notificationSilenceTestSchema).min(1).max(16) })
-  .strict()
-  .refine(
-    (clause) =>
-      clause.tests.some(
-        (test) =>
-          test.field === "source.applicationId" &&
-          (test.operator === "equals" || test.operator === "in"),
-      ),
-    { message: "A silence clause must name an application" },
-  );
+  .strict();
 export type NotificationSilenceClause = z.infer<typeof notificationSilenceClauseSchema>;
 
 /**
@@ -1795,7 +1790,7 @@ export const notificationSilenceRuleSchema = z
      * left alone until that answer exists (ADR-0019).
      */
     awaitsModel: z.boolean(),
-    clauses: z.array(notificationSilenceClauseSchema).min(1).max(16),
+    clauses: z.array(notificationSilenceClauseSchema).max(16),
     filterRuleId: canonicalUuidSchema,
     /**
      * Whether this rule is still being observed rather than acted on.
@@ -1805,8 +1800,30 @@ export const notificationSilenceRuleSchema = z
      * observing rule to act or the authorized one to wait.
      */
     observing: z.boolean(),
+    /**
+     * This rule has no literal tests and applies to every notification Relay captures.
+     *
+     * Redundant with `clauses.length === 0`, deliberately. An empty disjunction read as "matches
+     * everything" is the classic fail-open bug: anything that dropped a clause -- a parser that gave
+     * up on one, a compiler branch that produced none -- would silently widen a rule that cancels
+     * notifications to the whole shade. Carrying the intent separately and refusing the two when
+     * they disagree makes that failure refuse instead of act.
+     *
+     * Such a rule is only decidable by a model, so it always carries `awaitsModel`. See
+     * [ADR-0020](../../../docs/decisions/0020-unscoped-quiet-rules.md).
+     */
+    unscoped: z.boolean(),
   })
-  .strict();
+  .strict()
+  .refine((rule) => rule.unscoped === (rule.clauses.length === 0), {
+    message: "A rule is unscoped exactly when it has no clauses",
+  })
+  // Nothing literal narrows it and nothing semantic decides it, so it would match every captured
+  // notification unconditionally. No reader asks for that, and it is what a lost semantic clause
+  // would look like.
+  .refine((rule) => !rule.unscoped || rule.awaitsModel, {
+    message: "An unscoped rule must be decided by a model",
+  });
 export type NotificationSilenceRule = z.infer<typeof notificationSilenceRuleSchema>;
 
 /**

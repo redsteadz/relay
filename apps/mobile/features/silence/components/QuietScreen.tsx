@@ -144,7 +144,7 @@ export function QuietScreen() {
         <LoadingState label="Reading which rules are allowed to clear notifications" />
       ) : rows.length === 0 ? (
         <EmptyState
-          detail="A rule here has to name an app exactly, using “is” rather than a description. Write one in Rules and it will appear here."
+          detail="Any rule your phone can check as a notification arrives can clear one. Write one in Rules and it will appear here."
           title="No rule can clear notifications yet"
         />
       ) : (

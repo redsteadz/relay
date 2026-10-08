@@ -20,7 +20,7 @@ class NotificationSilenceSnapshotParseTest {
   private fun snapshotJson(
     mode: String = "enforcing",
     killSwitchEngaged: Boolean = false,
-    rules: String = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}]""",
+    rules: String = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"unscoped":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}]""",
     disabledPackages: String = "[]"
   ) = """
     {"mode":"$mode","killSwitchEngaged":$killSwitchEngaged,"revision":7,
@@ -98,26 +98,28 @@ class NotificationSilenceSnapshotParseTest {
     assertTrue(snapshot.killSwitchEngaged)
   }
 
-  // A clause whose application test only describes the application would let an unrelated app
-  // satisfy it. Dropping the rule is the only safe reading.
+  // #38 required an application predicate in every clause and ADR-0020 dropped it. Accepting these
+  // matters more here than anywhere else: one unreadable rule discards the whole snapshot, so a
+  // stale check would have turned quieting off entirely for a rule the compiler and the database
+  // had both accepted.
   @Test
-  fun `a clause naming no application is refused`() {
+  fun `a clause naming no application parses`() {
     val snapshot = NotificationSilencePolicy.parse(
       snapshotJson(
-        rules = """[{"action":"snooze","filterRuleId":"$ruleId","clauses":[{"tests":[{"field":"subject","operator":"contains","values":["delivery"]}]}]}]"""
+        rules = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"unscoped":false,"clauses":[{"tests":[{"field":"subject","operator":"contains","values":["delivery"]}]}]}]"""
       )
     )
-    assertTrue(snapshot.rules.isEmpty())
+    assertEquals(1, snapshot.rules.size)
   }
 
   @Test
-  fun `a clause describing rather than naming an application is refused`() {
+  fun `a clause describing rather than naming an application parses`() {
     val snapshot = NotificationSilencePolicy.parse(
       snapshotJson(
-        rules = """[{"action":"snooze","filterRuleId":"$ruleId","clauses":[{"tests":[{"field":"source.applicationId","operator":"contains","values":["courier"]}]}]}]"""
+        rules = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"unscoped":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"contains","values":["courier"]}]}]}]"""
       )
     )
-    assertTrue(snapshot.rules.isEmpty())
+    assertEquals(1, snapshot.rules.size)
   }
 
   // A field this surface cannot read drops the rule rather than the test. Dropping the test alone
@@ -187,5 +189,52 @@ class NotificationSilenceSnapshotParseTest {
       snapshotJson(rules = "[${List(33) { rule }.joinToString(",")}]")
     )
     assertTrue(snapshot.rules.isEmpty())
+  }
+
+  // The flag and the shape are redundant on purpose. An empty disjunction read as "matches
+  // everything" is fail-open: a clause this parser gave up on would silently widen a rule that
+  // cancels notifications to the whole shade (ADR-0020).
+  @Test
+  fun `a rule with no clauses and no unscoped flag discards the snapshot`() {
+    val snapshot = NotificationSilencePolicy.parse(
+      snapshotJson(
+        rules = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":true,"clauses":[]}]"""
+      )
+    )
+    assertEquals(0, snapshot.rules.size)
+  }
+
+  @Test
+  fun `a rule claiming to be unscoped while carrying clauses discards the snapshot`() {
+    val snapshot = NotificationSilencePolicy.parse(
+      snapshotJson(
+        rules = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":true,"unscoped":true,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}]"""
+      )
+    )
+    assertEquals(0, snapshot.rules.size)
+  }
+
+  // Nothing narrows it and nothing decides it, so it would act on everything unconditionally --
+  // which is also what a snapshot that lost its semantic clause looks like.
+  @Test
+  fun `an unscoped rule owing no model an answer discards the snapshot`() {
+    val snapshot = NotificationSilencePolicy.parse(
+      snapshotJson(
+        rules = """[{"action":"dismiss","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"unscoped":true,"clauses":[]}]"""
+      )
+    )
+    assertEquals(0, snapshot.rules.size)
+  }
+
+  @Test
+  fun `a well-formed unscoped rule parses`() {
+    val snapshot = NotificationSilencePolicy.parse(
+      snapshotJson(
+        rules = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":true,"unscoped":true,"clauses":[]}]"""
+      )
+    )
+    assertEquals(1, snapshot.rules.size)
+    assertTrue(snapshot.rules[0].unscoped)
+    assertEquals(0, snapshot.rules[0].clauses.size)
   }
 }

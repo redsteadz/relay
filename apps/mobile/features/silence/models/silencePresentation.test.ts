@@ -51,30 +51,36 @@ function row(
     refusal?: SilenceRuleStatus["refusal"];
     remainingHours?: number;
     rule?: Partial<SilenceAuthorization>;
+    unscoped?: boolean;
   } = {},
 ) {
   const base = status(stage, options.rule ?? {}, options.refusal);
+  const unscoped = options.unscoped ?? false;
   return silenceRuleRow(
-    options.awaitsModel === undefined
+    options.awaitsModel === undefined && !unscoped
       ? base
       : {
           ...base,
           compiled: {
             action: base.rule.action,
-            awaitsModel: options.awaitsModel,
-            clauses: [
-              {
-                tests: [
+            // An unscoped rule is only ever decidable by a model, which the contract enforces.
+            awaitsModel: unscoped ? true : (options.awaitsModel ?? false),
+            clauses: unscoped
+              ? []
+              : [
                   {
-                    field: "source.applicationId",
-                    operator: "equals",
-                    values: ["com.courier.app"],
+                    tests: [
+                      {
+                        field: "source.applicationId",
+                        operator: "equals",
+                        values: ["com.courier.app"],
+                      },
+                    ],
                   },
                 ],
-              },
-            ],
             filterRuleId: base.rule.id,
             observing: stage === "observing",
+            unscoped,
           },
         },
     {
@@ -116,7 +122,7 @@ describe("the control a row offers", () => {
   });
 
   it("offers nothing for a rule the device cannot evaluate", () => {
-    const result = row("refused", { refusal: "unbounded-application" });
+    const result = row("refused", { refusal: "unreadable-field" });
     expect(result.action).toBeUndefined();
     expect(result.pill.label).toBe("Cannot clear");
   });
@@ -207,18 +213,26 @@ describe("what a row says", () => {
     expect(result.detail).not.toContain("40 hours left");
   });
 
+  // The difference between "cleared in one app" and "cleared everywhere" is the single most
+  // important thing on the row, and not something to leave a reader to infer from an absence.
+  it("says when a rule reaches every captured notification", () => {
+    const everywhere = row("acting", { unscoped: true });
+    expect(everywhere.detail).toContain("Every notification Relay captures");
+
+    const narrowed = row("acting", { awaitsModel: true });
+    expect(narrowed.detail).not.toContain("Every notification Relay captures");
+  });
+
   it("explains a refusal in terms of the rule", () => {
     expect(row("refused", { refusal: "unreadable-field" }).detail).toContain("does not exist yet");
     // Names what to change rather than reporting that the phone cannot cope. A rule compiled from a
     // purely descriptive intent carries no deterministic part at all, which is the common way to
     // land here.
     const describing = row("refused", { refusal: "no-deterministic-clause" }).detail;
-    expect(describing).toContain("naming the app");
-    expect(describing).toContain("can still ask a model");
+    expect(describing).toContain("nothing to decide with");
 
     // A different situation with different advice: reword nothing, rebuild the rule.
     expect(row("refused", { refusal: "unreadable-plan" }).detail).toContain("save it again");
-    expect(row("refused", { refusal: "unbounded-application" }).detail).toContain("name an app");
   });
 });
 
@@ -301,6 +315,7 @@ describe("the apps a person can silence themselves", () => {
         awaitsModel: false,
         filterRuleId,
         observing: false,
+        unscoped: false,
       },
       rule: authorization({ id: filterRuleId }),
       stage: "acting",
@@ -318,6 +333,6 @@ describe("the apps a person can silence themselves", () => {
   // A rule the device refused compiles to nothing, so it names no app a person could be sent to
   // silence on its behalf.
   it("lists nothing for a rule that did not compile", () => {
-    expect(namedApplications([status("refused", {}, "unbounded-application")])).toStrictEqual([]);
+    expect(namedApplications([status("refused", {}, "unreadable-field")])).toStrictEqual([]);
   });
 });

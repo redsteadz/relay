@@ -146,6 +146,11 @@ export function silenceRuleRow(
   // sentence about clearing for good has been told their notifications are gone when they are not,
   // and the reverse is worse.
   const awaitsModel = awaitsModelFor(status);
+  // A rule with no literal tests reaches every notification Relay captures. That is what the reader
+  // asked for, and it is also the single most important thing to say on the row: the difference
+  // between "cleared in one app" and "cleared everywhere" is not something to leave them to infer.
+  const unscoped = status.compiled?.unscoped ?? false;
+  const reach = unscoped ? "Every notification Relay captures is checked. " : "";
   // A rule that asks a model acts on the next pass, not as the notification arrives. Saying "once
   // they arrive" would promise a speed this cannot deliver -- see ADR-0019.
   const when = awaitsModel
@@ -155,7 +160,7 @@ export function silenceRuleRow(
     status.rule.action === "dismiss"
       ? `cleared for good ${when}. Nothing brings them back.`
       : `put away for two hours ${when}, then Android brings them back.`;
-  const acting = `Notifications this rule matches are ${effect} They stay in Relay, and your phone still makes its sound first.`;
+  const acting = `${reach}Notifications this rule matches are ${effect} They stay in Relay, and your phone still makes its sound first.`;
 
   // A rule that asks a model and has no model will never decide anything. Saying it is clearing
   // notifications would be the screen's own false statement, not the rule's.

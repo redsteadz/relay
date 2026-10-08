@@ -194,11 +194,9 @@ export function refusalExplanation(refusal: SilenceRefusal): string {
     case "negation-unsupported":
       return "This rule says what a notification must not be. Your phone cannot tell an absent field from one it could not read, so it would clear more than you asked.";
     case "no-deterministic-clause":
-      return "This rule only describes what to look for, so deciding it would mean asking your model about every notification from every app. Add a condition naming the app — “app is …” — and the rest can still ask a model.";
+      return "This rule has nothing to decide with — no conditions and no question for a model.";
     case "too-complex":
       return "This rule has too many combinations to check as each notification arrives. Splitting it into separate rules will work.";
-    case "unbounded-application":
-      return "This rule does not name an app exactly. Clearing a notification needs an app named with “is”, not described.";
     case "unreadable-field":
       return "This rule reads something that does not exist yet when the decision is made — a category, a message body, or a sender. Only the app and the title are reliably there.";
     case "unreadable-plan":

@@ -19,6 +19,7 @@ import {
   filterCompileRequestSchema,
   filterExpressionSchema,
   notificationSilenceClauseSchema,
+  notificationSilenceRuleSchema,
   notificationSilenceOutcomeSchema,
   notificationSilenceSnapshotSchema,
   notificationSilenceTestSchema,
@@ -1075,6 +1076,7 @@ describe("notification silencing", () => {
           clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
           filterRuleId: RULE_ID,
           observing: false,
+          unscoped: false,
         },
       ],
       ...overrides,
@@ -1101,6 +1103,7 @@ describe("notification silencing", () => {
       clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
       filterRuleId: RULE_ID,
       observing: false,
+      unscoped: false,
     };
     delete rule[flag];
     expect(notificationSilenceSnapshotSchema.safeParse(snapshot({ rules: [rule] })).success).toBe(
@@ -1125,35 +1128,55 @@ describe("notification silencing", () => {
     expect(notificationSilenceTestSchema.safeParse(malformed).success).toBe(false);
   });
 
-  // The clause is the unit that has to name an application, because a disjunction is only as bounded
-  // as its loosest branch.
-  it("requires a clause to name an application", () => {
-    expect(
-      notificationSilenceClauseSchema.safeParse(clause(test("subject", "contains", "delivery")))
-        .success,
-    ).toBe(false);
-    expect(
-      notificationSilenceClauseSchema.safeParse(
-        clause(test("source.applicationId", "equals", "com.courier.app")),
-      ).success,
-    ).toBe(true);
+  // #38 required every clause to name an application; ADR-0020 dropped it, so a clause is now just
+  // a conjunction of readable tests.
+  it.each([
+    ["a subject test alone", clause(test("subject", "contains", "delivery"))],
+    ["a named application", clause(test("source.applicationId", "equals", "com.courier.app"))],
+    ["a described application", clause(test("source.applicationId", "contains", "courier"))],
+    [
+      "an in-predicate",
+      clause(test("source.applicationId", "in", "com.courier.app", "com.other.app")),
+    ],
+  ])("accepts a clause carrying %s", (_label, value) => {
+    expect(notificationSilenceClauseSchema.safeParse(value).success).toBe(true);
   });
 
-  // `contains` describes an application rather than naming one: `com.courier.app.evil` satisfies it.
-  it("refuses an application test that only describes the application", () => {
+  // The flag and the shape are redundant on purpose: an empty disjunction read as "matches
+  // everything" is fail-open, and this rule cancels notifications.
+  it.each([
+    ["no clauses without the flag", { clauses: [], unscoped: false }],
+    [
+      "the flag while carrying clauses",
+      {
+        clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
+        unscoped: true,
+      },
+    ],
+  ])("refuses a rule declaring %s", (_label, shape) => {
     expect(
-      notificationSilenceClauseSchema.safeParse(
-        clause(test("source.applicationId", "contains", "courier")),
-      ).success,
+      notificationSilenceRuleSchema.safeParse({
+        action: "snooze",
+        awaitsModel: true,
+        filterRuleId: RULE_ID,
+        observing: false,
+        ...shape,
+      }).success,
     ).toBe(false);
   });
 
-  it("accepts an in-predicate as naming an application", () => {
+  // Nothing narrows it and nothing decides it, so it would act on everything unconditionally.
+  it("refuses an unscoped rule that owes no model an answer", () => {
     expect(
-      notificationSilenceClauseSchema.safeParse(
-        clause(test("source.applicationId", "in", "com.courier.app", "com.other.app")),
-      ).success,
-    ).toBe(true);
+      notificationSilenceRuleSchema.safeParse({
+        action: "dismiss",
+        awaitsModel: false,
+        clauses: [],
+        filterRuleId: RULE_ID,
+        observing: false,
+        unscoped: true,
+      }).success,
+    ).toBe(false);
   });
 
   it("parses one recorded verdict", () => {

@@ -49,7 +49,6 @@ export type SilenceRefusal =
   | "negation-unsupported"
   | "no-deterministic-clause"
   | "too-complex"
-  | "unbounded-application"
   | "unreadable-field"
   /**
    * The stored plan is not a plan this build can read.
@@ -87,15 +86,6 @@ function testFor(predicate: FilterPredicate): NotificationSilenceTest {
           ? [...predicate.value]
           : [predicate.value],
   };
-}
-
-/** A clause names an application only when a test binds the value, rather than describing it. */
-function namesApplication(tests: readonly NotificationSilenceTest[]): boolean {
-  return tests.some(
-    (test) =>
-      test.field === "source.applicationId" &&
-      (test.operator === "equals" || test.operator === "in"),
-  );
 }
 
 /** Identity of a test, so flattening an `all` cannot emit the same comparison twice. */
@@ -195,34 +185,55 @@ export function compileNotificationSilenceRule(
   plan: FilterPlan,
   options: { action: NotificationSilenceAction; filterRuleId: string; observing: boolean },
 ): SilenceCompilation {
-  // A semantic clause no longer disqualifies a rule. The device can resolve one against an endpoint
-  // the reader configured (ADR-0019), so the clause becomes a second step rather than a refusal:
-  // the literal tests below decide that a notification is a candidate, and a model decides whether
-  // it matches. What has not changed is that the deterministic part must still exist and must still
-  // compile -- a rule that is *only* a semantic clause names no application and could never act.
+  // A plan with nothing literal in it compiles to a rule with no clauses: every captured
+  // notification is a candidate, and the model decides each one. That is the shape
+  // `compileFilterPlan` produces from a purely descriptive intent, and quieting by description is
+  // the feature rather than a gap in it -- see
+  // [ADR-0020](../../../docs/decisions/0020-unscoped-quiet-rules.md).
+  //
+  // A plan with neither part is still refused. Nothing would narrow it and nothing would decide it,
+  // so it would cancel every notification unconditionally, which is also exactly what a lost
+  // semantic clause looks like.
   if (plan.deterministic === undefined) {
-    return { refusal: "no-deterministic-clause", status: "refused" };
+    if (plan.semantic === undefined) {
+      return { refusal: "no-deterministic-clause", status: "refused" };
+    }
+    return finish([], options, { awaitsModel: true, unscoped: true });
   }
 
   const flattened = flatten(plan.deterministic);
   if (flattened.status === "refused") return flattened;
+  // An expression that can never be satisfied is not the same as an absent one. `{ never: true }`
+  // is what the compiler emits for a clause it could not translate, so treating it as "matches
+  // everything" would invert the one case where it most matters to refuse.
   if (flattened.clauses.length === 0) return { refusal: "matches-nothing", status: "refused" };
 
   const clauses: NotificationSilenceClause[] = [];
   for (const tests of flattened.clauses) {
-    // Every clause separately, because a disjunction is only as bounded as its loosest branch.
-    if (!namesApplication(tests)) return { refusal: "unbounded-application", status: "refused" };
     const parsed = notificationSilenceClauseSchema.safeParse({ tests });
     if (!parsed.success) return { refusal: "too-complex", status: "refused" };
     clauses.push(parsed.data);
   }
 
+  return finish(clauses, options, {
+    awaitsModel: plan.semantic !== undefined,
+    unscoped: false,
+  });
+}
+
+/** Validates the assembled rule, so both compilation paths go through one contract check. */
+function finish(
+  clauses: readonly NotificationSilenceClause[],
+  options: { action: NotificationSilenceAction; filterRuleId: string; observing: boolean },
+  flags: { awaitsModel: boolean; unscoped: boolean },
+): SilenceCompilation {
   const rule = notificationSilenceRuleSchema.safeParse({
     action: options.action,
-    awaitsModel: plan.semantic !== undefined,
+    awaitsModel: flags.awaitsModel,
     clauses,
     filterRuleId: options.filterRuleId,
     observing: options.observing,
+    unscoped: flags.unscoped,
   });
   if (!rule.success) return { refusal: "too-complex", status: "refused" };
   return { rule: rule.data, status: "compiled" };

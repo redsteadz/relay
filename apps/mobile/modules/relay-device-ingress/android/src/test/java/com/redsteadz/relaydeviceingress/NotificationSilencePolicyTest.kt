@@ -29,8 +29,9 @@ class NotificationSilencePolicyTest {
     filterRuleId: String = ruleId,
     observing: Boolean = false,
     awaitsModel: Boolean = false,
+    unscoped: Boolean = false,
     vararg clauses: SilenceClause
-  ) = SilenceRule(filterRuleId, action, observing, awaitsModel, clauses.toList())
+  ) = SilenceRule(filterRuleId, action, observing, awaitsModel, unscoped, clauses.toList())
 
   private fun snapshot(
     mode: String = "enforcing",
@@ -462,5 +463,45 @@ class NotificationSilencePolicyTest {
       rules = arrayOf(rule(awaitsModel = true, clauses = arrayOf(courierClause)))
     )
     assertEquals(SilenceDecision.NO_MATCH, resolve(stopped, matched = false).decision)
+  }
+
+  // Unscoped rules -----------------------------------------------------------------------------
+
+  private val unscopedSnapshot =
+    snapshot(rules = arrayOf(rule(awaitsModel = true, unscoped = true)))
+
+  // A rule with no literal tests has nothing to satisfy, so every notification already in scope is
+  // a candidate and the model decides each one (ADR-0020).
+  @Test
+  fun `an unscoped rule makes every notification a candidate`() {
+    assertEquals(SilenceDecision.AWAITING_MODEL, decide(unscopedSnapshot).decision)
+    assertEquals(
+      SilenceDecision.AWAITING_MODEL,
+      decide(unscopedSnapshot, packageName = "com.unrelated.app").decision
+    )
+  }
+
+  // Scope is what the ledger records. An unscoped rule covers everything the capture allowlist
+  // already admits -- which is the cost of the feature, and is why the row says so.
+  @Test
+  fun `an unscoped rule puts every application in scope`() {
+    assertTrue(NotificationSilencePolicy.inScope(unscopedSnapshot, courier))
+    assertTrue(NotificationSilencePolicy.inScope(unscopedSnapshot, "com.unrelated.app"))
+  }
+
+  @Test
+  fun `a stop still outranks an unscoped rule`() {
+    val stopped = snapshot(
+      killSwitchEngaged = true,
+      rules = arrayOf(rule(awaitsModel = true, unscoped = true))
+    )
+    assertEquals(SilenceDecision.DECLINED, decide(stopped).decision)
+  }
+
+  // Once the model answers, an unscoped rule resolves like any other.
+  @Test
+  fun `an unscoped rule acts on a model answering yes`() {
+    assertEquals(SilenceDecision.SNOOZE, resolve(unscopedSnapshot, matched = true).decision)
+    assertEquals(SilenceDecision.NO_MATCH, resolve(unscopedSnapshot, matched = false).decision)
   }
 }

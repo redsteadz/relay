@@ -57,6 +57,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0017: Notification dismissal after posting](../decisions/0017-notification-dismissal-after-posting.md)
 - [ADR-0018: Background capture delivery](../decisions/0018-background-capture-delivery.md)
 - [ADR-0019: Device semantic evaluation](../decisions/0019-device-semantic-evaluation.md)
+- [ADR-0020: Quiet rules need not name an application](../decisions/0020-unscoped-quiet-rules.md)
 
 ## Delivery
 

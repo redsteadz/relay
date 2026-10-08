@@ -18,79 +18,6 @@
 -- routine here is the sole writer of the row it touches, derives its tenant from `auth.uid()`, and
 -- writes `audit_log` in the same statement as the change.
 
--- The explicit application predicate ---------------------------------------------------------------
-
--- Whether a plan's deterministic expression *guarantees* an explicit application predicate.
---
--- #38's first criterion is that a rule naming no application cannot act on a notification. Checking
--- that a plan merely mentions `source.applicationId` somewhere is not that check: a predicate inside
--- one branch of an `any`, or under a `not`, does not constrain which app a notification came from.
---
--- So the walk asks whether every way the expression can be satisfied passes through such a
--- predicate: an `all` needs one guaranteeing child, an `any` needs all of them to guarantee, and a
--- `not` guarantees nothing and is refused. `never` is vacuously safe because it matches nothing.
--- Only `equals` and `in` bind the value; `contains`, `starts-with`, and `exists` do not name an
--- application, they describe one.
-create function public.filter_expression_binds_application(p_expression jsonb, p_depth integer default 0)
-returns boolean
-language plpgsql
-immutable
-set search_path = ''
-as $$
-declare
-  child jsonb;
-begin
-  -- Mirrors the contract's expression depth bound. A plan deeper than this never passed
-  -- `filterExpressionSchema`, so refusing is both safe and the only honest answer.
-  if p_expression is null or jsonb_typeof(p_expression) <> 'object' or p_depth > 8 then
-    return false;
-  end if;
-
-  if p_expression ? 'never' then
-    return true;
-  end if;
-
-  if p_expression ? 'not' then
-    return false;
-  end if;
-
-  if p_expression ? 'all' then
-    if jsonb_typeof(p_expression -> 'all') <> 'array' then
-      return false;
-    end if;
-    for child in select value from jsonb_array_elements(p_expression -> 'all') loop
-      if public.filter_expression_binds_application(child, p_depth + 1) then
-        return true;
-      end if;
-    end loop;
-    return false;
-  end if;
-
-  if p_expression ? 'any' then
-    if jsonb_typeof(p_expression -> 'any') <> 'array'
-      or jsonb_array_length(p_expression -> 'any') = 0 then
-      return false;
-    end if;
-    for child in select value from jsonb_array_elements(p_expression -> 'any') loop
-      if not public.filter_expression_binds_application(child, p_depth + 1) then
-        return false;
-      end if;
-    end loop;
-    return true;
-  end if;
-
-  return p_expression ->> 'field' = 'source.applicationId'
-    and p_expression ->> 'operator' in ('equals', 'in');
-end;
-$$;
-
-comment on function public.filter_expression_binds_application(jsonb, integer) is
-  'Whether every satisfying assignment of a deterministic filter expression binds source.applicationId.';
-
-revoke all on function public.filter_expression_binds_application(jsonb, integer) from public, anon;
-grant execute on function public.filter_expression_binds_application(jsonb, integer)
-  to authenticated, service_role;
-
 -- Retiring the unreachable columns -----------------------------------------------------------------
 
 -- Dropping rather than leaving them: a column that cannot be written is a standing invitation to
@@ -196,12 +123,15 @@ as $$ select interval '72 hours' $$;
 --
 -- Returns the revision. Raises rather than returning null, so no caller can forget to check.
 --
--- A semantic clause is allowed, and the deterministic part is still required. The device evaluates
--- the clause itself against an endpoint its reader configured, and does so only after every literal
--- predicate has already matched, so the deterministic part is what bounds both the scope of the rule
--- and how often a model is asked anything. A rule that was only a semantic clause would hand an
--- unbounded stream of notifications to a model and let it decide the scope, which is the ordering
--- ADR-0003 exists to prevent. See ADR-0019.
+-- Neither an explicit application predicate nor a deterministic clause is required any more.
+-- ADR-0020 lifted both: quieting by description -- "anything my model calls marketing" -- is the
+-- feature, and the gates that make the act safe are the observed dry run, the reviewed history, the
+-- explicit enable and the stops, none of which depend on an application being named. The capture
+-- allowlist still bounds the reach, because the device never evaluates a notification it was not
+-- allowed to capture.
+--
+-- This is a deliberate departure from #38's first acceptance criterion. See ADR-0020 for the
+-- reasoning and for what replaced it.
 create function public.dismissible_filter_rule(p_filter_rule_id uuid)
 returns public.filter_rules
 language plpgsql
@@ -223,13 +153,11 @@ begin
     raise exception 'Filter rule is unavailable' using errcode = 'P0002';
   end if;
 
-  if not (rule.plan ? 'deterministic') then
-    raise exception 'Acting on a notification needs a deterministic plan' using errcode = '22023';
-  end if;
-
-  if not public.filter_expression_binds_application(rule.plan -> 'deterministic') then
-    raise exception 'Acting on a notification needs an explicit application predicate'
-      using errcode = '22023';
+  -- A plan with neither part decides nothing and would act on everything. `filter_rules.plan` is a
+  -- bare `jsonb not null` with no shape constraint, so this is the only check standing between such
+  -- a row and an authorization -- not a second line behind one.
+  if not (rule.plan ? 'deterministic') and not (rule.plan ? 'semantic') then
+    raise exception 'Acting on a notification needs something to decide with' using errcode = '22023';
   end if;
 
   return rule;

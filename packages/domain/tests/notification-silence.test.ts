@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { filterPlanSchema, type FilterExpression, type FilterPlan } from "@relay/contracts";
+import {
+  filterPlanSchema,
+  notificationSilenceRuleSchema,
+  type FilterExpression,
+  type FilterPlan,
+} from "@relay/contracts";
 
 import {
   compileNotificationSilenceRule,
@@ -109,6 +114,7 @@ describe("what compiles", () => {
       awaitsModel: false,
       filterRuleId: RULE_ID,
       observing: false,
+      unscoped: false,
     });
   });
 
@@ -183,17 +189,79 @@ describe("what compiles", () => {
   });
 });
 
+// The shape `compileFilterPlan` produces from a purely descriptive intent -- every clause
+// `semantic-required`, so no deterministic key at all. Quieting by description is the feature
+// (ADR-0020), so it compiles to a rule with no literal tests that a model decides per notification.
+describe("a rule with nothing literal in it", () => {
+  const describing = filterPlanSchema.parse({
+    schemaVersion: 1,
+    compilerVersion: 1,
+    intent: "marketing",
+    semantic: {
+      question: "is this marketing?",
+      minimumConfidence: 0.8,
+      allowedFields: ["subject"],
+    },
+  });
+
+  it("compiles to an unscoped rule a model decides", () => {
+    const result = compileNotificationSilenceRule(describing, {
+      action: "snooze",
+      filterRuleId: RULE_ID,
+      observing: false,
+    });
+    expect(result).toStrictEqual({
+      rule: {
+        action: "snooze",
+        awaitsModel: true,
+        clauses: [],
+        filterRuleId: RULE_ID,
+        observing: false,
+        unscoped: true,
+      },
+      status: "compiled",
+    });
+  });
+
+  // The flag and the shape are redundant on purpose: a dropped clause must refuse rather than widen
+  // a rule that cancels notifications to the whole shade.
+  it("refuses a rule whose flag and shape disagree", () => {
+    expect(
+      notificationSilenceRuleSchema.safeParse({
+        action: "snooze",
+        awaitsModel: true,
+        clauses: [],
+        filterRuleId: RULE_ID,
+        observing: false,
+        unscoped: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  // Nothing narrows it and nothing decides it, so it would act on everything unconditionally.
+  it("refuses an unscoped rule that owes no model an answer", () => {
+    expect(
+      notificationSilenceRuleSchema.safeParse({
+        action: "dismiss",
+        awaitsModel: false,
+        clauses: [],
+        filterRuleId: RULE_ID,
+        observing: false,
+        unscoped: true,
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("what is refused", () => {
-  // A rule that is only a semantic clause names no application, so it could never act whatever a
-  // model said.
-  it("refuses a plan with no deterministic part", () => {
+  // `filterPlanSchema` already refuses a plan with neither part, so this is defence rather than a
+  // reachable path -- and the one place it has to hold: falling through would build an unscoped rule
+  // that no model decides, which cancels every notification unconditionally. Constructed past the
+  // contract on purpose: the refusal is a runtime `.refine`, so the static type admits a plan with
+  // neither part and this is the only way to reach the branch at all.
+  it("refuses a plan with neither a deterministic nor a semantic part", () => {
     const result = compileNotificationSilenceRule(
-      filterPlanSchema.parse({
-        schemaVersion: 1,
-        compilerVersion: 1,
-        intent: "synthetic intent",
-        semantic: { question: "urgent?", minimumConfidence: 0.8, allowedFields: ["subject"] },
-      }),
+      { compilerVersion: 1, intent: "synthetic intent", schemaVersion: 1 },
       { action: "snooze", filterRuleId: RULE_ID, observing: false },
     );
     expect(result).toStrictEqual({ refusal: "no-deterministic-clause", status: "refused" });
@@ -219,28 +287,39 @@ describe("what is refused", () => {
     expect(result.unreadableFields).toStrictEqual([field]);
   });
 
-  it("refuses a rule that names no application", () => {
+  // #38 required every rule to name an application and ADR-0020 lifted it. These three used to be
+  // refusals; they compile now, because the capture allowlist is what bounds the reach and the dry
+  // run, the review and the stops are what make the act safe.
+  it("compiles a rule that names no application", () => {
     const result = compile({ field: "subject", operator: "contains", value: "delivery" });
-    expect(result).toStrictEqual({ refusal: "unbounded-application", status: "refused" });
+    expect(result.status).toBe("compiled");
   });
 
-  // The branch without an application predicate is satisfiable by any application, so the
-  // disjunction as a whole does not name one.
-  it("refuses a disjunction with one unbounded branch", () => {
+  it("compiles a disjunction with one branch naming no application", () => {
     const result = compile({
       any: [courier, { field: "subject", operator: "contains", value: "delivery" }],
     });
-    expect(result).toStrictEqual({ refusal: "unbounded-application", status: "refused" });
+    expect(result.status).toBe("compiled");
   });
 
-  // `contains` describes an application rather than naming one: `com.courier.app.evil` matches.
-  it("refuses an application predicate that only describes the application", () => {
+  // `contains` still describes an application rather than naming one -- `com.courier.app.evil`
+  // satisfies it -- but that is now the reader's business rather than a refusal.
+  it("compiles an application predicate that only describes the application", () => {
     const result = compile({
       field: "source.applicationId",
       operator: "contains",
       value: "courier",
     });
-    expect(result).toStrictEqual({ refusal: "unbounded-application", status: "refused" });
+    expect(result.status).toBe("compiled");
+  });
+
+  // A rule with literal tests is never unscoped, however loose those tests are. Only the absence of
+  // a deterministic part makes a rule apply to everything.
+  it("marks a loosely scoped rule as scoped all the same", () => {
+    const result = compile({ field: "subject", operator: "contains", value: "delivery" });
+    if (result.status !== "compiled") throw new Error("expected a compiled rule");
+    expect(result.rule.unscoped).toBe(false);
+    expect(result.rule.clauses).toHaveLength(1);
   });
 
   it("refuses an expression that matches nothing", () => {

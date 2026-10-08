@@ -88,6 +88,9 @@ authority on the mechanism -- including why Relay clears a notification rather t
 on a later pass rather than as the notification arrives.
 
 - [#38 Notification-dismissal dry run](https://github.com/redsteadz/relay/issues/38) owns the gates.
+  Its first acceptance criterion -- that a rule naming no application cannot act -- was **dropped**
+  by [ADR-0020](../decisions/0020-unscoped-quiet-rules.md); every other gate it names stands. The
+  issue text and the code disagree until that criterion is struck.
 - [#158 Dismissal across the reworked surfaces](https://github.com/redsteadz/relay/issues/158) owns
   delivering them in the M6 interface and proving no surface routes around them.
 - [#182 Captures wait for the app to be opened](https://github.com/redsteadz/relay/issues/182) owns

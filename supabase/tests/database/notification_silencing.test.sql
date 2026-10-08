@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(38);
+select plan(33);
 
 -- Fixtures run as the migration role. Filter revisions are immutable, so every rule below is created
 -- in its final shape -- which is also why the authorization lives in its own table.
@@ -52,6 +52,15 @@ insert into public.filter_rules (id, user_id, name, intent, plan) values (
   '{"schemaVersion":1,"compilerVersion":1,"intent":"anything urgent","semantic":{"question":"is this urgent?","minimumConfidence":0.8,"allowedFields":["subject"]}}'
 );
 
+-- R6 decides with nothing at all. `filter_rules.plan` has no shape constraint, so the row inserts
+-- and the routine is the only thing refusing it.
+insert into public.filter_rules (id, user_id, name, intent, plan) values (
+  '80300000-0000-4000-8000-000000000006',
+  '80000000-0000-4000-8000-000000000001',
+  'Decides nothing', 'undecidable',
+  '{"schemaVersion":1,"compilerVersion":1,"intent":"undecidable"}'
+);
+
 insert into public.filter_rules (id, user_id, name, intent, plan, enabled) values (
   '80300000-0000-4000-8000-000000000004',
   '80000000-0000-4000-8000-000000000001',
@@ -85,46 +94,6 @@ select is(
   'dismissal no longer requires automatic provider-action approval'
 );
 
--- The explicit application predicate ---------------------------------------------------------------
-
-select ok(
-  public.filter_expression_binds_application(
-    '{"all":[{"field":"source.applicationId","operator":"equals","value":"com.courier.app"},{"field":"subject","operator":"contains","value":"delivery"}]}'::jsonb
-  ),
-  'an all-expression containing an application predicate binds the application'
-);
-
--- One branch that does not name an application means a notification from any app can satisfy the
--- expression through that branch.
-select ok(
-  not public.filter_expression_binds_application(
-    '{"any":[{"field":"source.applicationId","operator":"equals","value":"com.courier.app"},{"field":"subject","operator":"contains","value":"delivery"}]}'::jsonb
-  ),
-  'an any-expression with one unbound branch does not bind the application'
-);
-
-select ok(
-  public.filter_expression_binds_application(
-    '{"any":[{"field":"source.applicationId","operator":"equals","value":"com.courier.app"},{"field":"source.applicationId","operator":"equals","value":"com.other.app"}]}'::jsonb
-  ),
-  'an any-expression binds the application when every branch does'
-);
-
-select ok(
-  not public.filter_expression_binds_application(
-    '{"not":{"field":"source.applicationId","operator":"equals","value":"com.courier.app"}}'::jsonb
-  ),
-  'a negated application predicate does not bind the application'
-);
-
--- `contains` describes an application rather than naming one, so it cannot be the explicit predicate.
-select ok(
-  not public.filter_expression_binds_application(
-    '{"field":"source.applicationId","operator":"contains","value":"courier"}'::jsonb
-  ),
-  'a contains predicate does not bind the application'
-);
-
 -- Acting as tenant one -----------------------------------------------------------------------------
 
 select set_config(
@@ -143,11 +112,11 @@ select throws_ok(
   'a client cannot authorize itself directly'
 );
 
-select throws_ok(
+-- #38 required an explicit application predicate and ADR-0020 lifted it: quieting by description is
+-- the feature, and the dry run, the review and the stops are what make the act safe.
+select lives_ok(
   $q$select public.start_notification_dismissal_dry_run_v1('80300000-0000-4000-8000-000000000002')$q$,
-  '22023',
-  null,
-  'a rule naming no application cannot start a dry run'
+  'a rule naming no application can start a dry run'
 );
 
 select lives_ok(
@@ -155,13 +124,11 @@ select lives_ok(
   'a rule carrying a semantic clause can start a dry run'
 );
 
--- A rule that is only a semantic clause would hand the scope to the model, which is exactly the
--- ordering ADR-0003 forbids.
-select throws_ok(
+-- A rule that is only a semantic clause is now authorizable too. The device compiles it to a rule
+-- with no literal tests and asks the reader's own model about each captured notification.
+select lives_ok(
   $q$select public.start_notification_dismissal_dry_run_v1('80300000-0000-4000-8000-000000000005')$q$,
-  '22023',
-  null,
-  'a rule with no deterministic part cannot start a dry run'
+  'a rule with no deterministic part can start a dry run'
 );
 
 select throws_ok(
@@ -311,11 +278,14 @@ select is(
   'restarting a dry run clears the evidence it replaced'
 );
 
+-- A plan with neither part decides nothing and would act on everything. The one plan shape the
+-- routine still refuses.
+-- Through the public routine, because `dismissible_filter_rule` is revoked from clients.
 select throws_ok(
-  $q$select public.set_notification_dismissal_v1('80300000-0000-4000-8000-000000000002', true)$q$,
+  $q$select public.start_notification_dismissal_dry_run_v1('80300000-0000-4000-8000-000000000006')$q$,
   '22023',
   null,
-  'a rule naming no application can never be authorized'
+  'a plan with neither a deterministic nor a semantic part is refused'
 );
 
 -- The tenant-wide stop -----------------------------------------------------------------------------

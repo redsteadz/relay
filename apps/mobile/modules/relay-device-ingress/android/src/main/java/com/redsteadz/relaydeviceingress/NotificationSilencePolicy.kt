@@ -71,6 +71,15 @@ internal data class SilenceRule(
   val observing: Boolean,
   /** A model still owes an answer before this rule may act. */
   val awaitsModel: Boolean,
+  /**
+   * This rule has no literal tests and applies to every notification Relay captures.
+   *
+   * Carried rather than inferred from `clauses.isEmpty()`. An empty disjunction read as "matches
+   * everything" is fail-open: a clause this parser gave up on would silently widen a rule that
+   * cancels notifications to the whole shade. `parseRule` refuses when the flag and the shape
+   * disagree, so that failure refuses instead of acting (ADR-0020).
+   */
+  val unscoped: Boolean,
   val clauses: List<SilenceClause>
 )
 
@@ -176,7 +185,11 @@ internal object NotificationSilencePolicy {
     val action = json.optString("action")
     if (action != ACTION_SNOOZE && action != ACTION_DISMISS) return null
     val clausesJson = json.optJSONArray("clauses") ?: return null
-    if (clausesJson.length() == 0 || clausesJson.length() > MAX_CLAUSES) return null
+    if (clausesJson.length() > MAX_CLAUSES) return null
+    val unscoped = json.optBoolean("unscoped", false)
+    // The two must agree. Either alone could only arrive here through a bug, and the direction that
+    // bug would push -- no clauses, treated as matching everything -- is the one worth refusing.
+    if (unscoped != (clausesJson.length() == 0)) return null
     // A rule that does not say observes. A missing flag must never read as permission to act.
     val observing = json.optBoolean("observing", true)
     // Likewise: a rule that does not say whether a model owes an answer is treated as owing one, so
@@ -188,7 +201,10 @@ internal object NotificationSilencePolicy {
       val clause = parseClause(clausesJson.optJSONObject(index)) ?: return null
       clauses += clause
     }
-    return SilenceRule(filterRuleId, action, observing, awaitsModel, clauses)
+    // Nothing narrows it and nothing decides it, so it would act on every captured notification
+    // unconditionally -- which is also what a snapshot that lost a semantic clause looks like.
+    if (unscoped && !awaitsModel) return null
+    return SilenceRule(filterRuleId, action, observing, awaitsModel, unscoped, clauses)
   }
 
   private fun parseClause(json: JSONObject?): SilenceClause? {
@@ -200,13 +216,11 @@ internal object NotificationSilencePolicy {
       val test = parseTest(testsJson.optJSONObject(index)) ?: return null
       tests += test
     }
-    // The clause must name an application, not merely describe one. `compileNotificationSilenceRule`
-    // guarantees this and the database routine guarantees it of the stored plan; re-checking it here
-    // means a snapshot written by anything else cannot widen what Relay acts on.
-    val names = tests.any { test ->
-      test.field == "source.applicationId" && (test.operator == "equals" || test.operator == "in")
-    }
-    return if (names) SilenceClause(tests) else null
+    // No application predicate is required. #38 wanted one and ADR-0020 dropped it; leaving the check
+    // here would have been worse than leaving it anywhere else, because one unreadable rule discards
+    // the whole snapshot -- a rule the compiler and the database both accepted would have turned
+    // quieting off entirely, with nothing to show for it.
+    return SilenceClause(tests)
   }
 
   private fun parseTest(json: JSONObject?): SilenceTest? {
@@ -245,15 +259,21 @@ internal object NotificationSilencePolicy {
   const val ACTION_DISMISS = "dismiss"
 
   /**
-   * Whether any rule names this application.
+   * Whether any rule covers this application.
    *
-   * This is the privacy scope of the ledger, not an optimization. A notification no rule names is
-   * never evaluated and never recorded, so the dry-run history cannot become a log of every app a
-   * person uses.
+   * This is the privacy scope of the ledger, not an optimization. A notification no rule covers is
+   * never evaluated and never recorded.
+   *
+   * An unscoped rule covers everything, so a tenant who writes one does get a ledger spanning every
+   * application Relay captures for them. That is narrower than it sounds: the capture allowlist
+   * already decided which applications those are, Relay already stores their captures, and the
+   * ledger holds no title, text or sender. It adds no category of data about them that the device
+   * did not already hold (ADR-0020).
    */
   fun inScope(snapshot: SilenceSnapshot, packageName: String): Boolean {
     if (snapshot.mode == "off") return false
     val normalized = normalize(packageName)
+    if (snapshot.rules.any { rule -> rule.unscoped }) return true
     return snapshot.rules.any { rule ->
       rule.clauses.any { clause ->
         clause.tests.any { test ->
@@ -287,9 +307,12 @@ internal object NotificationSilencePolicy {
     if (!inScope(snapshot, packageName)) return SilenceOutcome(SilenceDecision.IGNORED)
 
     val matched = snapshot.rules.firstOrNull { rule ->
-      rule.clauses.any { clause ->
-        clause.tests.all { test -> passes(test, packageName, sourceKind, subject) }
-      }
+      // An unscoped rule has nothing literal to satisfy, so every notification in scope is a
+      // candidate and the model decides each one.
+      rule.unscoped ||
+        rule.clauses.any { clause ->
+          clause.tests.all { test -> passes(test, packageName, sourceKind, subject) }
+        }
     } ?: return SilenceOutcome(SilenceDecision.NO_MATCH)
 
     // A matched rule the device will not act on is still recorded. Without it, the kill switch and a
