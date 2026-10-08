@@ -19,6 +19,7 @@ import {
   filterItem,
   type CaptureClassification,
   type ClassifiableRule,
+  type FilterDecision,
 } from "@relay/domain";
 import type { FilterField, FilterRuleVersion } from "@relay/contracts";
 
@@ -147,12 +148,31 @@ export type ClassificationWrite = {
  * never overrules one made where the whole payload was readable -- the database enforces that too,
  * and agreeing with it here saves a round trip rather than relying on it.
  */
+/**
+ * A capture whose filing is waiting on a model, and the rule that needs one.
+ *
+ * Reported rather than discarded so a runtime that can reach a model knows exactly what to ask and
+ * about which capture. The device can now reach one (ADR-0019), which is what turns this from a
+ * dead end into a second phase.
+ */
+export type AwaitingModel = {
+  capture: ClassifiableCapture;
+  filterRuleId: string;
+};
+
 export function classificationPass(
   captures: readonly ClassifiableCapture[],
   rules: readonly ClassifiableRule[],
-): { withdrawals: ClassificationWithdrawal[]; writes: ClassificationWrite[] } {
+  /** Answers a caller already obtained, keyed by capture and then rule. */
+  semanticDecisions?: ReadonlyMap<string, ReadonlyMap<string, FilterDecision>>,
+): {
+  pending: AwaitingModel[];
+  withdrawals: ClassificationWithdrawal[];
+  writes: ClassificationWrite[];
+} {
   const writes: ClassificationWrite[] = [];
   const withdrawals: ClassificationWithdrawal[] = [];
+  const pending: AwaitingModel[] = [];
   const seen = new Set<string>();
 
   for (const capture of captures) {
@@ -166,7 +186,12 @@ export function classificationPass(
     const outcome =
       rules.length === 0
         ? ({ kind: "unfiled" } as const)
-        : classifyCapture(rules, classificationItemFor(capture), availableFieldsFor(capture));
+        : classifyCapture(
+            rules,
+            classificationItemFor(capture),
+            availableFieldsFor(capture),
+            semanticDecisions?.get(capture.sourceItemId),
+          );
 
     if (outcome.kind === "filed") {
       // Already filed here by this device. Rewriting would supersede a row with an identical one
@@ -181,6 +206,13 @@ export function classificationPass(
       continue;
     }
 
+    // Waiting on a model rather than undecidable in principle, so it is reported for a second phase
+    // to resolve. Only the first unresolved rule is named, because that is the one blocking the walk.
+    if (outcome.kind === "awaiting-model") {
+      pending.push({ capture, filterRuleId: outcome.filterRuleId });
+      continue;
+    }
+
     // Nothing claims it any more. `unfiled` withdraws; an undecidable outcome does not, because a
     // rule this device merely cannot evaluate is not evidence that the earlier decision was wrong.
     if (outcome.kind === "unfiled" && existing !== undefined) {
@@ -188,7 +220,7 @@ export function classificationPass(
     }
   }
 
-  return { withdrawals, writes };
+  return { pending, withdrawals, writes };
 }
 
 /** Why a capture is not filed, for a card to state plainly instead of leaving a gap. */

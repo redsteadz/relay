@@ -12,6 +12,7 @@ import { usePrivacySettings } from "../hooks/usePrivacySettings";
 import { openAiSubmitRequest } from "../models/openAiPresentation";
 import { AccountDeletionPanel } from "./AccountDeletionPanel";
 import { OpenAiPrivacyPanel } from "./OpenAiPrivacyPanel";
+import { DeviceModelPanel } from "./DeviceModelPanel";
 import { RetentionPanel } from "./RetentionPanel";
 
 type PrivacySettingsProps = {
@@ -99,6 +100,12 @@ export function PrivacySettings({
         saving={privacy.saveKey.isPending}
         status={privacy.openAi.data}
       />
+      {/*
+        Placed after the account's key and before deletion, because the two credentials belong
+        together on the page: one reaches a model through Relay's pipeline, the other straight from
+        this phone, and a reader comparing them should not have to scroll between them.
+      */}
+      <DeviceModelPanel tenantId={userId} />
       <AccountDeletionPanel
         deleting={privacy.deletion.isPending}
         error={privacy.deletion.error}
