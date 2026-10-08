@@ -172,6 +172,41 @@ describe("what the device is told it cannot evaluate", () => {
     expect(result.statuses[0]?.refusal).toBe(refusal);
   });
 
+  // The bug this replaced: a rule that can never be authorized was classified by whether anyone had
+  // started watching it, which happened before compilation. It therefore reported as merely "not
+  // started", the screen offered a live "start watching" control, and the database refused the write
+  // on plan shape -- discarding the reason this function could already name.
+  it("refuses an unevaluable rule even when no dry run has started", () => {
+    const result = compile([
+      rule({ plan: plan({ field: "subject", operator: "contains", value: "delivery" }) }),
+    ]);
+    expect(result.statuses[0]?.stage).toBe("refused");
+    expect(result.statuses[0]?.refusal).toBe("unbounded-application");
+    expect(result.snapshot.rules).toStrictEqual([]);
+  });
+
+  // The same, for a rule that is switched off: being disabled must not mask that the rule could
+  // never act anyway.
+  it("refuses an unevaluable rule that is also switched off", () => {
+    const result = compile([
+      rule({
+        enabled: false,
+        plan: plan({ all: [COURIER, { field: "category", operator: "equals", value: "finance" }] }),
+      }),
+    ]);
+    expect(result.statuses[0]?.stage).toBe("refused");
+    expect(result.statuses[0]?.refusal).toBe("unreadable-field");
+  });
+
+  // A rule that compiles but has no window yet keeps its compiled form, so the apps it names can
+  // still be offered Android's own per-app settings, while staying out of the snapshot.
+  it("keeps the compiled form of a rule nobody is watching yet", () => {
+    const result = compile([rule()]);
+    expect(result.statuses[0]?.stage).toBe("unauthorized");
+    expect(result.statuses[0]?.compiled?.clauses).toHaveLength(1);
+    expect(result.snapshot.rules).toStrictEqual([]);
+  });
+
   // A plan that no longer satisfies the wire contract is refused rather than guessed at. It can only
   // arise from a stored plan written by an older compiler, and acting on a plan this build cannot
   // parse would be acting on something nobody wrote.

@@ -96,12 +96,13 @@ export function compileSilencePlan(
 
   for (const rule of newestRevisions(rules)) {
     const observing = !rule.authorized;
-    // A rule nobody has started observing, or one that is switched off, is simply not here.
-    if (!rule.enabled || (observing && rule.dryRunStartedAt === undefined)) {
-      statuses.push({ rule, stage: "unauthorized" });
-      continue;
-    }
 
+    // Whether the device can evaluate a rule is a property of the rule, so it is decided before
+    // anything else. Deciding it after the "nobody is watching this yet" branch meant a rule that
+    // can never be authorized -- one naming no application, say -- was reported as merely not
+    // started, which rendered a live "start watching" control. The database then refused the write
+    // on plan shape, and the reason, which this function had already been able to name, was thrown
+    // away in favour of a generic failure.
     const plan = filterPlanSchema.safeParse(rule.plan);
     if (!plan.success) {
       statuses.push({ refusal: "no-deterministic-clause", rule, stage: "refused" });
@@ -115,6 +116,14 @@ export function compileSilencePlan(
     });
     if (result.status === "refused") {
       statuses.push({ refusal: result.refusal, rule, stage: "refused" });
+      continue;
+    }
+
+    // Only now does being switched off or unobserved matter. Such a rule keeps its compiled form --
+    // the apps it names are still worth offering Android's own per-app settings for -- but it is not
+    // in the snapshot, so the device cannot act on it.
+    if (!rule.enabled || (observing && rule.dryRunStartedAt === undefined)) {
+      statuses.push({ compiled: result.rule, rule, stage: "unauthorized" });
       continue;
     }
 

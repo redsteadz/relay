@@ -1,3 +1,4 @@
+import { AppError } from "@relay/observability";
 import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 
@@ -29,6 +30,11 @@ import {
   silenceRuleRow,
   type SilenceRuleRow,
 } from "../models/silencePresentation";
+
+/** The safe message an `AppError` already carries, or a generic one for anything unclassified. */
+function writeErrorMessage(error: unknown): string {
+  return error instanceof AppError ? error.userMessage : "That change could not be saved.";
+}
 
 /**
  * The quiet controls.
@@ -180,9 +186,14 @@ export function QuietScreen() {
         </EditorialSurface>
       )}
 
+      {/*
+        A refusal carries its own deterministic reason -- the rule names no app, the window is not
+        over -- and saying only "could not be saved" for one of those sends a reader to look for a
+        fault that is not there.
+      */}
       {silence.writeError !== null && (
         <StatusMessage tone="error">
-          That change could not be saved. Nothing on your phone was altered.
+          {`${writeErrorMessage(silence.writeError)} Nothing on your phone was altered.`}
         </StatusMessage>
       )}
 

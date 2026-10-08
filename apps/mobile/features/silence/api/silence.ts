@@ -53,15 +53,49 @@ type AuthorizationRow = {
   observed_count: number | null;
 };
 
+/**
+ * What a refusal from one of the routines means, in words a person can act on.
+ *
+ * The routines refuse for a small, fixed set of reasons, each of which is a property of the rule or
+ * its state rather than an incident. Mapping their SQLSTATE to a deterministic message is what keeps
+ * the screen from reporting "could not be saved" for a rule that will never be savable -- while
+ * still never putting the database's own text in front of a reader.
+ */
+const REFUSAL_MESSAGES: Record<string, string> = {
+  // `22023` covers every plan-shape refusal: no deterministic clause, a semantic clause, or no
+  // explicit application predicate. The compiler normally catches these first and says which;
+  // reaching here means the stored plan and this build disagree, so the message stays general.
+  "22023":
+    "This rule cannot be used to clear notifications. It has to name an app exactly and decide without a model.",
+  // `P0002` is a state refusal: the rule is switched off, the window is not over, or there is no
+  // window yet.
+  P0002:
+    "This rule is not in a state where that is allowed yet. Reopen this screen to see where it stands.",
+  "42501": "Relay needs you signed in to change this.",
+};
+
+function refusalMessage(cause: unknown): string | undefined {
+  if (typeof cause !== "object" || cause === null) return undefined;
+  const code = (cause as { code?: unknown }).code;
+  return typeof code === "string" ? REFUSAL_MESSAGES[code] : undefined;
+}
+
 export class NotificationSilenceError extends AppError {
   constructor(cause: unknown, operation: string) {
+    const refusal = refusalMessage(cause);
     super("Notification silencing request failed", {
-      category: "database",
+      // A refusal is the database declining a transition, not a fault to retry. Classifying it as
+      // such keeps it out of the retryable bucket and gives it its own message.
+      category: refusal === undefined ? "database" : "validation",
       cause,
-      code: "NOTIFICATION_SILENCE_REQUEST_FAILED",
+      code:
+        refusal === undefined
+          ? "NOTIFICATION_SILENCE_REQUEST_FAILED"
+          : "NOTIFICATION_SILENCE_REFUSED",
       integration: "supabase-postgrest",
       operation,
-      retryable: true,
+      retryable: refusal === undefined,
+      ...(refusal === undefined ? {} : { userMessage: refusal }),
     });
     this.name = "NotificationSilenceError";
   }
@@ -72,6 +106,7 @@ function silenceError(cause: unknown, operation: string): NotificationSilenceErr
   logMobileError("notification.silence_request_failed", normalized, {
     code: normalized.code,
     integration: "supabase-postgrest",
+    metadata: { refused: normalized.code === "NOTIFICATION_SILENCE_REFUSED" },
     operation,
   });
   return normalized;
