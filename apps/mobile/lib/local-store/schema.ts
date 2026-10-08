@@ -20,7 +20,7 @@
  * Bumped for every appended migration. `PRAGMA user_version` records how far a device has run, so a
  * partially migrated database resumes rather than being rebuilt.
  */
-export const LOCAL_STORE_SCHEMA_VERSION = 1;
+export const LOCAL_STORE_SCHEMA_VERSION = 2;
 
 export const LOCAL_STORE_DATABASE_NAME = "relay-local.db";
 
@@ -181,6 +181,45 @@ export const LOCAL_STORE_MIGRATIONS: readonly (readonly string[])[] = [
       PRIMARY KEY (tenant_id, event_id)
     )`,
   ],
+  [
+    /*
+     * What this device sent to a model, and where.
+     *
+     * The device now evaluates semantic clauses itself (ADR-0019), which creates the disclosure
+     * obligation the pipeline already carries. Column names mirror `public.ai_disclosures` so the
+     * privacy screen reads a device row and a server row through one shape.
+     *
+     * Metadata only, and that is the whole point: field *names*, redaction counts, the endpoint
+     * host, the model, the decision. Never the prompt, never a disclosed value. `endpoint_host`
+     * matters more here than server-side, because a device endpoint is frequently a machine on the
+     * reader's own network and history has to say so rather than implying OpenAI.
+     *
+     * `disclosed` is false when a clause was refused before anything left the device, so an attempt
+     * that sent nothing is distinguishable from one that sent something and got nothing back.
+     */
+    `CREATE TABLE ai_disclosures (
+      tenant_id TEXT NOT NULL,
+      id TEXT NOT NULL,
+      source_item_id TEXT NOT NULL,
+      filter_rule_id TEXT,
+      provider TEXT NOT NULL DEFAULT 'openai',
+      model TEXT NOT NULL,
+      disclosed_fields TEXT NOT NULL,
+      redactions TEXT NOT NULL DEFAULT '[]',
+      purpose TEXT NOT NULL,
+      decision TEXT NOT NULL DEFAULT 'undecided'
+        CHECK(decision IN ('match','no-match','undecided')),
+      disclosed INTEGER NOT NULL DEFAULT 1 CHECK(disclosed IN (0,1)),
+      confidence REAL CHECK(confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+      failure_reason TEXT,
+      endpoint_host TEXT,
+      origin TEXT NOT NULL DEFAULT 'device' CHECK(origin = 'device'),
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (tenant_id, id)
+    )`,
+    /* The privacy screen reads newest-first for one tenant, which is the only query there is. */
+    `CREATE INDEX ai_disclosures_recent ON ai_disclosures (tenant_id, created_at DESC)`,
+  ],
 ];
 
 /**
@@ -203,4 +242,5 @@ export const LOCAL_STORE_TABLES: readonly string[] = [
   "categories",
   "filter_rules",
   "hidden_inbox_events",
+  "ai_disclosures",
 ];
