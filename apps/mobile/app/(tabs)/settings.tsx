@@ -39,8 +39,8 @@ export default function SettingsScreen() {
     router.push({ params: { reason: "settings" }, pathname: "/sign-in" });
   }
 
-  function openIfSignedIn(pathname: "/categories" | "/your-data") {
-    if (!signedIn && pathname === "/categories") {
+  function openIfSignedIn(pathname: "/categories" | "/quiet" | "/your-data") {
+    if (!signedIn && pathname !== "/your-data") {
       openSignIn();
       return;
     }
@@ -94,10 +94,11 @@ export default function SettingsScreen() {
       <SectionHeading icon="shield-check-outline" label="Safeguards" />
       <CardGroup>
         <CardRow
-          detail="Requires explicit source and filter rules plus dry-run evidence. A quiet category alone never authorizes dismissal, and dismissed system notifications cannot be restored."
+          accessibilityHint="Opens the quiet controls, including the stop that halts every rule"
+          detail="A rule can make a matching notification arrive without a sound, after a watching period you review. It needs an app named exactly and no model, and it is reversible until the moment it acts."
           icon="bell-off-outline"
-          label="Automatic dismissal"
-          status={{ label: "Off", tone: "muted" }}
+          label={signedIn ? "Quiet notifications" : "Sign in to set up quiet rules"}
+          onPress={() => openIfSignedIn("/quiet")}
         />
       </CardGroup>
 

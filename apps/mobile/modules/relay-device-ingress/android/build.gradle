@@ -17,4 +17,8 @@ android {
 
 dependencies {
   testImplementation 'junit:junit:4.13.2'
+  // `android.jar` stubs `org.json` to throw, and the snapshot parser is the gate that keeps a
+  // malformed authorization from being partly honoured. A real implementation on the unit-test
+  // classpath is what lets that gate be tested off-device.
+  testImplementation 'org.json:json:20240303'
 }

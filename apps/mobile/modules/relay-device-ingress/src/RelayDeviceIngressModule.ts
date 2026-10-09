@@ -1,9 +1,15 @@
 import { requireOptionalNativeModule } from "expo";
 
+import type { NotificationSilenceMode } from "@relay/contracts";
+
 export type NativeDeviceCapabilities = {
   notificationAllowedPackages: string[];
   notificationCapturePaused: boolean;
   notificationListener: boolean;
+  notificationSilenceKillSwitch: boolean;
+  notificationSilenceMode: NotificationSilenceMode;
+  notificationSilenceRevision: number;
+  notificationSilenceRuleCount: number;
   smsAllowedSenders: string[];
   smsAvailable: boolean;
   smsCapturePaused: boolean;
@@ -38,6 +44,28 @@ export type SmsCapturePreview = {
 export type SmsSenderChoice = {
   label: string;
   sender: string;
+};
+
+/** One content-free verdict from the device's own silencing ledger. */
+export type NativeSilenceOutcome = {
+  applicationId: string;
+  decidedAt: number;
+  decision: string;
+  envelopeId: string;
+  filterRuleId?: string;
+};
+
+/**
+ * One notification whose rule is still waiting on a model.
+ *
+ * `filterRuleId` is required, unlike on a recorded outcome: a candidate that names no rule cannot be
+ * resolved against one, and the device omits such a row rather than offering work that cannot finish.
+ */
+export type NativePendingSilence = {
+  applicationId: string;
+  decidedAt: number;
+  envelopeId: string;
+  filterRuleId: string;
 };
 
 type RelayDeviceIngressNativeModule = {
@@ -101,6 +129,47 @@ type RelayDeviceIngressNativeModule = {
     envelopeIds: string[],
     generation: number,
   ): Promise<Record<string, string>>;
+  openApplicationNotificationSettings(packageName: string): Promise<void>;
+  configureNotificationSilence(
+    tenantId: string,
+    snapshotJson: string,
+    revision: number,
+    generation: number,
+  ): Promise<void>;
+  setNotificationSilenceKillSwitch(
+    tenantId: string,
+    engaged: boolean,
+    generation: number,
+  ): Promise<void>;
+  getNotificationSilenceOutcomes(
+    tenantId: string,
+    limit: number,
+    generation: number,
+  ): Promise<NativeSilenceOutcome[]>;
+  getNotificationSilenceCounts(
+    tenantId: string,
+    filterRuleId: string,
+    since: number,
+    generation: number,
+  ): Promise<{ matched: number; observed: number }>;
+  getPendingNotificationSilences(
+    tenantId: string,
+    limit: number,
+    generation: number,
+  ): Promise<NativePendingSilence[]>;
+  /**
+   * Hands the device a model's answer and gets back what the device did with it.
+   *
+   * `matched` is an input to the decision, never the decision. The device re-reads the rule, the
+   * stop and the application scope before acting, so this cannot authorize anything the reader has
+   * not. `null` means the candidate was already resolved, expired, or cleared.
+   */
+  resolveNotificationSilence(
+    tenantId: string,
+    envelopeId: string,
+    matched: boolean,
+    generation: number,
+  ): Promise<string | null>;
 };
 
 export default requireOptionalNativeModule<RelayDeviceIngressNativeModule>("RelayDeviceIngress");

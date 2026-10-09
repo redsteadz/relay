@@ -20,8 +20,10 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { FeedbackState, LoadingState } from "@/components/ui";
+import { resolvePendingSilencesForTenant } from "@/features/silence/api/silenceResolution";
 import { SubscriptionProvider } from "@/features/subscription/context/subscription-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { restoreBackgroundSyncRegistration } from "@/lib/background-capture-sync";
 import {
   canEnterApp,
   canEnterSignIn,
@@ -142,6 +144,7 @@ function AuthenticatedStack() {
           <Stack.Screen name="demo" />
           <Stack.Screen name="disclosures" />
           <Stack.Screen name="your-data" />
+          <Stack.Screen name="quiet" />
         </Stack.Protected>
         <Stack.Protected guard={introduced && canEnterSignIn(session !== null)}>
           <Stack.Screen name="sign-in" />
@@ -154,23 +157,64 @@ function AuthenticatedStack() {
   );
 }
 
+/**
+ * The device work that belongs to no screen.
+ *
+ * Deliberately mounted here rather than in a feature hook. Both passes below are about what the
+ * phone holds, not about what is on screen, and the quiet pass in particular must not be reachable
+ * from the inbox: `features/inbox/models/dismissalBoundary.test.ts` asserts structurally that no
+ * inbox surface can reach the capability that acts on a notification, and putting this in `useInbox`
+ * would have been one edit away from a swipe cancelling a notification.
+ */
 function DeviceCaptureSync() {
-  const { session } = useAuth();
+  const { client, session } = useAuth();
 
   useEffect(() => {
     if (session === null) return;
-    const sync = () =>
+    const tenantId = session.user.id;
+    const sync = () => {
       runInBackground(syncDeviceCaptures(session), "background.device_capture_sync_failed", {
         code: "DEVICE_CAPTURE_SYNC_FAILED",
         integration: "relay-device-ingress",
         operation: "syncDeviceCaptures",
       });
+      // Finishes the quiet decisions the notification listener could not make. The listener runs in
+      // a system-bound process with no session and cannot reach a model, so a rule carrying a
+      // semantic clause records a candidate and leaves the notification alone; this pass and the
+      // background delivery task are the only two that come back for it (ADR-0019).
+      //
+      // Separate from filing, because a candidate exists whether or not anything needs filing, and
+      // a pass that only ran alongside a classification write would leave notifications waiting.
+      if (client !== undefined) {
+        runInBackground(
+          resolvePendingSilencesForTenant(client, tenantId),
+          "silence.resolution_pass_failed",
+          {
+            code: "SILENCE_RESOLUTION_PASS_FAILED",
+            integration: "relay-device-ingress",
+            operation: "resolvePendingSilencesForTenant",
+          },
+        );
+      }
+    };
     sync();
+    // The scheduled work and the stored preference can fall out of step -- a reinstall, a restore to
+    // a new device, or a system that dropped the job -- so the choice a person last made is
+    // re-applied on launch rather than assumed to still be in force.
+    runInBackground(
+      restoreBackgroundSyncRegistration(),
+      "background.capture_sync_registration_failed",
+      {
+        code: "BACKGROUND_CAPTURE_SYNC_REGISTRATION_FAILED",
+        integration: "relay-device-ingress",
+        operation: "restoreBackgroundSyncRegistration",
+      },
+    );
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") sync();
     });
     return () => subscription.remove();
-  }, [session]);
+  }, [client, session]);
 
   return null;
 }

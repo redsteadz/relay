@@ -91,6 +91,21 @@ describe("local store schema", () => {
       expect(ddl).not.toMatch(new RegExp(`\\b${column}\\b`, "u"));
     }
   });
+
+  // The disclosure table records what was sent, so it is the one most tempting to widen into
+  // recording what was *in* what was sent. It keeps field names, redaction counts, the endpoint and
+  // the verdict -- and deliberately not the model's `rationale`, which the server does keep: that is
+  // text a model wrote about a capture, and this store is no home for such text.
+  it("records what the device disclosed without recording the disclosed values", () => {
+    const table =
+      statements.find((statement) => statement.startsWith("CREATE TABLE ai_disclosures (")) ?? "";
+    expect(table).not.toBe("");
+    for (const column of ["rationale", "prompt", "value", "content", "subject", "sender"]) {
+      expect(table).not.toMatch(new RegExp(`\\b${column}\\b`, "u"));
+    }
+    // The names of the disclosed fields are kept, as one bounded JSON list.
+    expect(table).toContain("disclosed_fields TEXT NOT NULL");
+  });
 });
 
 describe.skipIf(sqlite === undefined)("local store schema, executed", () => {

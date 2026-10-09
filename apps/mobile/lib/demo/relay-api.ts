@@ -74,8 +74,26 @@ function openAiStatus(): DemoApiResponse["body"] {
       ? { lastValidatedAt: stored.last_validated_at }
       : {}),
     provider: "openai",
+    serverEvaluation: stored.server_evaluation === true,
     validated: stored.validated === true,
   };
+}
+
+/** The server-path switch, which touches no key and so needs no demo credential handling. */
+function setServerEvaluation(body: unknown): DemoApiResponse {
+  const stored = demoDatabase.rows("openai_credentials")[0];
+  if (stored?.configured !== true) {
+    return failure(404, "openai_not_found", "No OpenAI key is configured");
+  }
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    typeof (body as { enabled?: unknown }).enabled !== "boolean"
+  ) {
+    return failure(400, "invalid_request", "Server evaluation request is invalid");
+  }
+  stored.server_evaluation = (body as { enabled: boolean }).enabled;
+  return { body: openAiStatus(), status: 200 };
 }
 
 function storeOpenAiKey(body: unknown): DemoApiResponse {
@@ -265,7 +283,7 @@ function compileFilter(body: unknown): DemoApiResponse {
 
 export async function demoRelayApi(
   path: string,
-  init: { body?: unknown; method?: "DELETE" | "GET" | "PATCH" | "POST" },
+  init: { body?: unknown; method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT" },
 ): Promise<DemoApiResponse> {
   await demoDatabase.ready();
   const method = init.method ?? "GET";
@@ -295,6 +313,9 @@ export async function demoRelayApi(
   if (route === "/api/privacy/disclosures" && method === "GET") {
     const requested = Number.parseInt(new URLSearchParams(query).get("limit") ?? "100", 10);
     return disclosures(Number.isFinite(requested) && requested > 0 ? requested : 100);
+  }
+  if (route === "/api/connectors/openai/server-evaluation" && method === "PUT") {
+    return setServerEvaluation(init.body);
   }
   if (route === "/api/connectors/openai") {
     if (method === "GET") return { body: openAiStatus(), status: 200 };

@@ -1200,6 +1200,14 @@ export const semanticFailureReasonSchema = z.enum([
   "quota-exhausted",
   "rate-limited",
   "response-too-large",
+  /**
+   * The tenant has a key and has not asked Relay's servers to use it.
+   *
+   * Distinct from `credential-missing`, which says there is nothing to use. This says the reader
+   * chose to keep semantic evaluation on their own device, so the clause is theirs to answer -- see
+   * [ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md).
+   */
+  "server-evaluation-disabled",
   "timed-out",
   "unavailable",
 ]);
@@ -1565,6 +1573,15 @@ export const openAiCredentialStatusSchema = z
      */
     endpoint: semanticEndpointOverrideSchema.optional(),
     /**
+     * Whether Relay's own runtime may use this key.
+     *
+     * Off by default, and separate from having a key at all. A reader can store a credential for the
+     * device to use and never let the server spend it: the server path costs Relay's hosted runtime
+     * and a provider call, which makes it the paid convenience rather than the baseline
+     * ([ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md)).
+     */
+    serverEvaluation: z.boolean().optional(),
+    /**
      * False when the endpoint accepted the key but exposes no way to check it, so the key was
      * stored without confirmation rather than silently treated as verified.
      */
@@ -1572,6 +1589,10 @@ export const openAiCredentialStatusSchema = z
   })
   .strict();
 export type OpenAiCredentialStatus = z.infer<typeof openAiCredentialStatusSchema>;
+
+/** Turning the server path on or off. One boolean, because that is the whole decision. */
+export const serverSemanticEvaluationRequestSchema = z.object({ enabled: z.boolean() }).strict();
+export type ServerSemanticEvaluationRequest = z.infer<typeof serverSemanticEvaluationRequestSchema>;
 
 export const privacyRetentionStatusSchema = z
   .object({
@@ -1666,3 +1687,260 @@ export const healthResponseSchema = z.object({
   status: z.literal("ok"),
   version: z.string(),
 });
+
+// Notification silencing ---------------------------------------------------------------------------
+
+/**
+ * The fields the listener can read when it decides whether to clear a notification.
+ *
+ * Deliberately a fraction of `filterFieldSchema`. The decision is made in a system-bound process
+ * with the app dead, holding a `StatusBarNotification` and nothing else -- no session, no derived
+ * facts, no classification, and no Gmail body. `category` and `attributes.*` do not exist yet at
+ * that moment, and `category` is a classification besides, which can never authorize an irreversible
+ * act. `sender` and `body` are excluded because they are present only sometimes -- `sender` only
+ * when an app used `MessagingStyle` -- and a predicate whose field may silently be absent is a
+ * predicate that stops narrowing.
+ *
+ * See [ADR-0017](../../../docs/decisions/0017-notification-dismissal-after-posting.md).
+ */
+export const notificationSilenceFieldSchema = z.enum([
+  "source.applicationId",
+  "source.kind",
+  "subject",
+]);
+export type NotificationSilenceField = z.infer<typeof notificationSilenceFieldSchema>;
+
+export const notificationSilenceOperatorSchema = z.enum([
+  "equals",
+  "contains",
+  "starts-with",
+  "in",
+  "exists",
+]);
+export type NotificationSilenceOperator = z.infer<typeof notificationSilenceOperatorSchema>;
+
+/**
+ * One literal comparison, already flattened out of the filter expression it came from.
+ *
+ * `values` holds one entry for the single-value operators and up to the contract's `in` bound for
+ * `in`; `exists` carries none. Keeping the shape uniform is what lets the Kotlin evaluator stay a
+ * loop over tests rather than a second expression interpreter.
+ */
+export const notificationSilenceTestSchema = z
+  .object({
+    field: notificationSilenceFieldSchema,
+    operator: notificationSilenceOperatorSchema,
+    values: z.array(z.string().min(1).max(1024)).max(32),
+  })
+  .strict()
+  .superRefine((test, context) => {
+    const expected = test.operator === "exists" ? 0 : test.operator === "in" ? -1 : 1;
+    if (expected === 0 && test.values.length !== 0) {
+      context.addIssue({ code: "custom", message: "An exists test carries no values" });
+    }
+    if (expected === 1 && test.values.length !== 1) {
+      context.addIssue({ code: "custom", message: "This operator takes exactly one value" });
+    }
+    if (expected === -1 && test.values.length === 0) {
+      context.addIssue({ code: "custom", message: "An in test needs at least one value" });
+    }
+  });
+export type NotificationSilenceTest = z.infer<typeof notificationSilenceTestSchema>;
+
+/**
+ * A conjunction every one of whose tests must pass.
+ *
+ * A clause no longer has to *name* an application. #38's first criterion required one, and
+ * [ADR-0020](../../../docs/decisions/0020-unscoped-quiet-rules.md) lifts it: a reader whose rule is
+ * "anything my model calls marketing" is describing the feature rather than evading a safeguard, and
+ * the gates that make quieting safe -- the observed dry run, the reviewed history, the explicit
+ * enable, and the stops -- do not depend on an application being named.
+ *
+ * The capture allowlist still bounds everything. A notification from an application the reader never
+ * allowed Relay to capture is never evaluated, because the listener returns before it gets here.
+ */
+export const notificationSilenceClauseSchema = z
+  .object({ tests: z.array(notificationSilenceTestSchema).min(1).max(16) })
+  .strict();
+export type NotificationSilenceClause = z.infer<typeof notificationSilenceClauseSchema>;
+
+/**
+ * What a rule is authorized to do.
+ *
+ * Both happen after Android has posted and alerted, because that is the only point a listener is
+ * given. Neither can stop a sound: the pre-posting hook is `@SystemApi` and unavailable to a
+ * sideloaded app.
+ *
+ * `snooze` removes the notification and Android brings it back later, so a rule that turns out to be
+ * wrong costs a delay. `dismiss` cancels it and nothing brings it back, which is why it carries the
+ * heavier gates.
+ */
+export const notificationSilenceActionSchema = z.enum(["snooze", "dismiss"]);
+export type NotificationSilenceAction = z.infer<typeof notificationSilenceActionSchema>;
+
+export const notificationSilenceRuleSchema = z
+  .object({
+    action: notificationSilenceActionSchema,
+    /**
+     * Whether a model still has to answer before this rule may act.
+     *
+     * The listener evaluates the literal tests in its own process and cannot call a model, so a rule
+     * carrying a semantic clause matches in two steps: the clauses below decide that the notification
+     * is a candidate, and a model decides whether it actually matches. A candidate is recorded and
+     * left alone until that answer exists (ADR-0019).
+     */
+    awaitsModel: z.boolean(),
+    clauses: z.array(notificationSilenceClauseSchema).max(16),
+    filterRuleId: canonicalUuidSchema,
+    /**
+     * Whether this rule is still being observed rather than acted on.
+     *
+     * Per rule rather than per snapshot, because a tenant reaches the end of one rule's dry run
+     * while another has just started. A single mode across the snapshot would have forced the
+     * observing rule to act or the authorized one to wait.
+     */
+    observing: z.boolean(),
+    /**
+     * This rule has no literal tests and applies to every notification Relay captures.
+     *
+     * Redundant with `clauses.length === 0`, deliberately. An empty disjunction read as "matches
+     * everything" is the classic fail-open bug: anything that dropped a clause -- a parser that gave
+     * up on one, a compiler branch that produced none -- would silently widen a rule that cancels
+     * notifications to the whole shade. Carrying the intent separately and refusing the two when
+     * they disagree makes that failure refuse instead of act.
+     *
+     * Such a rule is only decidable by a model, so it always carries `awaitsModel`. See
+     * [ADR-0020](../../../docs/decisions/0020-unscoped-quiet-rules.md).
+     */
+    unscoped: z.boolean(),
+  })
+  .strict()
+  .refine((rule) => rule.unscoped === (rule.clauses.length === 0), {
+    message: "A rule is unscoped exactly when it has no clauses",
+  })
+  // Nothing literal narrows it and nothing semantic decides it, so it would match every captured
+  // notification unconditionally. No reader asks for that, and it is what a lost semantic clause
+  // would look like.
+  .refine((rule) => !rule.unscoped || rule.awaitsModel, {
+    message: "An unscoped rule must be decided by a model",
+  });
+export type NotificationSilenceRule = z.infer<typeof notificationSilenceRuleSchema>;
+
+/**
+ * The snapshot's overall state, for reporting and for one short-circuit.
+ *
+ * `off` is the only value the listener reads as an instruction: it means stop before evaluating
+ * anything. `dry-run` and `enforcing` describe what the rules collectively are doing, and each
+ * rule's own `observing` flag is what decides whether it acts. `dry-run` means every authorized rule
+ * is still being observed and nothing can change a notification.
+ */
+export const notificationSilenceModeSchema = z.enum(["off", "dry-run", "enforcing"]);
+export type NotificationSilenceMode = z.infer<typeof notificationSilenceModeSchema>;
+
+/**
+ * Everything the native services are allowed to act on, written by the app after the database said
+ * so.
+ *
+ * Carries no notification content, no credential, and no tenant identifier beyond the one the
+ * module already holds -- rule ids and the literal predicate values the tenant typed. `revision`
+ * is monotonic so a snapshot write that loses a race with a newer one is ignored rather than
+ * reinstating authorization the tenant has since withdrawn.
+ *
+ * Read by `RelayNotificationListenerService`, which runs with the app dead and has no caller to
+ * reject a bad snapshot back to, so it is validated again natively on every read.
+ */
+export const notificationSilenceSnapshotSchema = z
+  .object({
+    disabledPackages: z.array(z.string().min(1).max(256)).max(256),
+    killSwitchEngaged: z.boolean(),
+    mode: notificationSilenceModeSchema,
+    revision: z.int().min(0),
+    rules: z.array(notificationSilenceRuleSchema).max(32),
+  })
+  .strict();
+export type NotificationSilenceSnapshot = z.infer<typeof notificationSilenceSnapshotSchema>;
+
+/**
+ * What the device decided about one notification.
+ *
+ * `would-*` are dry-run observations and mean nothing happened. `declined` records that a rule
+ * matched and the device deliberately did not act -- kill switch engaged, the app disabled
+ * individually, or the capability withdrawn between the match and the act -- which is the outcome
+ * that would otherwise be indistinguishable from the rule never matching.
+ *
+ * `awaiting-model` means the literal tests matched and a model has not answered yet. It is the one
+ * verdict that is not final: a later pass resolves the clause and replaces it with what was actually
+ * done.
+ *
+ * `no-longer-posted` closes that pass honestly. The device cannot ask a model from inside the
+ * notification listener, so by the time an answer arrives the notification may have been read,
+ * swiped, or replaced by the application. Relay was authorized and the rule did match -- there was
+ * simply nothing left to quiet -- and recording `snoozed` for a notification nothing touched would
+ * make the ledger claim an act that never happened.
+ *
+ * `envelopeId` is the capture's own identity, derived by the same function that builds the capture,
+ * so a dry-run outcome is reviewable against an item a person recognises rather than an abstract log
+ * line.
+ */
+export const notificationSilenceDecisionSchema = z.enum([
+  "awaiting-model",
+  "declined",
+  "dismissed",
+  "no-longer-posted",
+  "no-match",
+  "snoozed",
+  "would-dismiss",
+  "would-snooze",
+]);
+export type NotificationSilenceDecision = z.infer<typeof notificationSilenceDecisionSchema>;
+
+export const notificationSilenceOutcomeSchema = z
+  .object({
+    applicationId: z.string().min(1).max(256),
+    decidedAt: z.iso.datetime({ offset: true }),
+    decision: notificationSilenceDecisionSchema,
+    envelopeId: canonicalUuidSchema,
+    filterRuleId: canonicalUuidSchema.optional(),
+  })
+  .strict()
+  .refine((outcome) => outcome.decision === "no-match" || outcome.filterRuleId !== undefined, {
+    message: "Every decision but no-match names the rule that produced it",
+  });
+export type NotificationSilenceOutcome = z.infer<typeof notificationSilenceOutcomeSchema>;
+
+/** The tenant-wide stop, as the API reports it. */
+export const notificationDismissalSettingsSchema = z
+  .object({ killSwitchEngaged: z.boolean(), updatedAt: z.iso.datetime({ offset: true }) })
+  .strict();
+export type NotificationDismissalSettings = z.infer<typeof notificationDismissalSettingsSchema>;
+
+/**
+ * An OpenAI-compatible endpoint the reader configured on their own device.
+ *
+ * Distinct from the server's BYOK connection on purpose. The API stores that credential encrypted
+ * and never returns it, which is correct and unchanged; this one lives in the device's Keystore-backed
+ * secure store and is never uploaded. A reader may configure both, and neither learns the other's
+ * key. See [ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md).
+ */
+export const deviceSemanticConfigSchema = z
+  .object({
+    /**
+     * Optional, because the common local case has no credential at all: Ollama and llama.cpp accept
+     * requests on a LAN address without one. Requiring a key here would have meant inventing a
+     * placeholder for the configuration this exists to support.
+     */
+    apiKey: openAiApiKeySchema.optional(),
+    baseUrl: z.string().min(1).max(2048),
+    model: semanticModelSchema,
+    /**
+     * Defaults to `json-object` rather than the server's `json-schema`.
+     *
+     * Locally hosted servers widely implement the older `{"type":"json_object"}` form and widely do
+     * not implement OpenAI's strict JSON-schema form. Relay validates every answer against
+     * `semanticEvaluationSchema` regardless, so this only chooses how much the endpoint is asked to
+     * enforce — and defaulting to the stricter form would make the default configuration fail.
+     */
+    responseFormat: semanticResponseFormatSchema.default("json-object"),
+  })
+  .strict();
+export type DeviceSemanticConfig = z.infer<typeof deviceSemanticConfigSchema>;

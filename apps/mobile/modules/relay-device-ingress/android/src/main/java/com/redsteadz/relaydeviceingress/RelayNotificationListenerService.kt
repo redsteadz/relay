@@ -1,16 +1,78 @@
 package com.redsteadz.relaydeviceingress
 
+import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
+/**
+ * How long a snoozed notification stays away before Android brings it back.
+ *
+ * Two hours: long enough that a batch of matching notifications stops interrupting an afternoon,
+ * short enough that nothing is effectively lost if the rule was wrong. A snooze is the reversible
+ * half of the capability, so its duration is chosen to keep it reversible in practice and not only
+ * in principle.
+ */
+private const val SNOOZE_DURATION_MS = 2L * 60 * 60 * 1000
+
 class RelayNotificationListenerService : NotificationListenerService() {
+  /**
+   * The one thing only a bound listener can do, reachable from the app process.
+   *
+   * Android offers no API for cancelling or snoozing a notification from outside a bound
+   * `NotificationListenerService`, and the deferred half of quieting needs exactly that: a model is
+   * asked in JavaScript, after the notification was posted, and something then has to act. The
+   * alternatives were a second native service or storing Android's notification key, and the key is
+   * worse -- a durable handle to someone else's notification, kept for no other purpose. A capture
+   * identity Relay already derived is enough, because it can be derived again from the shade.
+   *
+   * The reference is held only while the system says the listener is bound, and the shade is never
+   * read for its own sake: both functions answer about identities this device already recorded.
+   */
+  internal companion object {
+    @Volatile private var bound: RelayNotificationListenerService? = null
+
+    /**
+     * Android's key for a notification Relay captured, if that notification is still on screen.
+     *
+     * `null` also when no listener is bound, which is the same answer for the caller's purpose:
+     * nothing can be acted on. Separate from acting so a verdict can be recorded first -- see
+     * `actOnKey`.
+     */
+    fun postedKey(envelopeId: String): String? = bound?.keyFor(envelopeId)
+
+    /** Snoozes or cancels one notification by the key `postedKey` just returned. */
+    fun actOnKey(key: String, action: String): Boolean = bound?.applyAction(key, action) ?: false
+
+    /**
+     * The capture identities currently on screen, or `null` when no listener is bound.
+     *
+     * One sweep answering for every candidate at once. Asking `postedKey` per candidate re-derived
+     * every identity in the shade each time, which is the same SHA-256 work multiplied by the
+     * number of candidates.
+     *
+     * `null` and "none posted" are deliberately different. With no listener bound nothing is known,
+     * and recording a notification as gone on the strength of a shade that could not be read would
+     * close a candidate that may still be sitting there.
+     */
+    fun postedEnvelopeIds(): Set<String>? = bound?.shadeIdentities()
+  }
+
   override fun onListenerConnected() {
     NotificationDebugDiagnostics.event("listener connected")
+    bound = this
     captureAlreadyPosted()
   }
 
   override fun onListenerDisconnected() {
     NotificationDebugDiagnostics.event("listener disconnected")
+    bound = null
+  }
+
+  override fun onDestroy() {
+    // `onListenerDisconnected` is not guaranteed on every teardown, and a reference to a destroyed
+    // service would act on a shade it can no longer read.
+    bound = null
+    super.onDestroy()
   }
 
   override fun onNotificationPosted(notification: StatusBarNotification) {
@@ -26,6 +88,143 @@ class RelayNotificationListenerService : NotificationListenerService() {
       } catch (error: RuntimeException) {
         NotificationDebugDiagnostics.failure("capture enqueue threw an exception", error)
       }
+      // After the capture, always. Clearing a notification Relay failed to record would destroy the
+      // only copy of something the reader asked it to keep.
+      actIfAuthorized(configuration, notification)
+    }
+  }
+
+  /**
+   * Clears a notification a rule was authorized to clear, and nothing else.
+   *
+   * **This cannot stop a sound, and nothing a sideloaded app can do will.** Android ranks, posts and
+   * alerts a notification before any listener is told it exists, so by the time this runs the phone
+   * has already made its noise. The only hook that runs earlier is `NotificationAssistantService`,
+   * which is `@SystemApi` -- absent from the public SDK and available to privileged system apps
+   * only. So Relay clears a notification after the fact, and the quiet controls say so plainly and
+   * point a person at Android's own per-app notification settings for the part Relay cannot do. See
+   * [ADR-0017](../../../../../../../../docs/decisions/0017-notification-dismissal-after-posting.md).
+   *
+   * Snoozing is offered alongside cancelling because it is the reversible one: Android brings a
+   * snoozed notification back, so a rule that turns out to be wrong costs a delay rather than a
+   * message.
+   *
+   * Ordering is the part that matters most. The outcome is recorded before the notification is
+   * touched, because afterwards this ledger is the only remaining evidence that Relay did it, and a
+   * crash between the two must leave a record of an act that did not happen rather than an act with
+   * no record.
+   */
+  private fun actIfAuthorized(
+    configuration: NotificationCaptureConfiguration,
+    notification: StatusBarNotification
+  ) {
+    try {
+      val settings = NotificationSilenceSettings(applicationContext)
+      val snapshot = settings.read(configuration.tenantId)
+      if (snapshot.mode == "off") return
+
+      // A call in progress, a navigation session, a download, a media player. Relay keeps a
+      // notification's text, not its actions or its session, so the inbox copy of a call cannot
+      // answer it and the copy of a route cannot resume it. Everywhere else, clearing a
+      // notification costs the row and not the information -- which is what ADR-0021 rests on --
+      // and this is the one place that is untrue, so it is the one place still refused.
+      if (notification.notification.flags and Notification.FLAG_ONGOING_EVENT != 0) return
+
+      val visible = NotificationEnvelopeFactory.view(notification.notification)
+      val outcome = NotificationSilencePolicy.decide(
+        snapshot,
+        notification.packageName,
+        "notification",
+        visible.subject
+      )
+      if (outcome.decision == SilenceDecision.IGNORED) return
+
+      val envelopeId = NotificationEnvelopeFactory.envelopeId(
+        notification.packageName,
+        notification.key,
+        visible.subject,
+        visible.body,
+        visible.sender
+      )
+      CaptureQueueStore(applicationContext).use { queue ->
+        queue.recordSilenceOutcome(
+          configuration.tenantId,
+          envelopeId,
+          notification.packageName,
+          outcome.filterRuleId,
+          outcome.decision.wireName(),
+          System.currentTimeMillis()
+        )
+      }
+      NotificationDebugDiagnostics.event("quiet decision=${outcome.decision.wireName()}")
+
+      // Only this notification's own key. Never `cancelAllNotifications`, and never a key derived
+      // from anything but the notification that was just decided about.
+      when (outcome.decision) {
+        SilenceDecision.DISMISS -> cancelNotification(notification.key)
+        SilenceDecision.SNOOZE -> snoozeNotification(notification.key, SNOOZE_DURATION_MS)
+        else -> Unit
+      }
+    } catch (error: RuntimeException) {
+      // A failure leaves the notification where it is, which is the safe direction.
+      NotificationDebugDiagnostics.failure("quiet decision threw an exception", error)
+    }
+  }
+
+  /**
+   * Re-derives capture identity across the shade to find one notification again.
+   *
+   * The same function that built the identity, over the same three visible values, so an unchanged
+   * notification yields the identity it was recorded under. An edited one does not, and that is
+   * correct: the reader's rule was judged against what the notification said at the time, and the
+   * replacement is a different observation that the live path decides about on its own.
+   */
+  private fun keyFor(envelopeId: String): String? =
+    shade()?.firstOrNull { notification -> identify(notification) == envelopeId }?.key
+
+  /** Every capture identity on screen, derived once. */
+  private fun shadeIdentities(): Set<String>? =
+    shade()?.map { notification -> identify(notification) }?.toSet()
+
+  private fun identify(notification: StatusBarNotification): String {
+    val visible = NotificationEnvelopeFactory.view(notification.notification)
+    return NotificationEnvelopeFactory.envelopeId(
+      notification.packageName,
+      notification.key,
+      visible.subject,
+      visible.body,
+      visible.sender
+    )
+  }
+
+  /** Android refuses this until the binding it announced is fully established. */
+  private fun shade(): List<StatusBarNotification>? =
+    try {
+      activeNotifications?.toList()
+    } catch (error: RuntimeException) {
+      NotificationDebugDiagnostics.failure("active notifications unavailable", error)
+      null
+    }
+
+  /**
+   * Snoozes or cancels one notification, and refuses anything else.
+   *
+   * The key is one this service produced from its own shade a moment ago, never a value that crossed
+   * the bridge. An unrecognised action does nothing rather than defaulting to either act: the two
+   * differ in whether the notification comes back.
+   */
+  private fun applyAction(key: String, action: String): Boolean {
+    return try {
+      when (action) {
+        NotificationSilencePolicy.ACTION_SNOOZE -> snoozeNotification(key, SNOOZE_DURATION_MS)
+        NotificationSilencePolicy.ACTION_DISMISS -> cancelNotification(key)
+        else -> return false
+      }
+      true
+    } catch (error: RuntimeException) {
+      // The notification stays where it is, which is the safe direction.
+      NotificationDebugDiagnostics.failure("deferred quiet threw an exception", error)
+      false
     }
   }
 

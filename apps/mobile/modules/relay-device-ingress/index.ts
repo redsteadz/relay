@@ -1,5 +1,14 @@
 import Constants from "expo-constants";
-import { ingressEnvelopeSchema, type IngressEnvelope } from "@relay/contracts";
+import {
+  ingressEnvelopeSchema,
+  notificationSilenceDecisionSchema,
+  notificationSilenceOutcomeSchema,
+  notificationSilenceSnapshotSchema,
+  type IngressEnvelope,
+  type NotificationSilenceDecision,
+  type NotificationSilenceOutcome,
+  type NotificationSilenceSnapshot,
+} from "@relay/contracts";
 import { PermissionsAndroid, Platform } from "react-native";
 
 import buildConstants from "../../config/build.constants.json";
@@ -8,6 +17,8 @@ import { demoModeEnabled } from "../../lib/demo/mode";
 import { normalizeNotificationAppChoices } from "../../lib/notification-capture";
 import NativeRelayDeviceIngress, {
   type NativeDeviceCapabilities,
+  type NativePendingSilence,
+  type NativeSilenceOutcome,
   type NotificationCapturePreview,
   type SelectableNotificationApp,
   type SmsCapturePreview,
@@ -17,6 +28,7 @@ import NativeRelayDeviceIngress, {
 export type RelayBuildVariant = keyof typeof buildConstants.buildVariants;
 export type DeviceCapabilities = NativeDeviceCapabilities & { buildVariant: RelayBuildVariant };
 export type {
+  NativePendingSilence,
   NotificationCapturePreview,
   SelectableNotificationApp,
   SmsCapturePreview,
@@ -55,6 +67,39 @@ function parseRetainedContent(raw: string): RetainedCaptureContent | undefined {
   return { ...(body === undefined ? {} : { body }), ...(subject === undefined ? {} : { subject }) };
 }
 
+/** How much history one review reads. Bounded natively too; this is the ordinary page. */
+export const SILENCE_OUTCOME_LIMIT = 200;
+
+/**
+ * How many still-posted candidates one pass is handed.
+ *
+ * Higher than filing's `DEVICE_SEMANTIC_PASS_LIMIT` because the native side has already discarded
+ * every candidate whose notification is gone, so what reaches here is bounded by the shade -- a few
+ * dozen at most, and each one is something quieting can still act on. Eight was calibrated when a
+ * candidate meant "a rule the reader wrote selected this"; an unscoped rule makes every captured
+ * notification a candidate, and eight per pass could never keep up with that.
+ */
+export const PENDING_SILENCE_LIMIT = 32;
+
+/**
+ * One ledger row, as the wire contract defines it.
+ *
+ * The native row carries epoch milliseconds and a bare decision string; the contract wants an ISO
+ * instant and a known verdict. A row that does not satisfy it is dropped rather than coerced -- a
+ * verdict this build does not recognise is not something to render a guess about.
+ */
+function parseSilenceOutcome(row: NativeSilenceOutcome): NotificationSilenceOutcome | undefined {
+  if (!Number.isFinite(row.decidedAt)) return undefined;
+  const parsed = notificationSilenceOutcomeSchema.safeParse({
+    applicationId: row.applicationId,
+    decidedAt: new Date(row.decidedAt).toISOString(),
+    decision: row.decision,
+    envelopeId: row.envelopeId,
+    ...(row.filterRuleId === undefined ? {} : { filterRuleId: row.filterRuleId }),
+  });
+  return parsed.success ? parsed.data : undefined;
+}
+
 let preparedCaptureGeneration: number | undefined;
 
 function currentCaptureGeneration(): number {
@@ -69,6 +114,12 @@ const unsupported: DeviceCapabilities = {
   notificationAllowedPackages: [],
   notificationCapturePaused: true,
   notificationListener: false,
+  // A runtime with no listener has no authorization to hold, and reports itself maximally stopped
+  // rather than merely idle.
+  notificationSilenceKillSwitch: true,
+  notificationSilenceMode: "off",
+  notificationSilenceRevision: 0,
+  notificationSilenceRuleCount: 0,
   smsAllowedSenders: [],
   smsAvailable: false,
   smsCapturePaused: true,
@@ -162,6 +213,141 @@ const RelayDeviceIngress = {
       if (parsed !== undefined) content[envelopeId] = parsed;
     }
     return content;
+  },
+  /**
+   * Opens Android's own notification settings for one application.
+   *
+   * The only thing on the device that can stop that application ringing, and Relay is not it: a
+   * listener hears about a notification after the system has already alerted. Where Relay cannot
+   * act, it hands the person the switch that can.
+   */
+  async openApplicationNotificationSettings(packageName: string): Promise<void> {
+    if (demoModeEnabled()) {
+      return demoDeviceIngress.openApplicationNotificationSettings(packageName);
+    }
+    if (Platform.OS === "android" && NativeRelayDeviceIngress !== null) {
+      await NativeRelayDeviceIngress.openApplicationNotificationSettings(packageName);
+    }
+  },
+  /**
+   * Caches the authorization the database granted, for services that run with the app dead.
+   *
+   * Validated here before it is written and again natively when it is read. The second check is not
+   * redundant: the services that act on it have no caller to reject a bad snapshot back to, and the
+   * act they perform cannot be undone.
+   */
+  async configureNotificationSilence(
+    tenantId: string,
+    snapshot: NotificationSilenceSnapshot,
+  ): Promise<void> {
+    const parsed = notificationSilenceSnapshotSchema.parse(snapshot);
+    const json = JSON.stringify(parsed);
+    if (demoModeEnabled()) {
+      return demoDeviceIngress.configureNotificationSilence(tenantId, json, parsed.revision);
+    }
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
+    await NativeRelayDeviceIngress.configureNotificationSilence(
+      tenantId,
+      json,
+      parsed.revision,
+      currentCaptureGeneration(),
+    );
+  },
+  /** The stop. One boolean, no recompilation, nothing that waits on the network. */
+  async setNotificationSilenceKillSwitch(tenantId: string, engaged: boolean): Promise<void> {
+    if (demoModeEnabled()) {
+      return demoDeviceIngress.setNotificationSilenceKillSwitch(tenantId, engaged);
+    }
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
+    await NativeRelayDeviceIngress.setNotificationSilenceKillSwitch(
+      tenantId,
+      engaged,
+      currentCaptureGeneration(),
+    );
+  },
+  /**
+   * What the device decided, newest first.
+   *
+   * Rows are parsed through the wire contract and an unreadable one is dropped rather than shown,
+   * because the review these feed is the evidence a person authorizes an irreversible capability on.
+   */
+  async getNotificationSilenceOutcomes(
+    tenantId: string,
+    limit = SILENCE_OUTCOME_LIMIT,
+  ): Promise<NotificationSilenceOutcome[]> {
+    const rows = demoModeEnabled()
+      ? await demoDeviceIngress.getNotificationSilenceOutcomes(tenantId, limit)
+      : Platform.OS !== "android" || NativeRelayDeviceIngress === null
+        ? []
+        : await NativeRelayDeviceIngress.getNotificationSilenceOutcomes(
+            tenantId,
+            limit,
+            currentCaptureGeneration(),
+          );
+    return rows.flatMap((row) => parseSilenceOutcome(row) ?? []);
+  },
+  /**
+   * The notifications waiting on a model, for the pass that can ask one.
+   *
+   * Empty on anything but a prepared Android device, and empty while quieting is off or stopped --
+   * the device decides that, not this, so a candidate is never offered under a stop. Demo mode has
+   * no shade to act on, so it has nothing pending either.
+   */
+  async getPendingNotificationSilences(
+    tenantId: string,
+    limit = PENDING_SILENCE_LIMIT,
+  ): Promise<NativePendingSilence[]> {
+    if (demoModeEnabled()) return [];
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return [];
+    return NativeRelayDeviceIngress.getPendingNotificationSilences(
+      tenantId,
+      limit,
+      currentCaptureGeneration(),
+    );
+  },
+  /**
+   * Hands the device a model's answer about one candidate.
+   *
+   * `matched` is an input and not the decision. The device re-reads the rule, the stop and the
+   * application scope before it touches a notification, so this call cannot authorize anything the
+   * reader has not -- see `resolvePendingSilences`. The returned verdict is what was recorded;
+   * `undefined` means the candidate was already resolved, expired, or cleared.
+   */
+  async resolveNotificationSilence(
+    tenantId: string,
+    envelopeId: string,
+    matched: boolean,
+  ): Promise<NotificationSilenceDecision | undefined> {
+    if (demoModeEnabled()) return undefined;
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return undefined;
+    const decision = await NativeRelayDeviceIngress.resolveNotificationSilence(
+      tenantId,
+      envelopeId,
+      matched,
+      currentCaptureGeneration(),
+    );
+    if (decision === null) return undefined;
+    const parsed = notificationSilenceDecisionSchema.safeParse(decision);
+    return parsed.success ? parsed.data : undefined;
+  },
+  /** The observation counts the enable transition records as its evidence. */
+  async getNotificationSilenceCounts(
+    tenantId: string,
+    filterRuleId: string,
+    since: number,
+  ): Promise<{ matched: number; observed: number }> {
+    if (demoModeEnabled()) {
+      return demoDeviceIngress.getNotificationSilenceCounts(tenantId, filterRuleId, since);
+    }
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) {
+      return { matched: 0, observed: 0 };
+    }
+    return NativeRelayDeviceIngress.getNotificationSilenceCounts(
+      tenantId,
+      filterRuleId,
+      since,
+      currentCaptureGeneration(),
+    );
   },
   async prepareNotificationCaptureState(
     tenantId: string | undefined,

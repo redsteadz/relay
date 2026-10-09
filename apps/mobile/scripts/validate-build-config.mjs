@@ -28,8 +28,12 @@ function expoConfig(buildVariant, type = "public") {
 
 const development = expoConfig(buildVariants.development);
 const sideload = expoConfig(buildVariants.sideload);
-const sideloadManifest = expoConfig(buildVariants.sideload, "introspect")._internal.modResults
-  .android.manifest.manifest;
+function introspectedManifest(buildVariant) {
+  return expoConfig(buildVariant, "introspect")._internal.modResults.android.manifest.manifest;
+}
+
+const sideloadManifest = introspectedManifest(buildVariants.sideload);
+const developmentManifest = introspectedManifest(buildVariants.development);
 const eas = JSON.parse(readFileSync(resolve(appRoot, "eas.json"), "utf8"));
 const packageJson = JSON.parse(readFileSync(resolve(appRoot, "package.json"), "utf8"));
 const gitignore = readFileSync(resolve(repositoryRoot, ".gitignore"), "utf8");
@@ -85,6 +89,12 @@ const smsSyncService = component(sideloadApplication, "service", sms.syncService
 assert.notEqual(smsSyncService, undefined);
 assert.equal(smsSyncService.$["android:exported"], "false");
 assert.equal(smsSyncService.$["android:permission"], sms.jobServicePermission);
+
+// `app.config.ts` is the sole flavor boundary, so the permission-free profile a later Play-safe
+// build would extend must carry none of the sideload components.
+const developmentApplication = mainApplication(developmentManifest);
+assert.equal(component(developmentApplication, "receiver", sms.receiverClass), undefined);
+assert.equal(component(developmentApplication, "service", sms.syncServiceClass), undefined);
 
 assert.deepEqual(eas, {
   cli: {
@@ -170,5 +180,13 @@ assert.match(gitignore, /^apps\/mobile\/android\/$/mu);
 assert.match(gitignore, /^apps\/mobile\/ios\/$/mu);
 for (const permission of sms.permissions) assert.equal(moduleManifest.includes(permission), false);
 assert.equal(moduleManifest.includes(sms.receivedAction), false);
+// Nothing in the reusable module manifest may bind a notification assistant. The pre-posting hook is
+// `@SystemApi` and unavailable to a sideloaded app, so a declaration here could only be a mistake --
+// and it would reach every profile built from this module, including a future Play-safe one.
+assert.equal(moduleManifest.includes("NotificationAssistantService"), false);
+assert.equal(
+  moduleManifest.includes("android.permission.BIND_NOTIFICATION_ASSISTANT_SERVICE"),
+  false,
+);
 
 globalThis.console.log("Mobile development and sideload build profiles are valid.");

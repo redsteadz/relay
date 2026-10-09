@@ -1,7 +1,9 @@
 package com.redsteadz.relaydeviceingress
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.ContactsContract
 import android.provider.Settings
 import android.view.WindowManager
@@ -109,11 +111,17 @@ class RelayDeviceIngressModule : Module() {
       if (!smsGranted) smsSettings.pauseForPermissionLoss()
       val smsCapture = smsSettings.read()
       val smsQueuedCount = smsCapture?.let { queue.count(it.tenantId, "sms") } ?: 0
+      val silenceSettings = NotificationSilenceSettings(context.applicationContext)
+      val silence = capture?.let { silenceSettings.read(it.tenantId) } ?: SilenceSnapshot.OFF
 
       mapOf(
         "notificationListener" to listenerEnabled,
         "notificationCapturePaused" to (capture?.paused ?: true),
         "notificationAllowedPackages" to (capture?.allowedPackages?.sorted() ?: emptyList<String>()),
+        "notificationSilenceMode" to silence.mode,
+        "notificationSilenceKillSwitch" to silence.killSwitchEngaged,
+        "notificationSilenceRevision" to silenceSettings.revision().toDouble(),
+        "notificationSilenceRuleCount" to silence.rules.size,
         "smsAvailable" to smsAvailable,
         "smsPermissionGranted" to smsGranted,
         "smsCapturePaused" to (smsCapture?.paused ?: true),
@@ -155,6 +163,194 @@ class RelayDeviceIngressModule : Module() {
       activity.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 
+    /**
+     * Opens Android's own notification settings for one application.
+     *
+     * This is the only thing on the device that can stop that application ringing, and Relay is not
+     * it: a listener is told about a notification after the system has already alerted, and the
+     * pre-posting hook (`NotificationAssistantService`) is `@SystemApi`, absent from the public SDK.
+     * So where Relay cannot act, it hands the person the exact switch that can -- the app's own
+     * channels, in Android's UI, changed by them.
+     *
+     * `ACTION_APP_NOTIFICATION_SETTINGS` has existed since API 26, below which this is a no-op
+     * rather than a crash.
+     */
+    AsyncFunction("openApplicationNotificationSettings") { packageName: String ->
+      require(packageName.isNotBlank()) { "package_required" }
+      val activity = requireNotNull(appContext.currentActivity)
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@AsyncFunction
+      val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+      require(
+        activity.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null
+      ) { "notification_settings_unavailable" }
+      activity.startActivity(intent)
+    }
+
+    /**
+     * Caches the authorization the database granted.
+     *
+     * The snapshot is validated against `notificationSilenceSnapshotSchema` before it gets here and
+     * re-validated by `NotificationSilencePolicy.parse` when it is read, because the services that
+     * read it run with the app dead and have no other way to refuse a snapshot that does not mean
+     * what it says.
+     */
+    AsyncFunction("configureNotificationSilence") {
+      tenantId: String, snapshotJson: String, revision: Double, generation: Double ->
+      require(revision.isFinite() && revision >= 0) { "silence_revision_invalid" }
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        NotificationSilenceSettings(context).write(tenantId, snapshotJson, revision.toLong())
+      }
+    }
+
+    /**
+     * The stop.
+     *
+     * Deliberately one boolean and one preference write. Engaging it must not wait on recompiling
+     * rules, on the network, or on anything that can fail, so it does not touch the snapshot: reads
+     * combine the two by `or`, and neither source can release a stop the other engaged.
+     */
+    AsyncFunction("setNotificationSilenceKillSwitch") {
+      tenantId: String, engaged: Boolean, generation: Double ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        NotificationSilenceSettings(context).setKillSwitch(engaged)
+      }
+    }
+
+    /** What the device decided, newest first, for the dry-run review. Content-free by construction. */
+    AsyncFunction("getNotificationSilenceOutcomes") {
+      tenantId: String, limit: Int, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.silenceOutcomes(tenantId, limit)
+      }
+    }
+
+    /**
+     * The notifications waiting on a model **and still on screen**, for the pass that can ask one.
+     *
+     * The posted check is what makes the pass keep up. An unscoped rule makes every captured
+     * notification a candidate, so candidates arrive as fast as notifications do; asking a model
+     * about one that has already been read or swiped spends a request on an outcome that can only
+     * be `no-longer-posted`. Those are closed here, without asking anything, which drains the
+     * backlog at the speed of a shade sweep rather than the speed of a model.
+     *
+     * A shade that cannot be read is not an empty shade. With no listener bound nothing is known,
+     * so nothing is closed and nothing is offered -- recording a notification as gone on the
+     * strength of a shade this could not read would close a candidate still sitting in it.
+     *
+     * Nothing is returned while quieting is off or stopped: an answer obtained under a stop would
+     * be an answer Relay was not authorized to seek.
+     */
+    AsyncFunction("getPendingNotificationSilences") {
+      tenantId: String, limit: Int, generation: Double ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        val snapshot = NotificationSilenceSettings(context).read(tenantId)
+        if (snapshot.mode == "off" || snapshot.killSwitchEngaged) {
+          emptyList()
+        } else {
+          val posted = RelayNotificationListenerService.postedEnvelopeIds()
+          if (posted == null) {
+            emptyList()
+          } else {
+            val candidates = queue.pendingSilenceOutcomes(tenantId, SILENCE_OUTCOME_MAX_PENDING)
+            val now = System.currentTimeMillis()
+            val stillPosted = mutableListOf<Map<String, Any>>()
+            for (candidate in candidates) {
+              val envelopeId = candidate["envelopeId"] as String
+              if (posted.contains(envelopeId)) {
+                stillPosted += candidate
+                continue
+              }
+              queue.recordSilenceOutcome(
+                tenantId,
+                envelopeId,
+                candidate["applicationId"] as String,
+                candidate["filterRuleId"] as String,
+                SilenceDecision.NO_LONGER_POSTED.wireName(),
+                now
+              )
+            }
+            stillPosted.take(limit.coerceAtLeast(1))
+          }
+        }
+      }
+    }
+
+    /**
+     * Finishes one deferred decision, with the model's answer as an input and nothing more.
+     *
+     * JavaScript supplies `matched` and this decides what it permits. Everything that authorizes an
+     * act -- whether the rule still exists, whether the application is still in scope, the stop, the
+     * rule's own observation window -- is re-read here from the current snapshot, so a reader who
+     * withdrew the capability while a model was thinking is obeyed. That is ADR-0003's ordering kept
+     * intact across a boundary the deferral introduced: a model narrows what was already authorized
+     * and can never widen it, and it never names the notification or the action.
+     *
+     * The returned verdict is what was recorded, so a caller can report it without deciding it.
+     */
+    AsyncFunction("resolveNotificationSilence") {
+      tenantId: String, envelopeId: String, matched: Boolean, generation: Double ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        val pending = queue.pendingSilenceOutcome(tenantId, envelopeId)
+        if (pending == null) {
+          // Resolved by another pass, expired, or cleared by a withdrawal. Not an error, and not a
+          // reason to act.
+          null
+        } else {
+          val applicationId = pending["applicationId"] as String
+          val filterRuleId = pending["filterRuleId"] as String
+          val snapshot = NotificationSilenceSettings(context).read(tenantId)
+          val outcome =
+            NotificationSilencePolicy.resolve(snapshot, applicationId, filterRuleId, matched)
+          val acting =
+            outcome.decision == SilenceDecision.SNOOZE || outcome.decision == SilenceDecision.DISMISS
+          // The key is looked up before the verdict is written, because a notification that is gone
+          // gets a different verdict. Recorded before acting either way, so a crash in between
+          // leaves a record of an act that did not happen rather than an act with no record.
+          val key = if (acting) RelayNotificationListenerService.postedKey(envelopeId) else null
+          val decision =
+            if (acting && key == null) SilenceDecision.NO_LONGER_POSTED else outcome.decision
+          queue.recordSilenceOutcome(
+            tenantId,
+            envelopeId,
+            applicationId,
+            filterRuleId,
+            decision.wireName(),
+            System.currentTimeMillis()
+          )
+          if (key != null) {
+            val action =
+              if (decision == SilenceDecision.SNOOZE) {
+                NotificationSilencePolicy.ACTION_SNOOZE
+              } else {
+                NotificationSilencePolicy.ACTION_DISMISS
+              }
+            RelayNotificationListenerService.actOnKey(key, action)
+          }
+          decision.wireName()
+        }
+      }
+    }
+
+    /** The observation counts the enable transition records as evidence. */
+    AsyncFunction("getNotificationSilenceCounts") {
+      tenantId: String, filterRuleId: String, since: Double, generation: Double ->
+      require(since.isFinite() && since >= 0) { "silence_window_invalid" }
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.silenceOutcomeCounts(tenantId, filterRuleId, since.toLong())
+      }
+    }
+
     AsyncFunction("configureNotificationCapture") {
       tenantId: String, allowedPackages: List<String>, paused: Boolean, generation: Double ->
       val context = requireNotNull(appContext.reactContext).applicationContext
@@ -180,6 +376,7 @@ class RelayDeviceIngressModule : Module() {
         val context = requireNotNull(appContext.reactContext).applicationContext
         val notificationSettings = NotificationCaptureSettings(context)
         val smsSettings = SmsCaptureSettings(context)
+        val silenceSettings = NotificationSilenceSettings(context)
         val staleTenantIds = linkedSetOf<String>()
         cleanupTenantId?.let(staleTenantIds::add)
         notificationSettings.read()?.tenantId?.takeIf { it != tenantId }?.let(staleTenantIds::add)
@@ -189,6 +386,7 @@ class RelayDeviceIngressModule : Module() {
           queue.clearTenant(staleTenantId)
           notificationSettings.clear(staleTenantId)
           smsSettings.clear(staleTenantId)
+          silenceSettings.clear(staleTenantId)
         }
         NotificationCaptureStateLock.preparedTenantId = tenantId
       }
@@ -338,6 +536,7 @@ class RelayDeviceIngressModule : Module() {
         val context = requireNotNull(appContext.reactContext).applicationContext
         NotificationCaptureSettings(context).clear(tenantId)
         SmsCaptureSettings(context).clear(tenantId)
+        NotificationSilenceSettings(context).clear(tenantId)
         if (NotificationCaptureStateLock.preparedTenantId == tenantId) {
           NotificationCaptureStateLock.preparedTenantId = null
         }

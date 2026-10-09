@@ -8,10 +8,13 @@ import {
   StatusMessage,
 } from "@/components/ui";
 
+import { useSubscription } from "@/features/subscription/context/subscription-context";
+
 import { usePrivacySettings } from "../hooks/usePrivacySettings";
 import { openAiSubmitRequest } from "../models/openAiPresentation";
 import { AccountDeletionPanel } from "./AccountDeletionPanel";
 import { OpenAiPrivacyPanel } from "./OpenAiPrivacyPanel";
+import { DeviceModelPanel } from "./DeviceModelPanel";
 import { RetentionPanel } from "./RetentionPanel";
 
 type PrivacySettingsProps = {
@@ -30,6 +33,9 @@ export function PrivacySettings({
   userId,
 }: PrivacySettingsProps) {
   const privacy = usePrivacySettings(userId, accessToken);
+  // The server path spends Relay's hosted runtime, so it is the one part of semantic evaluation that
+  // is not free. The device path needs no entitlement at all (ADR-0019).
+  const { pro } = useSubscription();
 
   if (accessToken === undefined || userId === undefined) {
     return (
@@ -94,11 +100,21 @@ export function PrivacySettings({
             request: openAiSubmitRequest(values),
           })
         }
+        onSetServerEvaluation={privacy.setServerEvaluation}
+        pro={pro}
         revoking={privacy.revoke.isPending}
         saveError={privacy.saveKey.error}
         saving={privacy.saveKey.isPending}
+        serverEvaluationError={privacy.serverEvaluation.error}
+        settingServerEvaluation={privacy.serverEvaluation.isPending}
         status={privacy.openAi.data}
       />
+      {/*
+        Placed after the account's key and before deletion, because the two credentials belong
+        together on the page: one reaches a model through Relay's pipeline, the other straight from
+        this phone, and a reader comparing them should not have to scroll between them.
+      */}
+      <DeviceModelPanel tenantId={userId} />
       <AccountDeletionPanel
         deleting={privacy.deletion.isPending}
         error={privacy.deletion.error}

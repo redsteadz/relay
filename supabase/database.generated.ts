@@ -557,8 +557,6 @@ export type Database = {
           category_id: string | null;
           compiler_version: number;
           created_at: string;
-          dismiss_source_notification: boolean;
-          dismissal_dry_run_completed_at: string | null;
           enabled: boolean;
           id: string;
           intent: string;
@@ -576,8 +574,6 @@ export type Database = {
           category_id?: string | null;
           compiler_version?: number;
           created_at?: string;
-          dismiss_source_notification?: boolean;
-          dismissal_dry_run_completed_at?: string | null;
           enabled?: boolean;
           id?: string;
           intent: string;
@@ -595,8 +591,6 @@ export type Database = {
           category_id?: string | null;
           compiler_version?: number;
           created_at?: string;
-          dismiss_source_notification?: boolean;
-          dismissal_dry_run_completed_at?: string | null;
           enabled?: boolean;
           id?: string;
           intent?: string;
@@ -787,6 +781,68 @@ export type Database = {
             referencedColumns: ["user_id", "id"];
           },
         ];
+      };
+      notification_dismissal_authorizations: {
+        Row: {
+          action: string;
+          authorized_at: string | null;
+          dry_run_completed_at: string | null;
+          dry_run_started_at: string;
+          filter_rule_id: string;
+          matched_count: number | null;
+          observed_count: number | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          action: string;
+          authorized_at?: string | null;
+          dry_run_completed_at?: string | null;
+          dry_run_started_at?: string;
+          filter_rule_id: string;
+          matched_count?: number | null;
+          observed_count?: number | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          action?: string;
+          authorized_at?: string | null;
+          dry_run_completed_at?: string | null;
+          dry_run_started_at?: string;
+          filter_rule_id?: string;
+          matched_count?: number | null;
+          observed_count?: number | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "notification_dismissal_authorizatio_user_id_filter_rule_id_fkey";
+            columns: ["user_id", "filter_rule_id"];
+            isOneToOne: true;
+            referencedRelation: "filter_rules";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      notification_dismissal_settings: {
+        Row: {
+          kill_switch_engaged: boolean;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          kill_switch_engaged?: boolean;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          kill_switch_engaged?: boolean;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       profiles: {
         Row: {
@@ -1195,6 +1251,30 @@ export type Database = {
         Args: { p_id: string; p_request_id: string; p_result: string };
         Returns: boolean;
       };
+      complete_notification_dismissal_dry_run_v1: {
+        Args: {
+          p_filter_rule_id: string;
+          p_matched: number;
+          p_observed: number;
+        };
+        Returns: {
+          action: string;
+          authorized_at: string | null;
+          dry_run_completed_at: string | null;
+          dry_run_started_at: string;
+          filter_rule_id: string;
+          matched_count: number | null;
+          observed_count: number | null;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "notification_dismissal_authorizations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       create_filter_rule_revision: {
         Args: {
           p_category_id?: string;
@@ -1213,8 +1293,6 @@ export type Database = {
           category_id: string | null;
           compiler_version: number;
           created_at: string;
-          dismiss_source_notification: boolean;
-          dismissal_dry_run_completed_at: string | null;
           enabled: boolean;
           id: string;
           intent: string;
@@ -1290,6 +1368,32 @@ export type Database = {
         };
         Returns: boolean;
       };
+      dismissible_filter_rule: {
+        Args: { p_filter_rule_id: string };
+        Returns: {
+          approval_mode: string;
+          category_id: string | null;
+          compiler_version: number;
+          created_at: string;
+          enabled: boolean;
+          id: string;
+          intent: string;
+          name: string;
+          plan: Json;
+          series_id: string;
+          supported_predicates: Json;
+          unsupported_clauses: Json;
+          updated_at: string;
+          user_id: string;
+          version: number;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "filter_rules";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       fail_action_run_v1: {
         Args: {
           p_action_run_id: string;
@@ -1323,6 +1427,10 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      filter_expression_binds_application: {
+        Args: { p_depth?: number; p_expression: Json };
+        Returns: boolean;
       };
       filter_plan_has_forbidden_keys: {
         Args: { p_value: Json };
@@ -1424,6 +1532,7 @@ export type Database = {
         };
         Returns: boolean;
       };
+      notification_dismissal_dry_run_minimum: { Args: never; Returns: string };
       own_raw_retention_status: {
         Args: never;
         Returns: {
@@ -1841,6 +1950,60 @@ export type Database = {
           p_user_id: string;
         };
         Returns: boolean;
+      };
+      set_notification_dismissal_kill_switch_v1: {
+        Args: { p_engaged: boolean };
+        Returns: {
+          kill_switch_engaged: boolean;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "notification_dismissal_settings";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      set_notification_dismissal_v1: {
+        Args: { p_enabled: boolean; p_filter_rule_id: string };
+        Returns: {
+          action: string;
+          authorized_at: string | null;
+          dry_run_completed_at: string | null;
+          dry_run_started_at: string;
+          filter_rule_id: string;
+          matched_count: number | null;
+          observed_count: number | null;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "notification_dismissal_authorizations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      start_notification_dismissal_dry_run_v1: {
+        Args: { p_action?: string; p_filter_rule_id: string };
+        Returns: {
+          action: string;
+          authorized_at: string | null;
+          dry_run_completed_at: string | null;
+          dry_run_started_at: string;
+          filter_rule_id: string;
+          matched_count: number | null;
+          observed_count: number | null;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "notification_dismissal_authorizations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
       withdraw_device_classification_v1: {
         Args: { p_source_item_id: string };
