@@ -116,9 +116,23 @@ export function useNotificationSilence(
     onSuccess: refreshAll,
   });
 
+  /**
+   * Enables or withdraws a rule, optionally setting what it does in the same call.
+   *
+   * No dry run is required and the action can change in place (ADR-0021). Omitting `action` keeps
+   * whatever is stored, so turning a rule off and on again cannot quietly turn a snooze into a
+   * cancellation.
+   */
   const authorize = useMutation({
-    mutationFn: ({ enabled: on, filterRuleId }: { enabled: boolean; filterRuleId: string }) =>
-      setRuleDismissal(client as SupabaseClient, filterRuleId, on),
+    mutationFn: ({
+      action,
+      enabled: on,
+      filterRuleId,
+    }: {
+      action?: NotificationSilenceAction;
+      enabled: boolean;
+      filterRuleId: string;
+    }) => setRuleDismissal(client as SupabaseClient, filterRuleId, on, action),
     onSuccess: refreshAll,
   });
 

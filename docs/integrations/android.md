@@ -139,6 +139,13 @@ written after insert, which is the likeliest reason nothing ever read them. They
 window, the evidence and `authorized_at`, the same way `hidden_inbox_events` sits beside
 `relay_events`. Keying it to a revision rather than a series makes withdrawal on edit automatic.
 
+**No observation window is required.** A rule can be authorized immediately and its action changed
+in place; the dry run stays as something a reader may choose. A notification Relay clears was
+captured and retained _before_ it was cleared, so what is lost is the row in the shade rather than
+the information ([ADR-0021](../decisions/0021-direct-quiet-authorization.md)). The exception is an
+**ongoing** notification -- a call, a route, a download, a media player -- which the listener never
+acts on, because Relay stores a notification's text and not its actions or its session.
+
 **Authorization is the database's; the device holds a cache.** A rule may act only when
 `authorized_at` is set, and the only writers are `start_notification_dismissal_dry_run_v1`,
 `complete_notification_dismissal_dry_run_v1` and `set_notification_dismissal_v1`. They validate only

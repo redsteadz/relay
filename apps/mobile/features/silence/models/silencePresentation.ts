@@ -22,8 +22,15 @@ import type { StatusPillTone } from "@/components/ui";
 export type SilenceStage = SilenceRuleStatus["stage"];
 
 export type SilenceRuleRow = {
-  /** The one control this row offers, or none when the rule needs editing instead. */
+  /**
+   * The primary control this row offers, or none when the rule needs editing instead.
+   *
+   * `authorize` is available without a dry run behind it (ADR-0021). `observe` is the second
+   * control on the same row rather than a precondition for the first.
+   */
   action: "authorize" | "observe" | "review" | "withdraw" | undefined;
+  /** True when the row should also offer to start watching, alongside its primary control. */
+  offersObservation: boolean;
   detail: string;
   filterRuleId: string;
   name: string;
@@ -100,6 +107,7 @@ export function silenceRuleRow(
     return {
       ...base,
       action: undefined,
+      offersObservation: false,
       detail:
         status.refusal === undefined
           ? "This rule cannot be used to clear notifications."
@@ -112,11 +120,14 @@ export function silenceRuleRow(
   if (status.stage === "unauthorized") {
     return {
       ...base,
-      action: status.rule.enabled ? "observe" : undefined,
+      // Authorizing directly is the primary control now. Watching first is offered beside it for a
+      // reader who wants to see the rule decide before letting it act.
+      action: status.rule.enabled ? "authorize" : undefined,
       detail: status.rule.enabled
-        ? "Watch what this rule would do for three days before it is allowed to do it."
-        : "This rule is switched off, so it is not watching anything.",
-      pill: { label: "Not watching", tone: "muted" },
+        ? "Let this rule act now, or watch what it would do first."
+        : "This rule is switched off, so it cannot act on anything.",
+      offersObservation: status.rule.enabled,
+      pill: { label: "Not acting", tone: "muted" },
       remainingHours: undefined,
     };
   }
@@ -125,16 +136,16 @@ export function silenceRuleRow(
     const elapsed = status.rule.dryRunCompletedAt !== undefined || options.remainingHours === 0;
     return {
       ...base,
-      action: elapsed ? "review" : undefined,
-      detail: elapsed
-        ? `The watching period is over. Review what it decided, then choose whether it may ${
-            status.rule.action === "dismiss"
-              ? "clear a notification for good"
-              : "put a notification away"
-          }.`
-        : awaitsModelFor(status) && !options.modelConfigured
+      // Available throughout, not only once the window elapses. A reader who has seen enough does
+      // not have to wait out a clock to act on what they already know.
+      action: "authorize",
+      detail:
+        awaitsModelFor(status) && !options.modelConfigured
           ? "Watching, but this rule asks a model and no model is set up on this phone, so it will record nothing. Add one on the Your data screen."
-          : `Watching. Nothing is being changed on your phone. ${options.remainingHours} ${options.remainingHours === 1 ? "hour" : "hours"} left.`,
+          : elapsed
+            ? "The watching period is over. Read what it decided below, then let it act."
+            : `Watching. Nothing is being changed on your phone yet — read what it has decided below, and let it act whenever you are satisfied. ${options.remainingHours} ${options.remainingHours === 1 ? "hour" : "hours"} of watching left.`,
+      offersObservation: false,
       pill: elapsed
         ? { label: "Ready to review", tone: "accent" }
         : { label: "Watching", tone: "muted" },
@@ -170,6 +181,7 @@ export function silenceRuleRow(
   return {
     ...base,
     action: "withdraw",
+    offersObservation: false,
     detail: options.killSwitchEngaged
       ? "Allowed to clear notifications, but everything is stopped right now."
       : awaitsModel && !options.modelConfigured

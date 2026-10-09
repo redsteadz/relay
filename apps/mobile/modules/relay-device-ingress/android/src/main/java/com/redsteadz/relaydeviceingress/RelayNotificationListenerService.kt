@@ -1,5 +1,6 @@
 package com.redsteadz.relaydeviceingress
 
+import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
@@ -121,6 +122,13 @@ class RelayNotificationListenerService : NotificationListenerService() {
       val settings = NotificationSilenceSettings(applicationContext)
       val snapshot = settings.read(configuration.tenantId)
       if (snapshot.mode == "off") return
+
+      // A call in progress, a navigation session, a download, a media player. Relay keeps a
+      // notification's text, not its actions or its session, so the inbox copy of a call cannot
+      // answer it and the copy of a route cannot resume it. Everywhere else, clearing a
+      // notification costs the row and not the information -- which is what ADR-0021 rests on --
+      // and this is the one place that is untrue, so it is the one place still refused.
+      if (notification.notification.flags and Notification.FLAG_ONGOING_EVENT != 0) return
 
       val visible = NotificationEnvelopeFactory.view(notification.notification)
       val outcome = NotificationSilencePolicy.decide(

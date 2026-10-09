@@ -92,8 +92,12 @@ function row(
 }
 
 describe("the control a row offers", () => {
-  it("offers watching for a rule that has not started", () => {
-    expect(row("unauthorized").action).toBe("observe");
+  // Acting is the primary control and watching is the optional second one (ADR-0021). A reader who
+  // knows what their rule does says so once rather than starting a clock.
+  it("offers acting first and watching beside it for a rule that has not started", () => {
+    const result = row("unauthorized");
+    expect(result.action).toBe("authorize");
+    expect(result.offersObservation).toBe(true);
   });
 
   it("offers nothing for a switched-off rule", () => {
@@ -102,19 +106,25 @@ describe("the control a row offers", () => {
     expect(result.detail).toContain("switched off");
   });
 
-  // Offering a review before the database will accept one is worse than offering none: the button
-  // exists, the person presses it, and the routine refuses.
-  it("offers nothing mid-window and a review once it has elapsed", () => {
-    expect(row("observing", { remainingHours: 40 }).action).toBeUndefined();
-    expect(row("observing", { remainingHours: 0 }).action).toBe("review");
+  // The window no longer gates anything, so the control is live throughout it. A reader who has
+  // read enough verdicts does not have to wait out a clock to act on what they already know.
+  it("offers acting throughout the window, not only once it elapses", () => {
+    expect(row("observing", { remainingHours: 40 }).action).toBe("authorize");
+    expect(row("observing", { remainingHours: 0 }).action).toBe("authorize");
   });
 
-  it("treats a server-closed window as reviewable whatever the clock says", () => {
+  // Watching is not re-offered to a rule already watching; there is nothing to start.
+  it("does not offer watching to a rule already watching", () => {
+    expect(row("observing", { remainingHours: 40 }).offersObservation).toBe(false);
+  });
+
+  it("still reports a server-closed window as ready to review", () => {
     const result = row("observing", {
       remainingHours: 40,
       rule: { dryRunCompletedAt: "2026-10-04T00:00:00.000Z" },
     });
-    expect(result.action).toBe("review");
+    expect(result.pill.label).toBe("Ready to review");
+    expect(result.remainingHours).toBe(0);
   });
 
   it("offers a withdrawal for an acting rule", () => {
@@ -131,14 +141,17 @@ describe("the control a row offers", () => {
 describe("what a row says", () => {
   // Mid-window the one thing a person wants is how long is left, so it is a number rather than
   // "soon", and nothing on the row may suggest the rule is already doing something.
-  it("states the hours left and that nothing is being changed", () => {
+  // The hours are information now, not a countdown to a control unlocking, so the copy says what
+  // is true and invites the reader to act whenever they are satisfied.
+  it("states the hours left and that nothing has been changed yet", () => {
     const result = row("observing", { remainingHours: 40 });
-    expect(result.detail).toContain("40 hours left");
+    expect(result.detail).toContain("40 hours of watching left");
     expect(result.detail).toContain("Nothing is being changed");
+    expect(result.detail).toContain("whenever you are satisfied");
   });
 
   it("uses the singular for the last hour", () => {
-    expect(row("observing", { remainingHours: 1 }).detail).toContain("1 hour left");
+    expect(row("observing", { remainingHours: 1 }).detail).toContain("1 hour of watching left");
   });
 
   // An acting rule under the kill switch is not acting. Showing it as "Quieting" would make the stop

@@ -197,8 +197,12 @@ async function callRoutine(
 /**
  * Opens the observation window for one action.
  *
- * Re-running restarts it and discards the evidence, which is what choosing a different action needs:
- * what a person watched a snoozing rule do is not evidence about the same rule cancelling.
+ * Optional since [ADR-0021](../../../../docs/decisions/0021-direct-quiet-authorization.md): a
+ * reader who already knows what their rule does can authorize it directly. This is for the one who
+ * wants to see it decide first.
+ *
+ * Re-running restarts it and discards the evidence. Changing the action no longer requires that --
+ * `setRuleDismissal` takes an action and changes it in place.
  */
 export async function startDryRun(
   client: SupabaseClient,
@@ -230,13 +234,21 @@ export async function completeDryRun(
   });
 }
 
-/** The enable transition, and the per-rule disable that reverses it. */
+/**
+ * The enable transition, the per-rule disable that reverses it, and the action either carries.
+ *
+ * No dry run is required. The routine upserts, so a reader who never watched the rule still gets an
+ * authorization row, and `action` omitted keeps whatever is stored -- turning a rule off and on
+ * again must not silently change what it does to a notification.
+ */
 export async function setRuleDismissal(
   client: SupabaseClient,
   filterRuleId: string,
   enabled: boolean,
+  action?: NotificationSilenceAction,
 ): Promise<void> {
   await callRoutine(client, "set_notification_dismissal_v1", {
+    ...(action === undefined ? {} : { p_action: action }),
     p_enabled: enabled,
     p_filter_rule_id: filterRuleId,
   });

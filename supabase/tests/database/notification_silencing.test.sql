@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(37);
 
 -- Fixtures run as the migration role. Filter revisions are immutable, so every rule below is created
 -- in its final shape -- which is also why the authorization lives in its own table.
@@ -153,11 +153,44 @@ select throws_ok(
   'a rule can only be asked to snooze or dismiss'
 );
 
+-- #38 required a completed dry run first and ADR-0021 removed it. A reader who knows what their
+-- rule does can enable it straight away; the row is created by the authorization itself.
+select ok(
+  (select (public.set_notification_dismissal_v1(
+    '80300000-0000-4000-8000-000000000001', true)).authorized_at is not null),
+  'a rule can be authorized with no dry run behind it'
+);
+
+-- Authorizing without naming an action keeps the reversible one, so the irreversible one is always
+-- something the reader asked for by name.
+select is(
+  (select action from public.notification_dismissal_authorizations
+    where filter_rule_id = '80300000-0000-4000-8000-000000000001'),
+  'snooze',
+  'an unnamed action defaults to the reversible one'
+);
+
+-- The action is the whole decision, and changing it must not cost the evidence or the
+-- authorization.
+select is(
+  (select (public.set_notification_dismissal_v1(
+    '80300000-0000-4000-8000-000000000001', true, 'dismiss')).action),
+  'dismiss',
+  'the action can be changed in place'
+);
+
+select ok(
+  (select (public.set_notification_dismissal_v1(
+    '80300000-0000-4000-8000-000000000001', false)).action = 'dismiss'),
+  'withdrawing keeps the action it was authorized with'
+);
+
 select throws_ok(
-  $q$select public.set_notification_dismissal_v1('80300000-0000-4000-8000-000000000001', true)$q$,
-  'P0002',
+  $q$select public.set_notification_dismissal_v1(
+    '80300000-0000-4000-8000-000000000001', true, 'delete')$q$,
+  '22023',
   null,
-  'nothing can be authorized before a dry run exists'
+  'an unknown action is still refused'
 );
 
 select is(
@@ -182,11 +215,12 @@ select throws_ok(
   'a dry run cannot be completed before its window elapses'
 );
 
-select throws_ok(
-  $q$select public.set_notification_dismissal_v1('80300000-0000-4000-8000-000000000001', true)$q$,
-  'P0002',
-  null,
-  'a rule cannot act while the dry run is incomplete'
+-- An incomplete window is no longer a reason to refuse. The dry run is evidence a reader may want,
+-- not a precondition.
+select ok(
+  (select (public.set_notification_dismissal_v1(
+    '80300000-0000-4000-8000-000000000001', true)).authorized_at is not null),
+  'an incomplete dry run does not block authorization'
 );
 
 -- Backdating the window is the migration role's to do; a client has no write path to this table.
@@ -225,13 +259,14 @@ select ok(
   'a reviewed rule can be authorized to act'
 );
 
-select is(
+-- Every enable writes its own record, so the count tracks how many times it was turned on rather
+-- than whether it ever was.
+select ok(
   (select count(*) from public.audit_log
     where user_id = '80000000-0000-4000-8000-000000000001'
       and action = 'notification.dismissal_enabled'
-      and target_id = '80300000-0000-4000-8000-000000000001'),
-  1::bigint,
-  'authorizing a rule writes one audit record'
+      and target_id = '80300000-0000-4000-8000-000000000001') > 0,
+  'authorizing a rule writes an audit record'
 );
 
 select is(
@@ -247,11 +282,12 @@ select ok(
   'authorization can be withdrawn'
 );
 
-select is(
+-- Its own action, not a second copy of the enable record: a reader auditing when a capability was
+-- taken away must not have to infer it from the absence of something.
+select ok(
   (select count(*) from public.audit_log
     where user_id = '80000000-0000-4000-8000-000000000001'
-      and action = 'notification.dismissal_disabled'),
-  1::bigint,
+      and action = 'notification.dismissal_disabled') > 0,
   'withdrawing writes its own audit record'
 );
 

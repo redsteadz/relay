@@ -17,6 +17,7 @@ import {
 import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
 import { useDeviceModel } from "@/features/privacy/hooks/useDeviceModel";
 import { useAuth } from "@/lib/auth-context";
+import { reportUnexpectedUiError } from "@/lib/observability";
 import { remainingWindowHours } from "@/lib/notification-silence";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
 import { useRelayTheme } from "@/theme";
@@ -244,6 +245,33 @@ function QuietRuleCard({
   const status = silence.statuses.find((entry) => entry.rule.id === row.filterRuleId);
   const summary = reviewSummary(silence.outcomes, row.filterRuleId);
 
+  /**
+   * Enables the rule with the action the reader just named.
+   *
+   * An open observation window is closed first so its counts land in the audit record, which is the
+   * evidence of what the reader was looking at when they decided. A window that never started has
+   * nothing to close, and one too young for the server to accept is not a reason to refuse the
+   * enable -- the evidence is a record, not a gate (ADR-0021).
+   */
+  async function enableWith(action: "dismiss" | "snooze"): Promise<void> {
+    const startedAt = status?.rule.dryRunStartedAt;
+    if (startedAt !== undefined && status?.rule.dryRunCompletedAt === undefined) {
+      try {
+        await silence.completeObservation({
+          filterRuleId: row.filterRuleId,
+          since: Date.parse(startedAt),
+        });
+      } catch (cause: unknown) {
+        reportUnexpectedUiError(cause, "ui.silence_observation_not_recorded", {
+          code: "SILENCE_OBSERVATION_NOT_RECORDED",
+          integration: "supabase-postgrest",
+          operation: "completeDryRun",
+        });
+      }
+    }
+    await silence.authorize({ action, enabled: true, filterRuleId: row.filterRuleId });
+  }
+
   return (
     <EditorialSurface
       icon="bell-sleep-outline"
@@ -257,7 +285,7 @@ function QuietRuleCard({
         the matches is the point: a rule that matched everything from an app is a different rule
         than the person thought they wrote, and only the miss count reveals it.
       */}
-      {row.action === "review" && (
+      {(row.action === "review" || row.stage === "observing") && (
         <AppText tone="muted" variant="caption">
           {`${summary.matched} matched, ${summary.missed} did not, out of ${summary.observed} seen from the apps your rules name.`}
         </AppText>
@@ -269,54 +297,45 @@ function QuietRuleCard({
           decision: one is reversible and one is not. Hiding that behind a default selection would
           make the irreversible option the easy one to pick by accident.
 
-          They stay available at the review step as well. Changing which action a rule takes
-          restarts the window -- what a person watched a snoozing rule do is not evidence about the
-          same rule cancelling -- and without them here a reader who chose wrongly would have to sit
-          out three days before they could choose again.
+          Both are live wherever the rule is not already acting, and both are live *as* the enable
+          -- a reader who knows what their rule does says so once rather than starting a clock
+          (ADR-0021). Whichever they press records the evidence gathered so far, if any.
         */}
-        {(row.action === "observe" || row.action === "review") && (
+        {(row.action === "authorize" || row.action === "review") && (
           <>
             <AppButton
-              accessibilityHint="Starts a three-day period in which Relay records what this rule would do, then lets it put matching notifications away for two hours"
-              disabled={silence.observing}
-              label={row.action === "review" ? "Watch again, to put away" : "Watch, then put away"}
+              accessibilityHint="Lets this rule put matching notifications away for two hours, starting now"
+              disabled={silence.completing || silence.authorizing}
+              label="Put matching ones away"
               onPress={() => {
-                void silence.observe({ action: "snooze", filterRuleId: row.filterRuleId });
+                void enableWith("snooze");
               }}
-              tone="secondary"
             />
             <AppButton
-              accessibilityHint="Starts a three-day period in which Relay records what this rule would do, then lets it clear matching notifications for good"
-              disabled={silence.observing}
-              label={
-                row.action === "review"
-                  ? "Watch again, to clear for good"
-                  : "Watch, then clear for good"
-              }
+              accessibilityHint="Lets this rule clear matching notifications for good, starting now. This cannot be undone for a notification it clears."
+              disabled={silence.completing || silence.authorizing}
+              label="Clear matching ones for good"
               onPress={() => {
-                void silence.observe({ action: "dismiss", filterRuleId: row.filterRuleId });
+                void enableWith("dismiss");
               }}
-              tone="secondary"
+              tone="destructive"
             />
           </>
         )}
-        {row.action === "review" && (
+        {/*
+          Watching is a second control now, not a precondition. It is for the reader who wants to
+          read a few verdicts before deciding, and it is offered only where there is nothing to read
+          yet.
+        */}
+        {row.offersObservation && (
           <AppButton
-            accessibilityHint="Records what this rule decided and allows it to put matching notifications away"
-            disabled={silence.completing || silence.authorizing}
-            label="Allow this rule to act"
+            accessibilityHint="Records what this rule would do without changing any notification, so you can read its verdicts before letting it act"
+            disabled={silence.observing}
+            label="Watch it first"
             onPress={() => {
-              const startedAt = status?.rule.dryRunStartedAt;
-              void (async () => {
-                if (status?.rule.dryRunCompletedAt === undefined) {
-                  await silence.completeObservation({
-                    filterRuleId: row.filterRuleId,
-                    since: startedAt === undefined ? 0 : Date.parse(startedAt),
-                  });
-                }
-                await silence.authorize({ enabled: true, filterRuleId: row.filterRuleId });
-              })();
+              void silence.observe({ action: "snooze", filterRuleId: row.filterRuleId });
             }}
+            tone="secondary"
           />
         )}
         {row.action === "withdraw" && (
