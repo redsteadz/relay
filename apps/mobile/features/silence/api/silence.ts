@@ -62,11 +62,13 @@ type AuthorizationRow = {
  * still never putting the database's own text in front of a reader.
  */
 const REFUSAL_MESSAGES: Record<string, string> = {
-  // `22023` covers every plan-shape refusal: no deterministic clause, or no explicit application
-  // predicate. The compiler normally catches these first and says which; reaching here means the
-  // stored plan and this build disagree, so the message stays general.
+  // `22023` is now one case: a plan with neither a deterministic nor a semantic part, which decides
+  // nothing. The compiler catches that first and says so, which leaves one way to reach this --
+  // the database is running an older routine than this build expects, with gates the compiler no
+  // longer applies (ADR-0020). So the message says that rather than naming a rule shape the reader
+  // would try, and fail, to correct.
   "22023":
-    "This rule cannot be used to clear notifications. It has to name an app exactly, using “is” rather than a description.",
+    "Your account will not allow this rule to clear notifications yet. Relay on this phone is ahead of the server; this should resolve on its own.",
   // `P0002` is a state refusal: the rule is switched off, the window is not over, or there is no
   // window yet.
   P0002:
