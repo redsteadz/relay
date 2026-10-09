@@ -231,11 +231,20 @@ class RelayDeviceIngressModule : Module() {
     }
 
     /**
-     * The notifications waiting on a model, for the pass that can ask one.
+     * The notifications waiting on a model **and still on screen**, for the pass that can ask one.
      *
-     * Nothing is returned while quieting is off or stopped. A candidate that cannot act is not worth
-     * a request to the reader's own model, and an answer obtained under a stop would be an answer
-     * Relay was not authorized to seek.
+     * The posted check is what makes the pass keep up. An unscoped rule makes every captured
+     * notification a candidate, so candidates arrive as fast as notifications do; asking a model
+     * about one that has already been read or swiped spends a request on an outcome that can only
+     * be `no-longer-posted`. Those are closed here, without asking anything, which drains the
+     * backlog at the speed of a shade sweep rather than the speed of a model.
+     *
+     * A shade that cannot be read is not an empty shade. With no listener bound nothing is known,
+     * so nothing is closed and nothing is offered -- recording a notification as gone on the
+     * strength of a shade this could not read would close a candidate still sitting in it.
+     *
+     * Nothing is returned while quieting is off or stopped: an answer obtained under a stop would
+     * be an answer Relay was not authorized to seek.
      */
     AsyncFunction("getPendingNotificationSilences") {
       tenantId: String, limit: Int, generation: Double ->
@@ -246,7 +255,30 @@ class RelayDeviceIngressModule : Module() {
         if (snapshot.mode == "off" || snapshot.killSwitchEngaged) {
           emptyList()
         } else {
-          queue.pendingSilenceOutcomes(tenantId, limit)
+          val posted = RelayNotificationListenerService.postedEnvelopeIds()
+          if (posted == null) {
+            emptyList()
+          } else {
+            val candidates = queue.pendingSilenceOutcomes(tenantId, SILENCE_OUTCOME_MAX_PENDING)
+            val now = System.currentTimeMillis()
+            val stillPosted = mutableListOf<Map<String, Any>>()
+            for (candidate in candidates) {
+              val envelopeId = candidate["envelopeId"] as String
+              if (posted.contains(envelopeId)) {
+                stillPosted += candidate
+                continue
+              }
+              queue.recordSilenceOutcome(
+                tenantId,
+                envelopeId,
+                candidate["applicationId"] as String,
+                candidate["filterRuleId"] as String,
+                SilenceDecision.NO_LONGER_POSTED.wireName(),
+                now
+              )
+            }
+            stillPosted.take(limit.coerceAtLeast(1))
+          }
         }
       }
     }

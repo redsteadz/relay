@@ -41,6 +41,19 @@ class RelayNotificationListenerService : NotificationListenerService() {
 
     /** Snoozes or cancels one notification by the key `postedKey` just returned. */
     fun actOnKey(key: String, action: String): Boolean = bound?.applyAction(key, action) ?: false
+
+    /**
+     * The capture identities currently on screen, or `null` when no listener is bound.
+     *
+     * One sweep answering for every candidate at once. Asking `postedKey` per candidate re-derived
+     * every identity in the shade each time, which is the same SHA-256 work multiplied by the
+     * number of candidates.
+     *
+     * `null` and "none posted" are deliberately different. With no listener bound nothing is known,
+     * and recording a notification as gone on the strength of a shade that could not be read would
+     * close a candidate that may still be sitting there.
+     */
+    fun postedEnvelopeIds(): Set<String>? = bound?.shadeIdentities()
   }
 
   override fun onListenerConnected() {
@@ -158,26 +171,32 @@ class RelayNotificationListenerService : NotificationListenerService() {
    * correct: the reader's rule was judged against what the notification said at the time, and the
    * replacement is a different observation that the live path decides about on its own.
    */
-  private fun keyFor(envelopeId: String): String? {
-    val active =
-      try {
-        activeNotifications
-      } catch (error: RuntimeException) {
-        NotificationDebugDiagnostics.failure("active notifications unavailable", error)
-        return null
-      } ?: return null
-    return active.firstOrNull { notification ->
-        val visible = NotificationEnvelopeFactory.view(notification.notification)
-        NotificationEnvelopeFactory.envelopeId(
-          notification.packageName,
-          notification.key,
-          visible.subject,
-          visible.body,
-          visible.sender
-        ) == envelopeId
-      }
-      ?.key
+  private fun keyFor(envelopeId: String): String? =
+    shade()?.firstOrNull { notification -> identify(notification) == envelopeId }?.key
+
+  /** Every capture identity on screen, derived once. */
+  private fun shadeIdentities(): Set<String>? =
+    shade()?.map { notification -> identify(notification) }?.toSet()
+
+  private fun identify(notification: StatusBarNotification): String {
+    val visible = NotificationEnvelopeFactory.view(notification.notification)
+    return NotificationEnvelopeFactory.envelopeId(
+      notification.packageName,
+      notification.key,
+      visible.subject,
+      visible.body,
+      visible.sender
+    )
   }
+
+  /** Android refuses this until the binding it announced is fully established. */
+  private fun shade(): List<StatusBarNotification>? =
+    try {
+      activeNotifications?.toList()
+    } catch (error: RuntimeException) {
+      NotificationDebugDiagnostics.failure("active notifications unavailable", error)
+      null
+    }
 
   /**
    * Snoozes or cancels one notification, and refuses anything else.

@@ -71,12 +71,15 @@ function parseRetainedContent(raw: string): RetainedCaptureContent | undefined {
 export const SILENCE_OUTCOME_LIMIT = 200;
 
 /**
- * How many candidates one pass is handed.
+ * How many still-posted candidates one pass is handed.
  *
- * Matches `SILENCE_OUTCOME_MAX_PENDING` natively and `DEVICE_SEMANTIC_PASS_LIMIT` in filing, because
- * all three bound the same thing: requests to a model the reader is hosting themselves.
+ * Higher than filing's `DEVICE_SEMANTIC_PASS_LIMIT` because the native side has already discarded
+ * every candidate whose notification is gone, so what reaches here is bounded by the shade -- a few
+ * dozen at most, and each one is something quieting can still act on. Eight was calibrated when a
+ * candidate meant "a rule the reader wrote selected this"; an unscoped rule makes every captured
+ * notification a candidate, and eight per pass could never keep up with that.
  */
-export const PENDING_SILENCE_LIMIT = 8;
+export const PENDING_SILENCE_LIMIT = 32;
 
 /**
  * One ledger row, as the wire contract defines it.

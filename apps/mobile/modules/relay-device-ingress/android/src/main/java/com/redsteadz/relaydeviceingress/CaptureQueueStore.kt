@@ -33,13 +33,18 @@ internal const val SILENCE_OUTCOME_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000
 internal const val SILENCE_OUTCOME_MAX_ITEMS = 1000
 
 /**
- * The verdict that is not final, and how many of them one pass is handed.
+ * The verdict that is not final, and how many of them one pass considers.
  *
- * The cap matches the eight clauses `resolveAwaitingModel` resolves per filing pass, because this is
- * the same bound on the same thing: requests to a model the reader is hosting themselves.
+ * `MAX_PENDING` is the scan window, not a model-call budget. Everything in it that is no longer on
+ * screen is closed as `no-longer-posted` without asking anything, so the window has to be wide
+ * enough to clear a backlog faster than it accumulates -- an unscoped rule makes every captured
+ * notification a candidate, so candidates arrive as fast as notifications do.
+ *
+ * What actually bounds the model calls is the shade: only a still-posted candidate is worth asking
+ * about, and a device holds a few dozen of those at most.
  */
 internal const val PENDING_SILENCE_DECISION = "awaiting-model"
-internal const val SILENCE_OUTCOME_MAX_PENDING = 8
+internal const val SILENCE_OUTCOME_MAX_PENDING = 96
 
 internal class CaptureQueueStore(context: Context) :
   SQLiteOpenHelper(context, "relay-capture.db", null, 4) {
@@ -182,12 +187,14 @@ internal class CaptureQueueStore(context: Context) :
   }
 
   /**
-   * The notifications whose rule still owes a model's answer, oldest first.
+   * The notifications whose rule still owes a model's answer, **newest first**.
    *
-   * Oldest first, and bounded, for the same reason the connection sweep is: a backlog is worked in
-   * the order the notifications arrived, and one pass asks a model about a few of them rather than
-   * all of them. Quieting a notification is only worth anything while it is still on screen, so a
-   * pass that fell behind is better off making progress than making every request.
+   * Newest first because quieting is worth something only while the notification is still on
+   * screen. This was oldest-first by analogy with the connection sweep, where arrival order is the
+   * point because every capture must eventually be delivered. Here it was exactly backwards: a pass
+   * spent its whole budget on the oldest candidates -- the ones most likely already dismissed by
+   * hand and impossible to act on -- while the notifications still sitting in the shade waited
+   * behind them.
    *
    * `awaiting-model` is the only decision read back here because it is the only one that is not
    * final. Every other row is history.
@@ -203,7 +210,7 @@ internal class CaptureQueueStore(context: Context) :
       arrayOf(tenantId, PENDING_SILENCE_DECISION),
       null,
       null,
-      "decided_at ASC",
+      "decided_at DESC",
       bounded.toString()
     ).use { cursor ->
       while (cursor.moveToNext()) {
