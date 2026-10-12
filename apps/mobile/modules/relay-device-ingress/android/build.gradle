@@ -16,6 +16,11 @@ android {
 }
 
 dependencies {
+  // The listener asks WorkManager to run the delivery worker as soon as a capture lands, instead of
+  // waiting out the periodic task's delay. `expo-background-task` already depends on this; naming it
+  // here is what makes it a compile dependency of this module rather than an accident of ordering.
+  implementation 'androidx.work:work-runtime-ktx:2.10.0'
+
   testImplementation 'junit:junit:4.13.2'
   // `android.jar` stubs `org.json` to throw, and the snapshot parser is the gate that keeps a
   // malformed authorization from being partly honoured. A real implementation on the unit-test

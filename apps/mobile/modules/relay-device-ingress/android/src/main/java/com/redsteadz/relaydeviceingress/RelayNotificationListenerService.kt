@@ -88,6 +88,9 @@ class RelayNotificationListenerService : NotificationListenerService() {
         // Tells a running app to sync now instead of waiting for a resume or the fifteen-minute
         // task. No-ops when nothing is listening, which is every time the app is closed.
         CaptureEventBridge.captureEnqueued("notification")
+        // And for every time it is closed: run the delivery worker now rather than on the periodic
+        // task's delay. Coalesced by WorkManager, so a burst costs one pass.
+        ImmediateDelivery.request(applicationContext)
       } catch (error: RuntimeException) {
         NotificationDebugDiagnostics.failure("capture enqueue threw an exception", error)
       }

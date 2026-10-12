@@ -54,6 +54,31 @@ The task is registered only where it can work. Demo mode queues nothing, the web
 WorkManager, and a device with capture paused has nothing to deliver, so registration is gated on the
 same capability read the foreground sync already performs.
 
+## Amendment: delivery is requested, not only scheduled (2026-10-12)
+
+The periodic task is no longer the only trigger. The notification listener asks WorkManager for an
+expedited one-time run of **the same worker** the moment a capture is enqueued, so a capture no
+longer waits out an interval with the service that took it still running beside it.
+
+A foreground service was asked for and is deliberately not what this is. A service keeps a process
+alive; it does not start a JavaScript runtime, and delivery needs one — so the permanent
+notification would have bought nothing this does not, and on Android 15 a `dataSync` service is
+capped at six hours in twenty-four besides. What was missing was a trigger, not a host.
+
+`expo-background-task` already builds its periodic schedule out of `OneTimeWorkRequest`s with an
+initial delay, so this is that request with no delay and `setExpedited`, under its own unique work
+name so it cannot disturb the chain. `ExistingWorkPolicy.KEEP` coalesces a burst into one pass.
+
+Its worker is resolved with `Class.forName` rather than imported: autolinking folds
+`expo-background-task` into `:expo`, and depending on that from a module the app also links risks a
+cycle. The lookup makes the coupling degrade instead of break — a rename resolves to null, nothing
+is enqueued, and the periodic task still delivers.
+
+**Expedited work is not exempt from Doze.** A phone stationary and dark for hours still batches to a
+maintenance window. Screen on or recently used, which is when a reader could notice, it runs in
+seconds. Beating Doze would need the upload itself written natively, which is a larger change and a
+different decision.
+
 ## Consequences
 
 - The consequence recorded in ADR-0014 is amended: there is now a background JavaScript runtime, and
