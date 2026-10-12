@@ -16,6 +16,7 @@ import { demoDeviceIngress } from "../../lib/demo/device-ingress";
 import { demoModeEnabled } from "../../lib/demo/mode";
 import { normalizeNotificationAppChoices } from "../../lib/notification-capture";
 import NativeRelayDeviceIngress, {
+  type CaptureEnqueuedEvent,
   type NativeDeviceCapabilities,
   type NativePendingSilence,
   type NativeSilenceOutcome,
@@ -28,6 +29,7 @@ import NativeRelayDeviceIngress, {
 export type RelayBuildVariant = keyof typeof buildConstants.buildVariants;
 export type DeviceCapabilities = NativeDeviceCapabilities & { buildVariant: RelayBuildVariant };
 export type {
+  CaptureEnqueuedEvent,
   NativePendingSilence,
   NotificationCapturePreview,
   SelectableNotificationApp,
@@ -285,6 +287,25 @@ const RelayDeviceIngress = {
             currentCaptureGeneration(),
           );
     return rows.flatMap((row) => parseSilenceOutcome(row) ?? []);
+  },
+  /**
+   * Calls back the moment a capture lands in the queue, so a running app can deliver it at once.
+   *
+   * Capture was always immediate; delivery waited for a resume or the fifteen-minute background
+   * task, which with the app open in front of a reader was pure latency. Returns a no-op unsubscribe
+   * where there is no native module -- web, demo, iOS -- so a caller never branches on platform.
+   *
+   * The payload names the kind of capture and nothing else. Everything about it is already in the
+   * encrypted queue the sync pass reads.
+   */
+  addCaptureListener(handler: (event: CaptureEnqueuedEvent) => void): () => void {
+    if (demoModeEnabled() || Platform.OS !== "android" || NativeRelayDeviceIngress === null) {
+      return () => undefined;
+    }
+    const subscription = NativeRelayDeviceIngress.addListener("onCaptureEnqueued", handler);
+    return () => {
+      subscription.remove();
+    };
   },
   /**
    * The notifications waiting on a model, for the pass that can ask one.

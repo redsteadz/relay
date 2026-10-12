@@ -68,7 +68,14 @@ export type NativePendingSilence = {
   filterRuleId: string;
 };
 
+/** What the listener reports the moment a capture lands in the queue. Never capture content. */
+export type CaptureEnqueuedEvent = { sourceKind: string };
+
 type RelayDeviceIngressNativeModule = {
+  addListener(
+    event: "onCaptureEnqueued",
+    handler: (payload: CaptureEnqueuedEvent) => void,
+  ): { remove: () => void };
   getCapabilities(): Promise<NativeDeviceCapabilities>;
   getSelectableNotificationApps(): Promise<SelectableNotificationApp[]>;
   openNotificationAccessSettings(): Promise<void>;

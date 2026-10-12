@@ -92,6 +92,33 @@ class RelayDeviceIngressModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("RelayDeviceIngress")
 
+    /**
+     * Fired the moment a capture lands in the queue.
+     *
+     * Capture was always immediate -- `onNotificationPosted` enqueues as Android posts -- but
+     * delivery waited for a sync pass, so a notification sat in the queue until the app was opened
+     * or the fifteen-minute background task ran. With the app in front of a reader that wait was
+     * pure latency: the runtime was right there.
+     *
+     * Only useful while JavaScript is alive, which is exactly when it matters. With the app closed
+     * the listener still captures and the background task still delivers; nothing depends on this
+     * arriving.
+     */
+    Events(CAPTURE_ENQUEUED_EVENT)
+
+    OnStartObserving { CaptureEventBridge.listening = true }
+    OnStopObserving { CaptureEventBridge.listening = false }
+
+    OnCreate {
+      CaptureEventBridge.emit = { sourceKind ->
+        sendEvent(CAPTURE_ENQUEUED_EVENT, mapOf("sourceKind" to sourceKind))
+      }
+    }
+    OnDestroy {
+      CaptureEventBridge.emit = null
+      CaptureEventBridge.listening = false
+    }
+
     val queue by lazy {
       CaptureQueueStore(requireNotNull(appContext.reactContext).applicationContext)
     }

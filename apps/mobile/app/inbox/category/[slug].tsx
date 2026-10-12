@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
+import { ReceiptList } from "@/components/ReceiptList";
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
   AnimatedListItem,
@@ -63,6 +64,9 @@ export default function InboxCategoryScreen() {
     }
   }
 
+  // Grouping ran inside the render before, so every state change regrouped the whole page.
+  const threads = useMemo(() => groupByThread(items), [items]);
+
   return (
     <ReceiptScreen
       onBack={() => router.back()}
@@ -78,49 +82,61 @@ export default function InboxCategoryScreen() {
           />
         )
       }
+      // This screen owns its scrolling: the rows are the long list, and handing them to the frame's
+      // ScrollView mounted every one of them before anything could paint.
+      scroll={false}
       title={title}
     >
-      {inbox.loading ? <LoadingState label="Reading this category..." /> : null}
+      <ReceiptList
+        data={threads}
+        header={
+          <>
+            {inbox.loading ? <LoadingState label="Reading this category..." /> : null}
 
-      {hideError === undefined ? null : <StatusMessage tone="error">{hideError}</StatusMessage>}
-      {proposals.error === undefined ? null : (
-        <StatusMessage tone="error">{proposals.error}</StatusMessage>
-      )}
+            {hideError === undefined ? null : (
+              <StatusMessage tone="error">{hideError}</StatusMessage>
+            )}
+            {proposals.error === undefined ? null : (
+              <StatusMessage tone="error">{proposals.error}</StatusMessage>
+            )}
 
-      {!inbox.loading && items.length === 0 ? (
-        <FeedbackState
-          detail={
-            key === UNFILED_CATEGORY_KEY
-              ? "Everything Relay read matched one of your categories."
-              : "Nothing has been filed here yet. It will appear once a rule files something into it."
-          }
-          kind="empty"
-          title="Nothing here"
-        />
-      ) : null}
-
-      {groupByThread(items).map((thread) => {
-        const proposal = proposals.forEvent(thread.latest.id)[0];
-        return (
-          <AnimatedListItem key={thread.key}>
-            <SwipeableRow
-              actionLabel="Remove"
-              icon="inbox-remove-outline"
-              onAction={() => void hide(thread.latest.id)}
-            >
-              <ReceiptCard
-                busy={proposal !== undefined && proposals.deciding === proposal.id}
-                item={thread.latest}
-                onApprove={(runId) => void proposals.approve(runId)}
-                onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
-                onSkip={(runId) => void proposals.skip(runId)}
-                proposal={proposal}
-                threadCount={thread.items.length}
+            {!inbox.loading && items.length === 0 ? (
+              <FeedbackState
+                detail={
+                  key === UNFILED_CATEGORY_KEY
+                    ? "Everything Relay read matched one of your categories."
+                    : "Nothing has been filed here yet. It will appear once a rule files something into it."
+                }
+                kind="empty"
+                title="Nothing here"
               />
-            </SwipeableRow>
-          </AnimatedListItem>
-        );
-      })}
+            ) : null}
+          </>
+        }
+        keyExtractor={(thread) => thread.key}
+        renderItem={({ item: thread }) => {
+          const proposal = proposals.forEvent(thread.latest.id)[0];
+          return (
+            <AnimatedListItem>
+              <SwipeableRow
+                actionLabel="Remove"
+                icon="inbox-remove-outline"
+                onAction={() => void hide(thread.latest.id)}
+              >
+                <ReceiptCard
+                  busy={proposal !== undefined && proposals.deciding === proposal.id}
+                  item={thread.latest}
+                  onApprove={(runId) => void proposals.approve(runId)}
+                  onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
+                  onSkip={(runId) => void proposals.skip(runId)}
+                  proposal={proposal}
+                  threadCount={thread.items.length}
+                />
+              </SwipeableRow>
+            </AnimatedListItem>
+          );
+        }}
+      />
     </ReceiptScreen>
   );
 }

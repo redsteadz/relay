@@ -166,6 +166,15 @@ function AuthenticatedStack() {
  * inbox surface can reach the capability that acts on a notification, and putting this in `useInbox`
  * would have been one edit away from a swipe cancelling a notification.
  */
+/**
+ * How long a capture waits for its neighbours before a sync pass runs.
+ *
+ * Notifications arrive in bursts and one pass delivers everything queued, so this is the difference
+ * between one upload and ten. Short enough that a reader watching the inbox sees the row appear
+ * rather than wait for it.
+ */
+const CAPTURE_SYNC_COALESCE_MS = 1_200;
+
 function DeviceCaptureSync() {
   const { client, session } = useAuth();
 
@@ -198,6 +207,24 @@ function DeviceCaptureSync() {
       }
     };
     sync();
+
+    /*
+      A capture arriving is the signal; a timer was only ever standing in for it. The listener
+      enqueues the moment Android posts, so with the app open the runtime that can deliver it is
+      already running -- waiting for the next resume or the fifteen-minute task was latency with no
+      cause behind it.
+
+      Coalesced, because notifications arrive in bursts and one sync pass delivers everything queued.
+      The delay is what turns ten arrivals into one upload rather than ten.
+    */
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = RelayDeviceIngress.addCaptureListener(() => {
+      if (pending !== undefined) clearTimeout(pending);
+      pending = setTimeout(() => {
+        pending = undefined;
+        sync();
+      }, CAPTURE_SYNC_COALESCE_MS);
+    });
     // The scheduled work and the stored preference can fall out of step -- a reinstall, a restore to
     // a new device, or a system that dropped the job -- so the choice a person last made is
     // re-applied on launch rather than assumed to still be in force.
@@ -213,7 +240,11 @@ function DeviceCaptureSync() {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") sync();
     });
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+      unsubscribe();
+      if (pending !== undefined) clearTimeout(pending);
+    };
   }, [client, session]);
 
   return null;
