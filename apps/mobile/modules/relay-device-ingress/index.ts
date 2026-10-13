@@ -98,6 +98,9 @@ function parseSilenceOutcome(row: NativeSilenceOutcome): NotificationSilenceOutc
     decision: row.decision,
     envelopeId: row.envelopeId,
     ...(row.filterRuleId === undefined ? {} : { filterRuleId: row.filterRuleId }),
+    // Absent from the native row by construction: the ledger holds no content. A caller joins it
+    // from retention afterwards, which is why the shape accepts it here.
+    ...(row.subject === undefined ? {} : { subject: row.subject }),
   });
   return parsed.success ? parsed.data : undefined;
 }

@@ -74,10 +74,38 @@ export function useNotificationSilence(
     queryKey: silenceQueryKeys.state(tenantId),
   });
 
+  /**
+   * The verdicts, each carrying the title of the notification it was about.
+   *
+   * The ledger is content-free on purpose and stays that way: it holds an application id, a rule id,
+   * a capture identity and a verdict. The title is read separately, from the device's own retained
+   * copy of the capture, and joined here for display only.
+   *
+   * That join is what the ledger was keyed by capture identity *for*, and it was never built -- so
+   * the review a person is asked to authorize an irreversible capability on read
+   * `com.courier.app · Would have been put away` and nothing else. Which notification that was is
+   * the entire question a reviewer has.
+   *
+   * A title that is missing is not an error. Retention is thirty days and bounded by size, so an old
+   * verdict outlives its content; the row then says what it always said.
+   */
   const outcomes = useQuery({
     enabled,
-    queryFn: () =>
-      RelayDeviceIngress.getNotificationSilenceOutcomes(tenantId as string, SILENCE_OUTCOME_LIMIT),
+    queryFn: async () => {
+      const recorded = await RelayDeviceIngress.getNotificationSilenceOutcomes(
+        tenantId as string,
+        SILENCE_OUTCOME_LIMIT,
+      );
+      if (recorded.length === 0) return recorded;
+      const content = await RelayDeviceIngress.getRetainedCaptureContent(
+        tenantId as string,
+        recorded.map((outcome) => outcome.envelopeId),
+      );
+      return recorded.map((outcome) => {
+        const subject = content[outcome.envelopeId]?.subject;
+        return subject === undefined ? outcome : { ...outcome, subject };
+      });
+    },
     queryKey: silenceQueryKeys.outcomes(tenantId),
   });
 

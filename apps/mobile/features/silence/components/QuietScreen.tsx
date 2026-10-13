@@ -221,7 +221,16 @@ export function QuietScreen() {
           <View style={[styles.list, { gap: spacing.xs }]}>
             {silence.outcomes.slice(0, 20).map((outcome) => (
               <View key={outcome.envelopeId} style={[styles.outcome, { gap: spacing.xxs }]}>
-                <AppText variant="body">{outcome.applicationId}</AppText>
+                <View style={styles.outcomeText}>
+                  {/* The title first: which notification this was is the question a reviewer has,
+                      and the application id alone never answered it. */}
+                  <AppText variant="body">{outcome.subject ?? outcome.applicationId}</AppText>
+                  {outcome.subject === undefined ? null : (
+                    <AppText tone="muted" variant="caption">
+                      {outcome.applicationId}
+                    </AppText>
+                  )}
+                </View>
                 <StatusPill
                   label={decisionLabel(outcome.decision)}
                   tone={decisionTone(outcome.decision)}
@@ -356,6 +365,7 @@ function QuietRuleCard({
 
 const styles = StyleSheet.create({
   list: { width: "100%" },
+  outcomeText: { flexShrink: 1 },
   outcome: { alignItems: "flex-start", width: "100%" },
   screen: { width: "100%" },
 });

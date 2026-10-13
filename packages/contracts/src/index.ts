@@ -1901,6 +1901,14 @@ export const notificationSilenceOutcomeSchema = z
     decision: notificationSilenceDecisionSchema,
     envelopeId: canonicalUuidSchema,
     filterRuleId: canonicalUuidSchema.optional(),
+    /**
+     * The notification's own title, for display beside the verdict.
+     *
+     * Not part of the ledger and never written to it: the device joins it from its retained copy of
+     * the capture at read time. Optional because retention is bounded, so a verdict outlives the
+     * content it was about.
+     */
+    subject: z.string().min(1).max(4096).optional(),
   })
   .strict()
   .refine((outcome) => outcome.decision === "no-match" || outcome.filterRuleId !== undefined, {

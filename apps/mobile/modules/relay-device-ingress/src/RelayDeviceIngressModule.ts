@@ -53,6 +53,8 @@ export type NativeSilenceOutcome = {
   decision: string;
   envelopeId: string;
   filterRuleId?: string;
+  /** Never set natively. A caller joins it from retained capture content for display. */
+  subject?: string;
 };
 
 /**
