@@ -1930,6 +1930,21 @@ export type NotificationDismissalSettings = z.infer<typeof notificationDismissal
  * secure store and is never uploaded. A reader may configure both, and neither learns the other's
  * key. See [ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md).
  */
+/**
+ * Which wire protocol an endpoint speaks.
+ *
+ * `openai` is `/v1/chat/completions` with a JSON response format -- a general model asked for a
+ * typed answer. `system-one` is `/v1/systemone`, the protocol Jev and Laya speak: typed questions
+ * over a state, answered in a single forward pass with no generation at all.
+ *
+ * The second is the better fit for what a filter actually asks, and it is also structurally safer:
+ * captured text is a value in a typed object rather than content inside a prompt, so there is no
+ * prompt for it to escape into. See
+ * [ADR-0022](../../../docs/decisions/0022-decision-engine-endpoints.md).
+ */
+export const semanticProtocolSchema = z.enum(["openai", "system-one"]);
+export type SemanticProtocol = z.infer<typeof semanticProtocolSchema>;
+
 export const deviceSemanticConfigSchema = z
   .object({
     /**
@@ -1939,6 +1954,11 @@ export const deviceSemanticConfigSchema = z
      */
     apiKey: openAiApiKeySchema.optional(),
     baseUrl: z.string().min(1).max(2048),
+    /**
+     * Defaults to `openai`, so every endpoint configured before decision engines were supported
+     * keeps working without being rewritten.
+     */
+    protocol: semanticProtocolSchema.default("openai"),
     model: semanticModelSchema,
     /**
      * Defaults to `json-object` rather than the server's `json-schema`.

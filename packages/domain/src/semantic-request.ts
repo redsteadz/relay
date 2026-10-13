@@ -23,7 +23,7 @@ import {
   type SemanticResponseFormat,
 } from "@relay/contracts";
 
-type SemanticClause = NonNullable<FilterPlan["semantic"]>;
+export type SemanticClause = NonNullable<FilterPlan["semantic"]>;
 
 /** Enough of an endpoint to build a request. Deliberately not the URL or the credential. */
 export type SemanticRequestEndpoint = {

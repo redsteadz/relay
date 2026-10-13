@@ -96,6 +96,8 @@ describe("the model and the optional key", () => {
       apiKey: "k",
       baseUrl: "http://10.0.0.5:8080/v1",
       model: "llama3.2:3b",
+      // Defaulted, so every endpoint configured before decision engines existed keeps working.
+      protocol: "openai",
       responseFormat: "json-object",
     });
   });
@@ -110,6 +112,7 @@ describe("what the panel says", () => {
         apiKey: "stored-key",
         baseUrl: "http://10.0.0.5:8080/v1",
         model: "llama3.2:3b",
+        protocol: "openai",
         responseFormat: "json-object",
       }).apiKey,
     ).toBe("");
@@ -124,6 +127,7 @@ describe("what the panel says", () => {
     const summary = deviceModelSummary({
       baseUrl: "http://192.168.1.10:11434/v1",
       model: "llama3.2:3b",
+      protocol: "openai",
       responseFormat: "json-object",
     });
     expect(summary).toContain("llama3.2:3b");

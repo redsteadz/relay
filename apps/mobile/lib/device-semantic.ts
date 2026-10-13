@@ -32,8 +32,10 @@ import {
   minimizeSemanticDisclosure,
   parseSemanticBaseUrl,
   parseSemanticEvaluation,
+  parseSystemOneEvaluation,
   resolveSemanticDecision,
   semanticEvaluationRequestBody,
+  systemOneRequestBody,
   type FilterDecision,
 } from "@relay/domain";
 
@@ -92,11 +94,18 @@ export async function evaluateDeviceSemanticClause(
   const endpoint = parseSemanticBaseUrl(settings.baseUrl, { allowLocalNetwork: true });
   if (endpoint === undefined) return undecided("endpoint-invalid");
 
+  // Minimization happens once, before either protocol sees anything. What leaves the device is
+  // decided by the clause's allowlist and the redactions, never by the wire format.
   const disclosure = minimizeSemanticDisclosure(clause, item);
-  const body = semanticEvaluationRequestBody(clause, disclosure, {
-    model: settings.model,
-    responseFormat: settings.responseFormat,
-  });
+  const systemOne = settings.protocol === "system-one";
+  const body = systemOne
+    ? systemOneRequestBody(clause, disclosure, { model: settings.model })
+    : semanticEvaluationRequestBody(clause, disclosure, {
+        model: settings.model,
+        responseFormat: settings.responseFormat,
+      });
+  // A decision engine answers in one forward pass and has no completions route.
+  const route = systemOne ? "/systemone" : "/chat/completions";
   const sent = { disclosure, host: endpoint.host, model: settings.model };
 
   const fetcher = options.fetcher ?? fetch;
@@ -108,7 +117,7 @@ export async function evaluateDeviceSemanticClause(
 
   let response: Response;
   try {
-    response = await fetcher(`${endpoint.baseUrl}/chat/completions`, {
+    response = await fetcher(`${endpoint.baseUrl}${route}`, {
       body: JSON.stringify(body),
       headers: {
         "content-type": "application/json",
@@ -144,6 +153,22 @@ export async function evaluateDeviceSemanticClause(
     payload = JSON.parse(text) as unknown;
   } catch {
     return { ...undecided("invalid-response"), disclosure: sent };
+  }
+
+  if (systemOne) {
+    const answer = parseSystemOneEvaluation(payload);
+    if (answer.status !== "ok") return { ...undecided("invalid-response"), disclosure: sent };
+    // Through the same threshold as a language model's answer. A decision engine is faster and
+    // better shaped for the question; it is not more authoritative, and the clause's own
+    // `minimumConfidence` is the reader's statement about how sure is sure enough.
+    return {
+      decision: resolveSemanticDecision(clause, {
+        confidence: answer.confidence,
+        decision: answer.matched ? "match" : "no-match",
+        rationale: "",
+      }),
+      disclosure: sent,
+    };
   }
 
   const parsed = parseSemanticEvaluation(payload);
