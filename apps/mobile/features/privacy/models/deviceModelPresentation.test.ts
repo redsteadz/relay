@@ -17,6 +17,7 @@ function values(overrides: Partial<DeviceModelFormValues> = {}): DeviceModelForm
     apiKey: "",
     baseUrl: "http://192.168.1.10:11434/v1",
     model: "llama3.2:3b",
+    protocol: "openai",
     responseFormat: "json-object",
     ...overrides,
   };
@@ -137,5 +138,38 @@ describe("what the panel says", () => {
 
   it("says plainly when nothing is configured", () => {
     expect(deviceModelSummary(undefined)).toContain("No model on this phone");
+  });
+});
+
+describe("choosing the kind of model", () => {
+  // The two are not independent: a decision engine answers at `/systemone` and a chat model at
+  // `/chat/completions`, so a preset that set an address without its protocol would point a reader
+  // at a route their server does not serve.
+  it("every preset declares the protocol its address speaks", () => {
+    for (const preset of DEVICE_MODEL_PRESETS) {
+      expect(["openai", "system-one"]).toContain(preset.protocol);
+    }
+    expect(DEVICE_MODEL_PRESETS.some((preset) => preset.protocol === "system-one")).toBe(true);
+  });
+
+  it("carries the chosen protocol into what is stored", () => {
+    expect(deviceModelConfigFrom(values({ protocol: "system-one" })).protocol).toBe("system-one");
+  });
+
+  // An endpoint saved before decision engines existed has no protocol; reading it as a chat model is
+  // what keeps it working.
+  it("defaults an unset protocol to the chat one", () => {
+    expect(deviceModelFormDefaults(undefined).protocol).toBe("openai");
+  });
+
+  // A reader seeing no explanation on a verdict should know that is the model, not a fault.
+  it("says a decision engine does not explain itself", () => {
+    const summary = deviceModelSummary({
+      baseUrl: "https://thejevai.com/v1",
+      model: "jev-latest",
+      protocol: "system-one",
+      responseFormat: "json-object",
+    });
+    expect(summary).toContain("without explaining");
   });
 });

@@ -12,6 +12,7 @@ import {
   deviceModelFormError,
   deviceModelKeyError,
   DEVICE_MODEL_PRESETS,
+  DEVICE_MODEL_PROTOCOLS,
   type DeviceModelFormValues,
 } from "../models/deviceModelPresentation";
 
@@ -94,6 +95,7 @@ export function DeviceModelDialog({
                   apiKey: values.apiKey,
                   baseUrl: preset.baseUrl,
                   model: preset.model,
+                  protocol: preset.protocol,
                   responseFormat: preset.responseFormat,
                 });
               }}
@@ -102,6 +104,27 @@ export function DeviceModelDialog({
             </Chip>
           ))}
         </View>
+
+        {/*
+          The kind of model comes before its address, because it decides what the address means: a
+          decision engine answers at `/systemone` and a chat model at `/chat/completions`, and the
+          same host can serve either.
+        */}
+        <View style={[styles.presets, { gap: theme.relay.spacing.xxs }]}>
+          {DEVICE_MODEL_PROTOCOLS.map((protocol) => (
+            <Chip
+              compact
+              key={protocol.value}
+              onPress={() => setValues({ ...values, protocol: protocol.value })}
+              selected={values.protocol === protocol.value}
+            >
+              {protocol.label}
+            </Chip>
+          ))}
+        </View>
+        <AppText tone="muted" variant="caption">
+          {DEVICE_MODEL_PROTOCOLS.find((entry) => entry.value === values.protocol)?.detail}
+        </AppText>
 
         <AppTextInput
           autoCapitalize="none"
@@ -131,18 +154,24 @@ export function DeviceModelDialog({
           Most models you run yourself need no key.
         </AppText>
 
-        <View style={[styles.presets, { gap: theme.relay.spacing.xxs }]}>
-          {RESPONSE_FORMATS.map((format) => (
-            <Chip
-              compact
-              key={format.value}
-              onPress={() => setValues({ ...values, responseFormat: format.value })}
-              selected={values.responseFormat === format.value}
-            >
-              {format.label}
-            </Chip>
-          ))}
-        </View>
+        {/*
+          Only a chat model has a response format. A decision engine answers in one forward pass and
+          has nothing to shape, so offering the control there would be a setting with no effect.
+        */}
+        {values.protocol === "system-one" ? null : (
+          <View style={[styles.presets, { gap: theme.relay.spacing.xxs }]}>
+            {RESPONSE_FORMATS.map((format) => (
+              <Chip
+                compact
+                key={format.value}
+                onPress={() => setValues({ ...values, responseFormat: format.value })}
+                selected={values.responseFormat === format.value}
+              >
+                {format.label}
+              </Chip>
+            ))}
+          </View>
+        )}
 
         {errorMessage === undefined ? null : (
           <StatusMessage tone="error">{errorMessage}</StatusMessage>

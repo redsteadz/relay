@@ -3,6 +3,7 @@ import {
   openAiApiKeySchema,
   semanticModelSchema,
   type DeviceSemanticConfig,
+  type SemanticProtocol,
   type SemanticResponseFormat,
 } from "@relay/contracts";
 import { parseSemanticBaseUrl } from "@relay/domain";
@@ -22,22 +23,51 @@ export type DeviceModelFormValues = {
   apiKey: string;
   baseUrl: string;
   model: string;
+  /** Which wire protocol the endpoint speaks. See ADR-0022. */
+  protocol: SemanticProtocol;
   responseFormat: SemanticResponseFormat;
 };
 
-/** Where a locally hosted model usually answers, so the common cases are not typed from memory. */
+/**
+ * Where a model usually answers, so the common cases are not typed from memory.
+ *
+ * A preset carries its protocol because the two are not independent: a decision engine does not
+ * answer at `/chat/completions` and a chat model does not answer at `/systemone`, so choosing an
+ * address and choosing a protocol is one decision rather than two a reader has to get right
+ * together.
+ */
 export const DEVICE_MODEL_PRESETS: readonly {
   baseUrl: string;
   id: string;
   label: string;
   model: string;
+  protocol: SemanticProtocol;
   responseFormat: SemanticResponseFormat;
 }[] = [
+  {
+    baseUrl: "http://192.168.1.10:8000/v1",
+    id: "laya-lan",
+    label: "Laya on my computer",
+    model: "laya",
+    protocol: "system-one",
+    // Unused on this protocol: a decision engine answers in one forward pass and has no response
+    // format to ask for. Carried so one preset shape covers both.
+    responseFormat: "json-object",
+  },
+  {
+    baseUrl: "https://thejevai.com/v1",
+    id: "jev",
+    label: "Jev (hosted)",
+    model: "jev-latest",
+    protocol: "system-one",
+    responseFormat: "json-object",
+  },
   {
     baseUrl: "http://127.0.0.1:11434/v1",
     id: "ollama-local",
     label: "Ollama on this phone",
     model: "llama3.2:3b",
+    protocol: "openai",
     responseFormat: "json-object",
   },
   {
@@ -45,6 +75,7 @@ export const DEVICE_MODEL_PRESETS: readonly {
     id: "ollama-lan",
     label: "Ollama on my computer",
     model: "llama3.2:3b",
+    protocol: "openai",
     responseFormat: "json-object",
   },
   {
@@ -52,6 +83,7 @@ export const DEVICE_MODEL_PRESETS: readonly {
     id: "lm-studio",
     label: "LM Studio",
     model: "local-model",
+    protocol: "openai",
     responseFormat: "json-object",
   },
 ];
@@ -65,6 +97,7 @@ export function deviceModelFormDefaults(
     apiKey: "",
     baseUrl: config?.baseUrl ?? "",
     model: config?.model ?? "",
+    protocol: config?.protocol ?? "openai",
     responseFormat: config?.responseFormat ?? "json-object",
   };
 }
@@ -143,6 +176,7 @@ export function deviceModelConfigFrom(values: DeviceModelFormValues): DeviceSema
     ...(apiKey === "" ? {} : { apiKey }),
     baseUrl: values.baseUrl.trim(),
     model: values.model.trim(),
+    protocol: values.protocol,
     responseFormat: values.responseFormat,
   });
 }
@@ -154,5 +188,26 @@ export function deviceModelSummary(config: DeviceSemanticConfig | undefined): st
   }
   const host = parseSemanticBaseUrl(config.baseUrl, { allowLocalNetwork: true })?.host;
   const where = host === undefined ? config.baseUrl : host;
-  return `${config.model} at ${where}. Only this phone uses it, and the key never leaves it.`;
+  // The kind is worth saying: a decision engine answers in milliseconds and offers no reasoning, so
+  // a reader who sees no explanation on a verdict should know that is the model and not a fault.
+  const kind = config.protocol === "system-one" ? " It decides without explaining." : "";
+  return `${config.model} at ${where}. Only this phone uses it, and the key never leaves it.${kind}`;
 }
+
+/** What each protocol is, in one line, for the control that picks between them. */
+export const DEVICE_MODEL_PROTOCOLS: readonly {
+  detail: string;
+  label: string;
+  value: SemanticProtocol;
+}[] = [
+  {
+    detail: "A chat model asked for a JSON answer. Ollama, LM Studio, OpenAI-compatible servers.",
+    label: "Chat model",
+    value: "openai",
+  },
+  {
+    detail: "A decision engine: one forward pass, milliseconds, no explanation. Jev, Laya.",
+    label: "Decision engine",
+    value: "system-one",
+  },
+];
