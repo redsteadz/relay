@@ -1428,10 +1428,6 @@ export type Database = {
           isSetofReturn: false;
         };
       };
-      filter_expression_binds_application: {
-        Args: { p_depth?: number; p_expression: Json };
-        Returns: boolean;
-      };
       filter_plan_has_forbidden_keys: {
         Args: { p_value: Json };
         Returns: boolean;
@@ -1966,7 +1962,11 @@ export type Database = {
         };
       };
       set_notification_dismissal_v1: {
-        Args: { p_enabled: boolean; p_filter_rule_id: string };
+        Args: {
+          p_action?: string;
+          p_enabled: boolean;
+          p_filter_rule_id: string;
+        };
         Returns: {
           action: string;
           authorized_at: string | null;
