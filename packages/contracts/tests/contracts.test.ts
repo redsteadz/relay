@@ -18,6 +18,11 @@ import {
   exactDecimalStringSchema,
   filterCompileRequestSchema,
   filterExpressionSchema,
+  notificationSilenceClauseSchema,
+  notificationSilenceRuleSchema,
+  notificationSilenceOutcomeSchema,
+  notificationSilenceSnapshotSchema,
+  notificationSilenceTestSchema,
   filterPlanSchema,
   gmailDisconnectRequestSchema,
   gmailHistoryIdSchema,
@@ -1037,5 +1042,182 @@ describe("category contracts", () => {
         sortOrder: 0,
       }).success,
     ).toBe(true);
+  });
+});
+
+/**
+ * The shapes that cross into a process that cannot ask anyone anything.
+ *
+ * The notification listener runs with the app dead and can cancel a notification for good, so what
+ * it reads has to be refusable at the boundary. Each case below is a snapshot that would have
+ * widened what Relay acts on if it had been accepted.
+ */
+describe("notification silencing", () => {
+  const RULE_ID = "7f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f607";
+
+  function test(field: string, operator: string, ...values: string[]) {
+    return { field, operator, values };
+  }
+
+  function clause(...tests: unknown[]) {
+    return { tests };
+  }
+
+  function snapshot(overrides: Record<string, unknown> = {}) {
+    return {
+      disabledPackages: [],
+      killSwitchEngaged: false,
+      mode: "enforcing",
+      revision: 1,
+      rules: [
+        {
+          action: "snooze",
+          awaitsModel: false,
+          clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
+          filterRuleId: RULE_ID,
+          observing: false,
+          unscoped: false,
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("parses a well-formed snapshot", () => {
+    expect(notificationSilenceSnapshotSchema.safeParse(snapshot()).success).toBe(true);
+  });
+
+  it("rejects an unknown key on a snapshot", () => {
+    expect(
+      notificationSilenceSnapshotSchema.safeParse(snapshot({ allowEverything: true })).success,
+    ).toBe(false);
+  });
+
+  // A rule that does not say whether it is still being observed has not said it may act. Same for
+  // the flag that says a model still owes an answer: the device defaults a missing one to "owes one",
+  // and the contract refuses to produce one that is missing at all.
+  it.each([["observing"], ["awaitsModel"]])("requires the %s flag on every rule", (flag) => {
+    const rule: Record<string, unknown> = {
+      action: "snooze",
+      awaitsModel: false,
+      clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
+      filterRuleId: RULE_ID,
+      observing: false,
+      unscoped: false,
+    };
+    delete rule[flag];
+    expect(notificationSilenceSnapshotSchema.safeParse(snapshot({ rules: [rule] })).success).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    ["category", test("category", "equals", "finance")],
+    ["body", test("body", "contains", "receipt")],
+    ["sender", test("sender", "contains", "courier")],
+  ])("rejects a test on the unreadable field %s", (_field, unreadable) => {
+    expect(notificationSilenceTestSchema.safeParse(unreadable).success).toBe(false);
+  });
+
+  it.each([
+    ["no values", test("subject", "equals")],
+    ["two values for a single-value operator", test("subject", "equals", "a", "b")],
+    ["values on an exists test", test("subject", "exists", "a")],
+    ["an empty in list", test("source.applicationId", "in")],
+  ])("rejects a test with %s", (_label, malformed) => {
+    expect(notificationSilenceTestSchema.safeParse(malformed).success).toBe(false);
+  });
+
+  // #38 required every clause to name an application; ADR-0020 dropped it, so a clause is now just
+  // a conjunction of readable tests.
+  it.each([
+    ["a subject test alone", clause(test("subject", "contains", "delivery"))],
+    ["a named application", clause(test("source.applicationId", "equals", "com.courier.app"))],
+    ["a described application", clause(test("source.applicationId", "contains", "courier"))],
+    [
+      "an in-predicate",
+      clause(test("source.applicationId", "in", "com.courier.app", "com.other.app")),
+    ],
+  ])("accepts a clause carrying %s", (_label, value) => {
+    expect(notificationSilenceClauseSchema.safeParse(value).success).toBe(true);
+  });
+
+  // The flag and the shape are redundant on purpose: an empty disjunction read as "matches
+  // everything" is fail-open, and this rule cancels notifications.
+  it.each([
+    ["no clauses without the flag", { clauses: [], unscoped: false }],
+    [
+      "the flag while carrying clauses",
+      {
+        clauses: [clause(test("source.applicationId", "equals", "com.courier.app"))],
+        unscoped: true,
+      },
+    ],
+  ])("refuses a rule declaring %s", (_label, shape) => {
+    expect(
+      notificationSilenceRuleSchema.safeParse({
+        action: "snooze",
+        awaitsModel: true,
+        filterRuleId: RULE_ID,
+        observing: false,
+        ...shape,
+      }).success,
+    ).toBe(false);
+  });
+
+  // Nothing narrows it and nothing decides it, so it would act on everything unconditionally.
+  it("refuses an unscoped rule that owes no model an answer", () => {
+    expect(
+      notificationSilenceRuleSchema.safeParse({
+        action: "dismiss",
+        awaitsModel: false,
+        clauses: [],
+        filterRuleId: RULE_ID,
+        observing: false,
+        unscoped: true,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("parses one recorded verdict", () => {
+    expect(
+      notificationSilenceOutcomeSchema.safeParse({
+        applicationId: "com.courier.app",
+        decidedAt: "2026-10-04T00:00:00.000Z",
+        decision: "would-snooze",
+        envelopeId: RULE_ID,
+        filterRuleId: RULE_ID,
+      }).success,
+    ).toBe(true);
+  });
+
+  // A verdict that something happened has to name what produced it, or the ledger records an act
+  // with no explanation.
+  it("requires a rule on every verdict but a miss", () => {
+    const base = {
+      applicationId: "com.courier.app",
+      decidedAt: "2026-10-04T00:00:00.000Z",
+      envelopeId: RULE_ID,
+    };
+    expect(
+      notificationSilenceOutcomeSchema.safeParse({ ...base, decision: "no-match" }).success,
+    ).toBe(true);
+    expect(
+      notificationSilenceOutcomeSchema.safeParse({ ...base, decision: "snoozed" }).success,
+    ).toBe(false);
+  });
+
+  // `ignored` is the internal verdict for a notification no rule names. It is never recorded, so it
+  // is not part of the wire vocabulary.
+  it("rejects a verdict for a notification nothing named", () => {
+    expect(
+      notificationSilenceOutcomeSchema.safeParse({
+        applicationId: "com.courier.app",
+        decidedAt: "2026-10-04T00:00:00.000Z",
+        decision: "ignored",
+        envelopeId: RULE_ID,
+        filterRuleId: RULE_ID,
+      }).success,
+    ).toBe(false);
   });
 });

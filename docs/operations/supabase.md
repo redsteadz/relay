@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-30
+last_verified: 2026-10-09
 ---
 
 # Supabase Hosted Runtime Operations
@@ -64,6 +64,29 @@ Magic-link code must pass one of these same exact callbacks as `emailRedirectTo`
 unreviewed default destination. Relay uses PKCE so the mobile callback receives a one-time code rather
 than access and refresh tokens. Automatic account creation remains disabled because enrollment is
 operator controlled, independent of deployment topology.
+
+## An Applied Migration Is Immutable
+
+Supabase records a migration as applied by its version, so **editing a file that any environment has
+already run never reaches that environment**. `supabase db push` skips it, `supabase db reset`
+rebuilds it locally from scratch, and the two silently diverge: local has the new definition and the
+deployed project keeps the old one. Nothing reports it, and a green local `supabase test db` proves
+only what a database built from scratch does.
+
+This cost a debugging round on 2026-10-09. `202610050001` had been pushed to the development project
+and was then edited twice on an unmerged branch. Every local test passed while the hosted routine
+refused the same call with `22023`, and the failure surfaced on a phone as a rule that "has to name
+an app exactly" — a message describing a gate the branch had already deleted.
+
+Check before editing any migration:
+
+```bash
+pnpm exec supabase migration list --linked   # a version under `remote` has been applied
+```
+
+If it appears remotely, write a new migration that `create or replace`s the routine, and use
+`drop ... if exists` for anything the newer path never creates. "Unmerged to `dev`" and "not yet
+deployed" are different claims; only the second one makes a file safe to edit.
 
 ## Initial Migration
 

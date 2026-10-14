@@ -10,6 +10,7 @@ import {
   ContextualNotice,
   StatusMessage,
 } from "@/components/ui";
+import { BackgroundDeliveryPanel } from "@/features/device-capture/components/source/BackgroundDeliveryPanel";
 import { SourceConsentDialog } from "@/features/device-capture/components/source/SourceConsentDialog";
 import { SourceDisclosureDialog } from "@/features/device-capture/components/source/SourceDisclosureDialog";
 import { SourceStatusLabel } from "@/features/device-capture/components/source/SourceStatusLabel";
@@ -129,7 +130,11 @@ export default function NotificationSourceScreen() {
         />
       </ReceiptStage>
 
-      <ReceiptStage label="Queue" ordinal={3}>
+      <ReceiptStage label="Delivery" ordinal={3}>
+        <BackgroundDeliveryPanel />
+      </ReceiptStage>
+
+      <ReceiptStage label="Queue" ordinal={4}>
         <AppText tone="muted" variant="caption">
           Review permitted metadata and processing state on a dedicated secure screen.
         </AppText>
@@ -137,6 +142,18 @@ export default function NotificationSourceScreen() {
           disabled={capabilities === undefined}
           label="Open notification queue"
           onPress={() => router.push(sourceQueueRoutes.notifications)}
+          tone="secondary"
+        />
+      </ReceiptStage>
+
+      <ReceiptStage label="Quiet" ordinal={5}>
+        <AppText tone="muted" variant="caption">
+          Capture reads notifications. Quieting changes them — a rule can make a matching
+          notification arrive without a sound, after a watching period you review.
+        </AppText>
+        <AppButton
+          label="Open quiet controls"
+          onPress={() => router.push("/quiet")}
           tone="secondary"
         />
       </ReceiptStage>

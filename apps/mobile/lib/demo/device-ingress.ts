@@ -18,10 +18,18 @@
  * stand-in in place of the native module; a demo build still never uploads what it queues.
  */
 
-import { ingressEnvelopeSchema, type IngressEnvelope } from "@relay/contracts";
+import {
+  ingressEnvelopeSchema,
+  notificationSilenceSnapshotSchema,
+  type IngressEnvelope,
+  type NotificationSilenceMode,
+  type NotificationSilenceSnapshot,
+} from "@relay/contracts";
+import { matchNotificationSilenceRule } from "@relay/domain";
 
 import buildConstants from "../../config/build.constants.json";
 import type {
+  NativeSilenceOutcome,
   NotificationCapturePreview,
   SelectableNotificationApp,
   SmsCapturePreview,
@@ -36,6 +44,10 @@ export type DemoNativeCapabilities = {
   notificationAllowedPackages: string[];
   notificationCapturePaused: boolean;
   notificationListener: boolean;
+  notificationSilenceKillSwitch: boolean;
+  notificationSilenceMode: NotificationSilenceMode;
+  notificationSilenceRevision: number;
+  notificationSilenceRuleCount: number;
   platform: string;
   smsAllowedSenders: string[];
   smsAvailable: boolean;
@@ -69,6 +81,9 @@ const DEFAULT_SETTINGS: DemoRow = {
   ],
   notification_capture_paused: false,
   notification_listener: true,
+  notification_silence_kill_switch: false,
+  notification_silence_revision: 0,
+  notification_silence_snapshot: null,
   sms_allowed_senders: [],
   sms_capture_paused: false,
   sms_permission_granted: false,
@@ -90,13 +105,36 @@ function stringList(value: unknown): string[] {
     : [];
 }
 
+/** The stored snapshot, parsed through the same contract the native services parse it through. */
+function silenceSnapshot(): NotificationSilenceSnapshot | undefined {
+  const stored = settings().notification_silence_snapshot;
+  if (typeof stored !== "string" || stored.length === 0) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(stored);
+  } catch {
+    return undefined;
+  }
+  const parsed = notificationSilenceSnapshotSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
 export async function demoCapabilities(): Promise<DemoNativeCapabilities> {
   await demoDatabase.ready();
   const current = settings();
+  const snapshot = silenceSnapshot();
   return {
     notificationAllowedPackages: stringList(current.notification_allowed_packages),
     notificationCapturePaused: current.notification_capture_paused === true,
     notificationListener: current.notification_listener === true,
+    notificationSilenceKillSwitch:
+      current.notification_silence_kill_switch === true || (snapshot?.killSwitchEngaged ?? false),
+    notificationSilenceMode: snapshot?.mode ?? "off",
+    notificationSilenceRevision:
+      typeof current.notification_silence_revision === "number"
+        ? current.notification_silence_revision
+        : 0,
+    notificationSilenceRuleCount: snapshot?.rules.length ?? 0,
     // Reported as Android so the source screens are demonstrable wherever the build runs. Nothing
     // here touches a platform API; the capability is the demo's own state.
     platform: "android",
@@ -375,8 +413,130 @@ export async function demoPostNotification(
   const captured = notificationEnvelope(notification, now);
   enqueue(tenantId, captured.envelope, now);
   retain(tenantId, captured.envelope.id, captured.content);
+  recordSilenceDecision(tenantId, notification.packageName, captured.envelope, now);
   demoDatabase.touch();
   return { decision: "capture", envelopeId: captured.envelope.id };
+}
+
+/**
+ * The quiet verdict, modelled with the same evaluator the listener runs.
+ *
+ * A demo has no shade to clear, so this records the verdict without performing it -- which is also
+ * what a real device does during a dry run. The verdicts are real ones, produced by
+ * `matchNotificationSilenceRule` from the same compiled snapshot the device would hold.
+ */
+function recordSilenceDecision(
+  tenantId: string,
+  packageName: string,
+  envelope: IngressEnvelope,
+  now: number,
+): void {
+  const snapshot = silenceSnapshot();
+  if (snapshot === undefined || snapshot.mode === "off") return;
+
+  const named = snapshot.rules.some((rule) =>
+    rule.clauses.some((clause) =>
+      clause.tests.some(
+        (test) =>
+          test.field === "source.applicationId" &&
+          (test.operator === "equals" || test.operator === "in") &&
+          test.values.includes(packageName),
+      ),
+    ),
+  );
+  if (!named) return;
+
+  const matched = matchNotificationSilenceRule(snapshot.rules, {
+    source: { applicationId: packageName, kind: "notification" },
+    ...(envelope.subject === undefined ? {} : { subject: envelope.subject }),
+  });
+
+  const observing = matched?.observing ?? true;
+  const stopped =
+    snapshot.killSwitchEngaged ||
+    settings().notification_silence_kill_switch === true ||
+    snapshot.disabledPackages.includes(packageName);
+  const decision =
+    matched === undefined
+      ? "no-match"
+      : stopped
+        ? "declined"
+        : matched.action === "snooze"
+          ? observing
+            ? "would-snooze"
+            : "snoozed"
+          : observing
+            ? "would-dismiss"
+            : "dismissed";
+
+  const rows = demoDatabase.rows("silence_outcome");
+  const existing = rows.findIndex(
+    (row) => row.tenant_id === tenantId && row.envelope_id === envelope.id,
+  );
+  const row: DemoRow = {
+    application_id: packageName,
+    decided_at: now,
+    decision,
+    envelope_id: envelope.id,
+    filter_rule_id: matched?.filterRuleId ?? null,
+    tenant_id: tenantId,
+  };
+  if (existing >= 0) rows[existing] = row;
+  else rows.push(row);
+}
+
+export async function demoConfigureNotificationSilence(
+  tenantId: string,
+  snapshotJson: string,
+  revision: number,
+): Promise<void> {
+  await demoDatabase.ready();
+  const current = settings();
+  if (revision < Number(current.notification_silence_revision ?? 0)) return;
+  current.notification_silence_snapshot = snapshotJson;
+  current.notification_silence_revision = revision;
+  current.tenant_id = tenantId;
+  demoDatabase.touch();
+}
+
+export async function demoSetSilenceKillSwitch(engaged: boolean): Promise<void> {
+  await demoDatabase.ready();
+  settings().notification_silence_kill_switch = engaged;
+  demoDatabase.touch();
+}
+
+export async function demoSilenceOutcomes(
+  tenantId: string,
+  limit: number,
+): Promise<NativeSilenceOutcome[]> {
+  await demoDatabase.ready();
+  return demoDatabase
+    .rows("silence_outcome")
+    .filter((row) => row.tenant_id === tenantId)
+    .sort((left, right) => Number(right.decided_at ?? 0) - Number(left.decided_at ?? 0))
+    .slice(0, Math.max(1, limit))
+    .map((row) => ({
+      applicationId: String(row.application_id),
+      decidedAt: Number(row.decided_at ?? 0),
+      decision: String(row.decision),
+      envelopeId: String(row.envelope_id),
+      ...(typeof row.filter_rule_id === "string" ? { filterRuleId: row.filter_rule_id } : {}),
+    }));
+}
+
+export async function demoSilenceCounts(
+  tenantId: string,
+  filterRuleId: string,
+  since: number,
+): Promise<{ matched: number; observed: number }> {
+  await demoDatabase.ready();
+  const rows = demoDatabase
+    .rows("silence_outcome")
+    .filter((row) => row.tenant_id === tenantId && Number(row.decided_at ?? 0) >= since);
+  return {
+    matched: rows.filter((row) => row.filter_rule_id === filterRuleId).length,
+    observed: rows.length,
+  };
 }
 
 /** The module's `enqueueCapture`: an envelope built elsewhere, queued without a retained copy. */
@@ -494,7 +654,20 @@ export type DemoDeviceIngress = {
   ): Promise<Record<string, DemoRetainedContent>>;
   getSelectableNotificationApps(): Promise<SelectableNotificationApp[]>;
   getSmsCapturePreviews(tenantId: string, now?: number): Promise<SmsCapturePreview[]>;
+  configureNotificationSilence(
+    tenantId: string,
+    snapshotJson: string,
+    revision: number,
+  ): Promise<void>;
+  getNotificationSilenceCounts(
+    tenantId: string,
+    filterRuleId: string,
+    since: number,
+  ): Promise<{ matched: number; observed: number }>;
+  getNotificationSilenceOutcomes(tenantId: string, limit: number): Promise<NativeSilenceOutcome[]>;
+  openApplicationNotificationSettings(packageName: string): Promise<void>;
   openNotificationAccessSettings(): Promise<void>;
+  setNotificationSilenceKillSwitch(tenantId: string, engaged: boolean): Promise<void>;
   pickSmsSender(): Promise<{ label: string; sender: string }>;
   prepareNotificationCaptureState(
     tenantId: string | undefined,
@@ -524,8 +697,14 @@ export const demoDeviceIngress: DemoDeviceIngress = {
   getSelectableNotificationApps: async () =>
     normalizeNotificationAppChoices(await demoSelectableApps()),
   getSmsCapturePreviews: () => demoSmsPreviews(),
-  // Nothing to open: the demo already holds the grant it would have asked Android for.
+  configureNotificationSilence: demoConfigureNotificationSilence,
+  getNotificationSilenceCounts: demoSilenceCounts,
+  getNotificationSilenceOutcomes: demoSilenceOutcomes,
+  // Nothing to open: a demo cannot change a real phone's per-app notification settings, and the
+  // listener grant it would otherwise ask Android for is one it already holds.
+  openApplicationNotificationSettings: () => Promise.resolve(),
   openNotificationAccessSettings: () => Promise.resolve(),
+  setNotificationSilenceKillSwitch: (_, engaged) => demoSetSilenceKillSwitch(engaged),
   pickSmsSender: () => Promise.resolve(demoSmsSenderChoice()),
   prepareNotificationCaptureState: () => Promise.resolve(),
   requestSmsPermissions: demoGrantSmsPermission,

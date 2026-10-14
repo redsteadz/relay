@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-09-07
+last_verified: 2026-10-05
 ---
 
 # Action And Approval Model
@@ -100,6 +100,29 @@ Dispatch itself is still unimplemented; this is the gate it will have to pass th
 Notification dismissal is separate from provider action approval. It requires explicit source and
 filter scope, deterministic match, confidence policy, completed dry run, and audit record. AI-only
 matches cannot dismiss automatically.
+
+That separation is now enforced rather than only stated. The initial schema's `filter_rules_check`
+required `approval_mode = 'automatic'` before `dismiss_source_notification` could be true, which
+coupled the two: `action_rules` reference filter rules, so opting into a quieter phone would have
+converted that rule's provider actions from requiring approval to running automatically.
+`202610050001_notification_silencing.sql` drops that constraint along with the two columns it
+guarded, which a filter revision's immutability trigger made unwritable anyway, and leaves
+`approval_mode` alone.
+
+Acting on a notification has its own table, its own routines and its own ledger, none of which touch
+`action_runs`. `notification_dismissal_authorizations` holds the action, the dry-run window, the
+evidence and `authorized_at` beside the immutable revision, and
+`start_notification_dismissal_dry_run_v1`, `complete_notification_dismissal_dry_run_v1` and
+`set_notification_dismissal_v1` are its only writers; they validate the plan shape and an explicit
+application predicate, measure the window on the server clock, and write `audit_log` in the same
+statement. The device's own content-free verdict is recorded before the notification is acted on,
+because afterwards it is the only remaining evidence.
+
+Relay acts only after Android has posted and alerted, so it clears a notification rather than
+silencing one; the pre-posting hook is `@SystemApi` and unavailable to a sideloaded app. A rule may
+snooze (reversible) or cancel (not). See
+[ADR-0017](../decisions/0017-notification-dismissal-after-posting.md) and
+[Android notifications](../integrations/android.md#acting-on-a-notification).
 
 Workflow dispatch remains disabled. Of the three conditions it waits on, two now hold: action runs
 are created from tenant-bound rules, and approval state is read from the durable ledger above. The

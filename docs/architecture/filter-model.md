@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-08-30
+last_verified: 2026-10-08
 ---
 
 # Filter Model
@@ -11,7 +11,9 @@ inspectable deterministic predicates and, only when necessary, an explicit seman
 
 Evaluation has three results: `match`, `no-match`, and `undecided`. A failed deterministic
 predicate is `no-match`. A passing plan without semantic clause is `match`. A passing plan with a
-semantic clause is `undecided` until minimized fields are evaluated through the user's OpenAI key.
+semantic clause is `undecided` until minimized fields are evaluated through an OpenAI-compatible
+endpoint — the pipeline's, using the account's BYOK key, or one the reader configured on their own
+device ([ADR-0019](../decisions/0019-device-semantic-evaluation.md)).
 
 Every semantic clause declares allowed fields and minimum confidence. Relay records model,
 disclosed fields, redactions, purpose, confidence, and rationale. Low confidence remains
@@ -63,9 +65,16 @@ over `body` normalizes a megabyte-sized body once rather than once per predicate
 ## Semantic Evaluation
 
 A plan that passes deterministically and carries a semantic clause is `undecided` until the clause
-is resolved through the user's own OpenAI key. `evaluateFilterWithSemantics` in `apps/pipeline`
+is resolved through an OpenAI-compatible endpoint. `evaluateFilterWithSemantics` in `apps/pipeline`
 runs the deterministic evaluator first and only then loads a credential, so a plan the user already
 excluded is never disclosed in order to discover that it was excluded.
+
+The device can resolve the same clause against an endpoint its reader configured, which is local by
+default and never uploads its key ([ADR-0019](../decisions/0019-device-semantic-evaluation.md)). Both
+paths run the same minimization, the same field allowlist and the same confidence threshold from
+`packages/domain`; only the credential and the host differ, and the disclosure records which answered.
+The ordering above holds identically on the device, and for notification quieting it is what bounds
+how often a model is asked anything.
 
 ### Minimization
 
@@ -138,17 +147,27 @@ uncertain rejection is as unusable as an uncertain acceptance.
 
 Every provider condition also yields `undecided`, so no failure can be mistaken for a match:
 
-| Condition                                                      | Reason                  |
-| -------------------------------------------------------------- | ----------------------- |
-| No key configured, or a key that cannot unwrap                 | `credential-missing`    |
-| 401 or 403 from the provider                                   | `credential-revoked`    |
-| 429 with `insufficient_quota`                                  | `quota-exhausted`       |
-| Any other 429                                                  | `rate-limited`          |
-| Deadline exceeded                                              | `timed-out`             |
-| Body over 32 KB                                                | `response-too-large`    |
-| Unparseable, refused, or off-schema answer                     | `invalid-response`      |
-| No allowlisted field held a value                              | `no-disclosable-fields` |
-| Anything else, including more than one active key for a tenant | `unavailable`           |
+| Condition                                                      | Reason                       |
+| -------------------------------------------------------------- | ---------------------------- |
+| No key configured, or a key that cannot unwrap                 | `credential-missing`         |
+| A key the tenant has not released to Relay's runtime           | `server-evaluation-disabled` |
+| 401 or 403 from the provider                                   | `credential-revoked`         |
+| 429 with `insufficient_quota`                                  | `quota-exhausted`            |
+| Any other 429                                                  | `rate-limited`               |
+| Deadline exceeded                                              | `timed-out`                  |
+| Body over 32 KB                                                | `response-too-large`         |
+| Unparseable, refused, or off-schema answer                     | `invalid-response`           |
+| No allowlisted field held a value                              | `no-disclosable-fields`      |
+| Anything else, including more than one active key for a tenant | `unavailable`                |
+
+`server-evaluation-disabled` is deliberately distinct from `credential-missing`. The first says the
+reader chose where their data goes; the second says there is nothing to use. The flag lives on the
+connection's `metadata` as `serverEvaluation`, is written only by
+`PUT /api/connectors/openai/server-evaluation`, and is read by the pipeline before the credential is
+unwrapped — so a path the tenant turned off does not decrypt a key to discover that it is off. It
+defaults to off, including for a credential stored before the flag existed: holding a key is consent
+to Relay holding it, not to Relay spending it
+([ADR-0019](../decisions/0019-device-semantic-evaluation.md)).
 
 Only the fixed reason string leaves the provider boundary. The 429 split reads the provider's
 `error.code` and nothing else, so no provider message text is retained.

@@ -5,6 +5,12 @@ export {
   type StoredCaptureCounts,
 } from "./captures";
 export {
+  deviceDisclosures,
+  recordDeviceDisclosure,
+  type DeviceDisclosureRecord,
+  type StoredDeviceDisclosure,
+} from "./disclosures";
+export {
   clearLocalStoreForTenant,
   clearLocalStoreTenant,
   localStoreSupported,

@@ -111,7 +111,7 @@ function configuredBaseUrl(): string {
 export async function requestRelayApi(
   accessToken: string,
   path: string,
-  init: { body?: unknown; method?: "DELETE" | "GET" | "PATCH" | "POST" } = {},
+  init: { body?: unknown; method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT" } = {},
 ): Promise<unknown> {
   const operation = `${init.method ?? "GET"} ${path.split("?", 1)[0] ?? path}`;
   const operationRequestId = mobileRequestId();

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import {
   AppButton,
+  AppSwitch,
   AppText,
   ConfirmationDialog,
   EditorialSurface,
@@ -17,6 +18,7 @@ import {
   openAiKeyFormDefaults,
   openAiPanelMeta,
   semanticDisclosureRules,
+  serverEvaluationRow,
   type OpenAiKeyFormValues,
 } from "../models/openAiPresentation";
 import { formatPrivacyDate, privacyErrorMessage } from "../models/privacyPresentation";
@@ -28,9 +30,15 @@ type OpenAiPrivacyPanelProps = {
   onRevoke: () => Promise<unknown>;
   onRetry: () => Promise<unknown>;
   onSave: (values: OpenAiKeyFormValues) => Promise<unknown>;
+  /** Sets whether Relay's own runtime may use the stored key. */
+  onSetServerEvaluation: (enabled: boolean) => Promise<unknown>;
+  /** Whether the reader has Relay Pro, which the server path needs. */
+  pro: boolean;
   revoking: boolean;
   saveError: unknown;
   saving: boolean;
+  serverEvaluationError: unknown;
+  settingServerEvaluation: boolean;
   status: OpenAiCredentialStatus | undefined;
 };
 
@@ -40,9 +48,13 @@ export function OpenAiPrivacyPanel({
   onRevoke,
   onRetry,
   onSave,
+  onSetServerEvaluation,
+  pro,
   revoking,
   saveError,
   saving,
+  serverEvaluationError,
+  settingServerEvaluation,
   status,
 }: OpenAiPrivacyPanelProps) {
   const [confirming, setConfirming] = useState(false);
@@ -52,6 +64,7 @@ export function OpenAiPrivacyPanel({
   const configured = status?.configured === true;
   const meta = openAiPanelMeta(loading, error, status);
   const defaults = useMemo(() => openAiKeyFormDefaults(status), [status]);
+  const serverPath = useMemo(() => serverEvaluationRow(status, { pro }), [pro, status]);
 
   async function revoke() {
     try {
@@ -75,6 +88,10 @@ export function OpenAiPrivacyPanel({
         Deterministic filters always run first. A rule reaches a model only when they cannot decide
         it, and only with your own key — Relay ships none. Without a key those rules stay undecided
         and nothing is sent.
+      </AppText>
+      <AppText tone="muted">
+        This key is for Relay&apos;s servers. Your phone can hold a separate one and ask a model you
+        run yourself — see &ldquo;Model on this phone&rdquo; below. Neither learns the other.
       </AppText>
 
       {loading ? <AppText tone="muted">Checking credential status...</AppText> : null}
@@ -102,6 +119,34 @@ export function OpenAiPrivacyPanel({
             </AppText>
           ))}
         </>
+      )}
+
+      {serverPath.available ? (
+        <>
+          <AppSwitch
+            accessibilityHint="Lets Relay's own servers use this key to decide rules a filter cannot"
+            detail={serverPath.detail}
+            disabled={settingServerEvaluation || serverPath.locked}
+            label={serverPath.label}
+            onValueChange={(value) => {
+              void onSetServerEvaluation(value).catch((cause: unknown) =>
+                reportUnexpectedUiError(cause, "ui.privacy_server_evaluation_failed", {
+                  code: "PRIVACY_SERVER_EVALUATION_FAILED",
+                  integration: "relay-api",
+                  operation: "setServerSemanticEvaluation",
+                }),
+              );
+            }}
+            value={serverPath.enabled}
+          />
+          {serverEvaluationError === null || serverEvaluationError === undefined ? null : (
+            <StatusMessage tone="error">{privacyErrorMessage(serverEvaluationError)}</StatusMessage>
+          )}
+        </>
+      ) : (
+        <AppText tone="muted" variant="caption">
+          {serverPath.detail}
+        </AppText>
       )}
 
       <AppButton

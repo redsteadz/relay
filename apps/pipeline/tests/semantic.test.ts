@@ -80,6 +80,9 @@ async function connectionRow() {
     wrap_nonce: base64ToPostgresBytea(encrypted.wrapNonce),
     key_version: encrypted.keyVersion,
     encryption_environment: "development",
+    // A tenant who asked Relay's runtime to use their key. Every test below that expects a provider
+    // call needs it, which is the point: the flag is what permits the call.
+    metadata: { serverEvaluation: true },
   };
 }
 
@@ -388,7 +391,16 @@ describe("evaluating against a configured endpoint", () => {
     const row = await connectionRow();
     const { fetcher } = await stubFetcher(
       () => completion({ decision: "no-match", confidence: 0.9, rationale: "Not urgent." }),
-      [{ ...row, metadata: { baseUrl: "https://api.together.xyz/v1", model: "zai-org/GLM-4.6" } }],
+      [
+        {
+          ...row,
+          metadata: {
+            baseUrl: "https://api.together.xyz/v1",
+            model: "zai-org/GLM-4.6",
+            serverEvaluation: true,
+          },
+        },
+      ],
     );
     const outcome = await evaluateSemanticClause(clauseOf(plan()), item, {
       configuration,
@@ -407,7 +419,7 @@ describe("evaluating against a configured endpoint", () => {
     const row = await connectionRow();
     const { calls, fetcher } = await stubFetcher(
       () => completion({}),
-      [{ ...row, metadata: { baseUrl: "http://169.254.169.254/v1" } }],
+      [{ ...row, metadata: { baseUrl: "http://169.254.169.254/v1", serverEvaluation: true } }],
     );
     const outcome = await evaluateSemanticClause(clauseOf(plan()), item, {
       configuration,
@@ -613,6 +625,57 @@ describe("evaluateSemanticClause", () => {
       redactions: [],
     });
     expect(calls.some((call) => call.startsWith("https://api.openai.com"))).toBe(false);
+  });
+
+  // Having a key is consent to Relay holding it, not consent to Relay spending it. A reader who keeps
+  // semantic evaluation on their own device still stores a key for the device to use, and the server
+  // must not treat its presence as permission (ADR-0019).
+  it.each([
+    ["a key the tenant has not released to the server", {}],
+    [
+      "a credential stored before the flag existed",
+      { lastValidatedAt: "2026-01-01T00:00:00.000Z" },
+    ],
+    ["a flag that is not a boolean true", { serverEvaluation: "yes" }],
+  ])("refuses %s without contacting the provider", async (_label, metadata) => {
+    const row = await connectionRow();
+    const { calls, fetcher } = await stubFetcher(() => completion({}), [{ ...row, metadata }]);
+    const outcome = await evaluateSemanticClause(clauseOf(plan()), item, {
+      configuration,
+      userId,
+      fetcher,
+    });
+    expect(outcome).toMatchObject({
+      decision: "undecided",
+      failureReason: "server-evaluation-disabled",
+      disclosed: false,
+    });
+    expect(calls.some((call) => call.startsWith("https://api.openai.com"))).toBe(false);
+  });
+
+  // Distinct from `credential-missing`, which says there is nothing to use. This says the reader
+  // chose where their data goes, and the disclosure history has to be able to tell them apart.
+  it("distinguishes a withheld key from an absent one", async () => {
+    const row = await connectionRow();
+    const withheld = await stubFetcher(() => completion({}), [{ ...row, metadata: {} }]);
+    const absent = await stubFetcher(() => completion({}), []);
+    const options = { configuration, userId };
+    expect(
+      (
+        await evaluateSemanticClause(clauseOf(plan()), item, {
+          ...options,
+          fetcher: withheld.fetcher,
+        })
+      ).failureReason,
+    ).toBe("server-evaluation-disabled");
+    expect(
+      (
+        await evaluateSemanticClause(clauseOf(plan()), item, {
+          ...options,
+          fetcher: absent.fetcher,
+        })
+      ).failureReason,
+    ).toBe("credential-missing");
   });
 
   it("fails closed when a tenant has more than one active key", async () => {

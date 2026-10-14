@@ -1,4 +1,4 @@
-import { openAiCredentialSubmitRequestSchema } from "@relay/contracts";
+import { openAiCredentialSubmitRequestSchema, type OpenAiCredentialStatus } from "@relay/contracts";
 import { describe, expect, it } from "vitest";
 
 import { RelayApiError } from "@/lib/relay-api";
@@ -16,6 +16,7 @@ import {
   openAiPresetForBaseUrl,
   openAiSubmitRequest,
   openAiValuesForPreset,
+  serverEvaluationRow,
   type OpenAiKeyFormValues,
 } from "./openAiPresentation";
 
@@ -312,5 +313,59 @@ describe("openAiEndpointSummary", () => {
 
   it("degrades to the model when a stored base URL cannot be parsed", () => {
     expect(openAiEndpointSummary({ baseUrl: "::broken::", model: "local" })).toBe("local");
+  });
+});
+
+describe("the server-path switch", () => {
+  function status(overrides: Partial<OpenAiCredentialStatus> = {}): OpenAiCredentialStatus {
+    return { configured: true, provider: "openai", serverEvaluation: false, ...overrides };
+  }
+
+  // A control that is absent and a control that is locked say different things, and only one of them
+  // is something the reader can act on.
+  it("is not offered at all without a key", () => {
+    const row = serverEvaluationRow({ configured: false, provider: "openai" }, { pro: true });
+    expect(row.available).toBe(false);
+    expect(row.detail).toContain("Add a key first");
+  });
+
+  // The whole trade, stated on the control rather than buried: off means the key stays unused, on
+  // means Relay's servers read the allowlisted fields.
+  it("says where data goes on each setting", () => {
+    expect(serverEvaluationRow(status(), { pro: true }).detail).toContain("only this phone");
+    expect(serverEvaluationRow(status({ serverEvaluation: true }), { pro: true }).detail).toContain(
+      "Relay's servers read",
+    );
+  });
+
+  // An email body never reaches the device, so a rule over one cannot be decided locally at all.
+  // A reader choosing between the two settings needs to know that.
+  it("names the thing only the server path can do", () => {
+    expect(serverEvaluationRow(status(), { pro: true }).detail).toContain("email body");
+    expect(serverEvaluationRow(status({ serverEvaluation: true }), { pro: true }).detail).toContain(
+      "Email bodies",
+    );
+  });
+
+  it("locks without Relay Pro and says the device path is free", () => {
+    const row = serverEvaluationRow(status(), { pro: false });
+    expect(row.available).toBe(true);
+    expect(row.locked).toBe(true);
+    expect(row.detail).toContain("free");
+  });
+
+  // What the server does with a key is not something to change behind a reader's back, so a lapsed
+  // subscription says so rather than silently flipping the switch.
+  it("reports a lapsed subscription without claiming the path is off", () => {
+    const row = serverEvaluationRow(status({ serverEvaluation: true }), { pro: false });
+    expect(row.enabled).toBe(true);
+    expect(row.locked).toBe(true);
+    expect(row.detail).toContain("needs Relay Pro");
+  });
+
+  // The default. A credential stored before the flag existed does not grant the server path.
+  it("reads a missing flag as off", () => {
+    const row = serverEvaluationRow({ configured: true, provider: "openai" }, { pro: true });
+    expect(row.enabled).toBe(false);
   });
 });

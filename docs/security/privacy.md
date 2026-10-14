@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-09-27
+last_verified: 2026-10-08
 ---
 
 # Privacy And Data Lifecycle
@@ -98,6 +98,20 @@ machine. Wherever it is sent, the same rules hold, and each disclosure records t
 reached rather than assuming OpenAI. The endpoint is validated before use -- HTTPS, no embedded
 credentials, and private, loopback, and link-local addresses refused -- so a configurable URL cannot
 become a way to probe the runtime's network.
+
+Two separate credentials can reach an endpoint, and neither learns the other. The account's BYOK key
+is held encrypted server-side and used only by `apps/pipeline`; the device's is held in
+Keystore-backed secure storage and never uploaded
+([ADR-0019](../decisions/0019-device-semantic-evaluation.md)). Relay's runtime uses the account key
+only when the tenant has explicitly released it -- `serverEvaluation` on the connection's metadata,
+off by default and off for every credential stored before the flag existed, because holding a key is
+consent to Relay holding it rather than to Relay spending it. Revoking one does not revoke the other,
+and the privacy screen says so.
+
+The device endpoint inverts one check and no others: a private or link-local host is permitted there,
+because the device is on that network and a request its owner configured is not a confused deputy.
+Embedded credentials, query strings and fragments stay refused on both paths. The strict policy is
+unchanged for every server-side caller.
 
 The configured endpoint receives only semantic-clause allowlisted fields after redaction. Relay stores disclosure
 metadata, not model prompts containing raw source bodies. Source content is delimited as data and

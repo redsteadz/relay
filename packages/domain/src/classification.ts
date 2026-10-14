@@ -13,7 +13,11 @@
 
 import type { FilterExpression, FilterField, FilterPlan } from "@relay/contracts";
 
-import { evaluateFilterPlan, type MatchedPredicate } from "./filter-evaluator.js";
+import {
+  evaluateFilterPlan,
+  type FilterDecision,
+  type MatchedPredicate,
+} from "./filter-evaluator.js";
 
 /**
  * What a runtime knows about a capture, before it is shaped for evaluation.
@@ -150,11 +154,18 @@ function unavailableFields(plan: FilterPlan, available: ReadonlySet<FilterField>
  * capture under a later rule while an earlier one might have claimed it, which would make the result
  * depend on what this particular runtime happened to be able to read. Reporting the obstacle instead
  * keeps the answer honest and lets a runtime that *can* read the field decide it later.
+ *
+ * `semanticDecisions` is how such a runtime comes back with the answer. A caller that resolved a
+ * clause supplies it by rule id and the walk continues as if the clause had been deterministic; a
+ * caller that cannot omits it and gets `awaiting-model` exactly as before. This stays pure: the
+ * resolving is the caller's, and only the already-obtained answer crosses into here. See
+ * [ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md).
  */
 export function classifyCapture(
   rules: readonly ClassifiableRule[],
   item: Record<string, unknown>,
   availableFields: ReadonlySet<FilterField>,
+  semanticDecisions?: ReadonlyMap<string, FilterDecision>,
 ): CaptureClassification {
   for (const rule of rules) {
     const missing = unavailableFields(rule.plan, availableFields);
@@ -172,7 +183,22 @@ export function classifyCapture(
       };
     }
     if (evaluation.decision === "undecided") {
-      return { filterRuleId: rule.id, kind: "awaiting-model" };
+      const resolved = semanticDecisions?.get(rule.id);
+      // An answer of `undecided` is not an answer: a model that was unreachable or unsure leaves the
+      // obstacle exactly where it was rather than letting a later rule claim the capture.
+      if (resolved === undefined || resolved === "undecided") {
+        return { filterRuleId: rule.id, kind: "awaiting-model" };
+      }
+      if (resolved === "match") {
+        return {
+          categoryId: rule.categoryId,
+          filterRuleId: rule.id,
+          kind: "filed",
+          matchedPredicates: evaluation.matchedPredicates,
+        };
+      }
+      // A resolved `no-match` is a decision, so the walk continues to the next rule.
+      continue;
     }
   }
 

@@ -146,6 +146,90 @@ describe("classifyCapture", () => {
     });
   });
 
+  /**
+   * A runtime that can resolve a clause comes back with the answer.
+   *
+   * The device can now call its own endpoint (ADR-0019), so `awaiting-model` stops being terminal
+   * for it. What must not change is the walk's shape: an unresolved clause still blocks, because a
+   * rule this runtime merely could not decide is not evidence that a later rule should claim the
+   * capture.
+   */
+  describe("with semantic answers supplied", () => {
+    const semanticRule = rule({
+      categoryId: "cccccccc-3333-4333-8333-333333333333",
+      id: "rule-semantic",
+      plan: plan({
+        deterministic: undefined,
+        semantic: {
+          question: "Is this a receipt?",
+          minimumConfidence: 0.8,
+          allowedFields: ["sender"],
+        },
+      }),
+    });
+
+    it("files the rule when the answer is a match", () => {
+      const answers = new Map([["rule-semantic", "match" as const]]);
+      expect(classifyCapture([semanticRule], bankItem, ALL_FIELDS, answers)).toMatchObject({
+        categoryId: "cccccccc-3333-4333-8333-333333333333",
+        filterRuleId: "rule-semantic",
+        kind: "filed",
+      });
+    });
+
+    // A resolved no-match is a decision, so the walk continues rather than stopping.
+    it("tries the next rule when the answer is a no-match", () => {
+      const fallback = rule({
+        categoryId: "aaaaaaaa-1111-4111-8111-111111111111",
+        id: "rule-next",
+      });
+      const answers = new Map([["rule-semantic", "no-match" as const]]);
+      expect(
+        classifyCapture([semanticRule, fallback], bankItem, ALL_FIELDS, answers),
+      ).toMatchObject({ filterRuleId: "rule-next", kind: "filed" });
+    });
+
+    // An `undecided` answer is not an answer. A model that was unreachable or unsure leaves the
+    // obstacle exactly where it was; letting a later rule claim the capture would make the result
+    // depend on whether the endpoint happened to reply.
+    it("still blocks when the answer is undecided", () => {
+      const fallback = rule({ id: "rule-next" });
+      const answers = new Map([["rule-semantic", "undecided" as const]]);
+      expect(
+        classifyCapture([semanticRule, fallback], bankItem, ALL_FIELDS, answers),
+      ).toMatchObject({ filterRuleId: "rule-semantic", kind: "awaiting-model" });
+    });
+
+    // An answer for a different rule is not an answer for this one.
+    it("ignores an answer keyed to another rule", () => {
+      const answers = new Map([["rule-other", "match" as const]]);
+      expect(classifyCapture([semanticRule], bankItem, ALL_FIELDS, answers)).toMatchObject({
+        kind: "awaiting-model",
+      });
+    });
+
+    // A field the runtime cannot read is still checked first, so an answer cannot paper over a
+    // clause that reads something unavailable.
+    it("does not let an answer bypass an unreadable field", () => {
+      const bodySemantic = rule({
+        id: "rule-body",
+        plan: plan({
+          deterministic: undefined,
+          semantic: {
+            question: "Is this a receipt?",
+            minimumConfidence: 0.8,
+            allowedFields: ["body"],
+          },
+        }),
+      });
+      const answers = new Map([["rule-body", "match" as const]]);
+      expect(classifyCapture([bodySemantic], bankItem, WITHOUT_BODY, answers)).toMatchObject({
+        fields: ["body"],
+        kind: "field-unavailable",
+      });
+    });
+  });
+
   it("names the field it could not read instead of reading absence as a no-match", () => {
     const bodyRule = rule({
       plan: plan({ deterministic: { field: "body", operator: "contains", value: "invoice" } }),

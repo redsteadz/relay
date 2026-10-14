@@ -356,6 +356,8 @@ export function seedTables(now: number = Date.now()): DemoTables {
     {
       configured: true,
       last_validated_at: new Date(now - 6 * DAY).toISOString(),
+      // On, so the demo shows the panel in its subscribed state rather than its default one.
+      server_evaluation: true,
       user_id: DEMO_USER_ID,
       validated: true,
     },

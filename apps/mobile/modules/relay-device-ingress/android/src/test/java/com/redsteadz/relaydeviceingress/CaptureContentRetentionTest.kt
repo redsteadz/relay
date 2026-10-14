@@ -44,4 +44,18 @@ class CaptureContentRetentionTest {
 
     assertEquals(now + CAPTURE_CONTENT_MAX_AGE_MS, expiresAt)
   }
+
+  // The scan window has to clear a backlog faster than it fills. An unscoped quiet rule makes every
+  // captured notification a candidate, so they arrive as fast as notifications do, and a window
+  // narrower than a shade could never catch up -- which is what eight did.
+  @Test
+  fun `the pending scan window is wider than a shade`() {
+    assertTrue(SILENCE_OUTCOME_MAX_PENDING >= 64)
+    assertTrue(SILENCE_OUTCOME_MAX_PENDING <= SILENCE_OUTCOME_MAX_ITEMS)
+  }
+
+  @Test
+  fun `the pending decision is the one verdict that is not final`() {
+    assertEquals("awaiting-model", PENDING_SILENCE_DECISION)
+  }
 }

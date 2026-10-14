@@ -10,6 +10,7 @@ import { runInBackground } from "@/lib/observability";
 import { recordDeviceClassifications } from "../api/classifications";
 import { hideInboxEvent, listInbox, restoreInboxEvent } from "../api/inbox";
 import { listLocalInbox } from "../api/localInbox";
+import { resolveAwaitingModelForTenant } from "../api/semanticFiling";
 import { classifiableRules, classificationPass } from "../models/deviceClassification";
 import {
   filterInbox,
@@ -192,24 +193,47 @@ export function useInbox(): InboxState {
    * Filing is deliberately not awaited by the screen. It is advisory -- a capture that stays unfiled
    * is filed on the next open -- so it must never delay drawing the inbox or turn a write failure
    * into a failed read.
+   *
+   * A clause this device can resolve gets a second phase. Phase one is deterministic and free and
+   * reports what it could not decide; phase two asks the reader's configured endpoint and re-runs the
+   * pass with the answers (ADR-0019). A reader with no endpoint configured never reaches phase two,
+   * and the behaviour is exactly what it was.
    */
   const filing = useRef(false);
   useEffect(() => {
     if (client === undefined || filing.current) return;
     if (inbox.isPending || revisions.isPending) return;
 
-    const { withdrawals, writes } = classificationPass(items, rules);
-    if (writes.length === 0 && withdrawals.length === 0) return;
+    const first = classificationPass(items, rules);
+    const resolvable = userId !== undefined && first.pending.length > 0;
+    if (first.writes.length === 0 && first.withdrawals.length === 0 && !resolvable) return;
 
     filing.current = true;
     runInBackground(
-      recordDeviceClassifications(client, writes, withdrawals)
-        .then(async (result) => {
-          if (result.changed > 0) await queryClient.invalidateQueries({ queryKey: inboxKey });
-        })
-        .finally(() => {
-          filing.current = false;
-        }),
+      (async () => {
+        let { withdrawals, writes } = first;
+
+        if (resolvable) {
+          // Asking a model is the slow part, so the deterministic writes are not held behind it:
+          // they are recorded first and the resolved ones follow. A reader watching the inbox sees
+          // what the device knew immediately, then what the model added.
+          if (writes.length > 0 || withdrawals.length > 0) {
+            const immediate = await recordDeviceClassifications(client, writes, withdrawals);
+            if (immediate.changed > 0) {
+              await queryClient.invalidateQueries({ queryKey: inboxKey });
+            }
+          }
+          const resolved = await resolveAwaitingModelForTenant(userId, first.pending, rules);
+          if (resolved === undefined) return;
+          ({ withdrawals, writes } = classificationPass(items, rules, resolved));
+        }
+
+        if (writes.length === 0 && withdrawals.length === 0) return;
+        const result = await recordDeviceClassifications(client, writes, withdrawals);
+        if (result.changed > 0) await queryClient.invalidateQueries({ queryKey: inboxKey });
+      })().finally(() => {
+        filing.current = false;
+      }),
       "inbox.device_classification_failed",
       {
         code: "DEVICE_CLASSIFICATION_FAILED",
@@ -217,7 +241,7 @@ export function useInbox(): InboxState {
         operation: "recordDeviceClassifications",
       },
     );
-  }, [client, inbox.isPending, inboxKey, items, queryClient, revisions.isPending, rules]);
+  }, [client, inbox.isPending, inboxKey, items, queryClient, revisions.isPending, rules, userId]);
   const sections = useMemo(() => inboxSections(filterInbox(items, query)), [items, query]);
 
   // Every callback below is stable across renders. The inbox list memoizes its rows on prop

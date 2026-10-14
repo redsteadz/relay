@@ -344,6 +344,72 @@ export const semanticDisclosureRules: readonly string[] = [
   "Every attempt is recorded with the field names, the model, and the host reached — never the text.",
 ];
 
+/**
+ * The server-path switch, as the panel presents it.
+ *
+ * `available` is false when there is nothing to switch -- no key -- rather than when the reader is
+ * not a subscriber: a control that is absent and a control that is locked say different things, and
+ * only one of them is something they can act on.
+ */
+export type ServerEvaluationRow = {
+  available: boolean;
+  detail: string;
+  enabled: boolean;
+  label: string;
+  /** True when the switch is shown but will not move until the reader subscribes. */
+  locked: boolean;
+};
+
+/**
+ * Whether Relay's own runtime may spend the stored key, and what that costs.
+ *
+ * The copy has one job: say where data goes on each setting. A reader who keeps this off is told
+ * their key stays on the phone, which is the stronger position and the default. A reader who turns
+ * it on is told Relay's servers will read the allowlisted fields -- that is the whole trade, and
+ * burying it would make the switch a surprise.
+ *
+ * Off is the default because the server path spends Relay's hosted runtime, which is what makes it
+ * the paid convenience rather than the baseline
+ * ([ADR-0019](../../../../docs/decisions/0019-device-semantic-evaluation.md)).
+ */
+export function serverEvaluationRow(
+  status: OpenAiCredentialStatus | undefined,
+  options: { pro: boolean },
+): ServerEvaluationRow {
+  const enabled = status?.serverEvaluation === true;
+  if (status?.configured !== true) {
+    return {
+      available: false,
+      detail: "Add a key first. Then you can choose whether Relay's servers may use it.",
+      enabled: false,
+      label: "Let Relay's servers decide",
+      locked: false,
+    };
+  }
+  if (!options.pro) {
+    return {
+      available: true,
+      detail: enabled
+        ? // Already on, and the subscription has lapsed. Said plainly rather than switched off behind
+          // their back: what the server does with their key is not something to change silently.
+          "This is on, and keeping it needs Relay Pro. Your key is still on your phone either way."
+        : "Relay Pro. Your phone can already decide these rules against a model you run — that part is free and always will be.",
+      enabled,
+      label: "Let Relay's servers decide",
+      locked: true,
+    };
+  }
+  return {
+    available: true,
+    detail: enabled
+      ? "On. Relay's servers read the fields each rule allows and ask your model. Email bodies are only readable this way."
+      : "Off. Your key stays encrypted and unused, and only this phone asks a model. Rules over an email body cannot be decided at all.",
+    enabled,
+    label: "Let Relay's servers decide",
+    locked: false,
+  };
+}
+
 /** Value classes removed before a field is sent, matching `semanticRedactionKindSchema`. */
 export const semanticRedactionClasses: readonly string[] = [
   "Email addresses",

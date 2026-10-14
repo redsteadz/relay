@@ -23,9 +23,11 @@ export const DEMO_TABLES = [
   "disclosures",
   "filter_rules",
   "hidden_inbox_events",
+  "notification_dismissal_settings",
   "openai_credentials",
   "relay_events",
   "retained_content",
+  "silence_outcome",
   "source_facts",
   "source_items",
 ] as const;
