@@ -121,3 +121,49 @@ export async function deviceDisclosures(
     [tenantId, Math.max(1, Math.min(limit, 500))],
   );
 }
+
+/**
+ * Why the last attempt on each of these captures produced no decision.
+ *
+ * The quiet screen's counterpart to `deviceDisclosures`. A candidate waiting on a model is waiting
+ * for a reason the device already knows and had nowhere to say: a refusal is written to
+ * `failure_reason` on every attempt and, until this existed, read by nothing. The screen said
+ * "Waiting on your model" whether the model was unreachable, unconfigured, or rejecting every
+ * request -- which is indistinguishable from the model simply being slow, and sends a reader to
+ * look at their endpoint's logs for a request that never got far enough to appear in them.
+ *
+ * Only the newest attempt per capture, because an earlier failure that a later pass got past is
+ * history rather than a state to report. Rows with no refusal are omitted, so a present key means
+ * "this one failed" rather than "this one was looked at".
+ */
+export async function latestDisclosureRefusals(
+  database: LocalStore,
+  tenantId: string,
+  sourceItemIds: readonly string[],
+): Promise<Map<string, string>> {
+  const refusals = new Map<string, string>();
+  if (sourceItemIds.length === 0) return refusals;
+
+  // Bounded for the same reason the SQLite variable limit exists, and well under it. The quiet
+  // screen reads at most `SILENCE_OUTCOME_LIMIT` outcomes, so this never truncates in practice.
+  const bounded = sourceItemIds.slice(0, 200);
+  const rows = await database.getAllAsync<{
+    failure_reason: string | null;
+    source_item_id: string;
+  }>(
+    `SELECT source_item_id, failure_reason
+       FROM ai_disclosures
+      WHERE tenant_id = ?
+        AND source_item_id IN (${bounded.map(() => "?").join(", ")})
+      ORDER BY created_at ASC`,
+    [tenantId, ...bounded],
+  );
+
+  // Ascending, so a later row overwrites an earlier one and the last write wins. Simpler than a
+  // correlated subquery and the set is already bounded.
+  for (const row of rows) {
+    if (row.failure_reason === null) refusals.delete(row.source_item_id);
+    else refusals.set(row.source_item_id, row.failure_reason);
+  }
+  return refusals;
+}

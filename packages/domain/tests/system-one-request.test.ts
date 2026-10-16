@@ -45,6 +45,30 @@ describe("the request a decision engine is sent", () => {
     expect(questions[SYSTEM_ONE_QUESTION_KEY]?.instructions).toContain("Is this marketing?");
   });
 
+  /*
+    The protocol requires both criteria on a `noul` question and rejects the request without them.
+    Omitting them cost a release: every evaluation came back as a refusal, the candidate stayed
+    `awaiting-model` for ever, and because a gateway rejects a malformed request before it is a
+    billed generation, the provider's own activity log showed nothing either. A regression here is
+    invisible from both ends, so it is asserted from this one.
+  */
+  it("states what true and false mean, which the protocol requires", () => {
+    const body = systemOneRequestBody(clause, disclosure(), { model: "jev-latest" });
+    const questions = body.questions as Record<string, { criteria?: Record<string, string> }>;
+    const criteria = questions[SYSTEM_ONE_QUESTION_KEY]?.criteria;
+    expect(Object.keys(criteria ?? {}).sort()).toStrictEqual(["false", "true"]);
+    expect(criteria?.true).toMatch(/\S/u);
+    expect(criteria?.false).toMatch(/\S/u);
+  });
+
+  // The act behind a match is clearing someone's notification, so the direction taken when the
+  // deciding field was redacted has to be the inert one.
+  it("sends unreadable captures towards no-match rather than match", () => {
+    const body = systemOneRequestBody(clause, disclosure(), { model: "jev-latest" });
+    const questions = body.questions as Record<string, { criteria: Record<string, string> }>;
+    expect(questions[SYSTEM_ONE_QUESTION_KEY]?.criteria.false).toContain("nothing shown here");
+  });
+
   it("explains the redaction placeholders it may have sent", () => {
     const body = systemOneRequestBody(clause, disclosure(), { model: "jev-latest" });
     const questions = body.questions as Record<string, { instructions: string }>;

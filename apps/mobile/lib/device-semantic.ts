@@ -204,3 +204,28 @@ export function deviceSemanticRefusalExplanation(refusal: DeviceSemanticRefusal)
       return "Your model did not answer in time, so nothing was changed.";
   }
 }
+
+/**
+ * Every refusal this build knows, so a stored one can be narrowed before it is explained.
+ *
+ * A disclosure row outlives the build that wrote it, and a refusal this build has no name for is
+ * not an error -- it is a row from a newer or older version. Narrowing here rather than casting is
+ * what keeps `deviceSemanticRefusalExplanation` exhaustive and its switch a compile error when a
+ * refusal is added.
+ */
+const DEVICE_SEMANTIC_REFUSALS: ReadonlySet<string> = new Set<DeviceSemanticRefusal>([
+  "endpoint-invalid",
+  "endpoint-unreachable",
+  "invalid-response",
+  "not-configured",
+  "rejected",
+  "response-too-large",
+  "timed-out",
+]);
+
+/** The explanation for a refusal as it was stored, or nothing when there is none to give. */
+export function storedRefusalExplanation(value: string | null | undefined): string | undefined {
+  if (value === null || value === undefined || !DEVICE_SEMANTIC_REFUSALS.has(value))
+    return undefined;
+  return deviceSemanticRefusalExplanation(value as DeviceSemanticRefusal);
+}

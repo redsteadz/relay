@@ -1902,6 +1902,16 @@ export const notificationSilenceOutcomeSchema = z
     envelopeId: canonicalUuidSchema,
     filterRuleId: canonicalUuidSchema.optional(),
     /**
+     * Why the last attempt to decide this one produced nothing, for a verdict still awaiting a
+     * model.
+     *
+     * Joined at read time like `subject`, from the device's own disclosure history, and never
+     * written to the ledger. A bounded string rather than an enum because the vocabulary is the
+     * device evaluator's and belongs to it: the reader narrows it against the refusals its build
+     * knows and says nothing about one it does not recognize.
+     */
+    refusal: z.string().min(1).max(64).optional(),
+    /**
      * The notification's own title, for display beside the verdict.
      *
      * Not part of the ledger and never written to it: the device joins it from its retained copy of

@@ -63,6 +63,17 @@ export const DEVICE_MODEL_PRESETS: readonly {
     responseFormat: "json-object",
   },
   {
+    // A gateway names a model by vendor and version, so the id that works direct does not work
+    // here. Carried as a preset for that reason: pointing the Jev preset at OpenRouter by editing
+    // its address alone leaves `jev-latest` behind, which OpenRouter does not have.
+    baseUrl: "https://openrouter.ai/api/v1",
+    id: "openrouter-jev",
+    label: "Jev through OpenRouter",
+    model: "typesafe/jev-1.14",
+    protocol: "system-one",
+    responseFormat: "json-object",
+  },
+  {
     baseUrl: "http://127.0.0.1:11434/v1",
     id: "ollama-local",
     label: "Ollama on this phone",

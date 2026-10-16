@@ -17,6 +17,7 @@ import {
 import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
 import { useDeviceModel } from "@/features/privacy/hooks/useDeviceModel";
 import { useAuth } from "@/lib/auth-context";
+import { storedRefusalExplanation } from "@/lib/device-semantic";
 import { reportUnexpectedUiError } from "@/lib/observability";
 import { remainingWindowHours } from "@/lib/notification-silence";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
@@ -235,6 +236,14 @@ export function QuietScreen() {
                   label={decisionLabel(outcome.decision)}
                   tone={decisionTone(outcome.decision)}
                 />
+                {/* Why the wait is a wait, when the device knows. "Waiting on your model" is
+                    otherwise the same row for a model that is thinking and one that is refusing
+                    every request, and the refusing case leaves no trace at the provider either. */}
+                {storedRefusalExplanation(outcome.refusal) === undefined ? null : (
+                  <AppText tone="muted" variant="caption">
+                    {storedRefusalExplanation(outcome.refusal)}
+                  </AppText>
+                )}
               </View>
             ))}
           </View>
