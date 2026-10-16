@@ -35,6 +35,13 @@ endpoint configured before this keeps working untouched.
 `system-one` sends `POST {baseUrl}/systemone` with the clause's disclosed fields as a typed `state`
 and one `noul` question, and reads the probability back out of `answers`.
 
+A `noul` question carries `criteria` stating what `true` and `false` mean, which the protocol
+requires and rejects the request without. The two are deliberately asymmetric: "nothing shown here
+shows that it does" belongs on the `false` side, so a capture whose deciding field was redacted or
+never retained falls towards no-match. The act behind a match is clearing someone's notification,
+and [ADR-0003](0003-deterministic-before-ai.md)'s ordering only holds if the uncertain direction is
+the inert one.
+
 ### Everything that decides what leaves the device is shared
 
 `minimizeSemanticDisclosure` runs before either protocol sees anything, so the field allowlist, the
@@ -77,6 +84,30 @@ OpenAI path and the UI must not imply an explanation exists.
   guessing, so a drift in the format produces `invalid-response` and an undecided clause — the same
   outcome as an unreachable endpoint, which is the safe direction.
 
+## Amendment, 2026-10-16: what the first contact with a real endpoint corrected
+
+The consequence above named the right risk and the wrong half of the exchange. Relay's own request
+was the part that did not match the specification, and the failure mode is worse than the one
+anticipated.
+
+- **`criteria` is required on a `noul` question**, with both a `true` and a `false` key. The first
+  implementation omitted it. Every request to a conforming endpoint was therefore a validation
+  error, every clause came back `rejected`, and every candidate stayed `awaiting-model` for ever.
+- **A rejected request is invisible from both ends.** A gateway refuses a malformed body before it
+  is a billed generation, so nothing appears in the provider's activity log either. The reader sees
+  a rule that never decides and a provider that was apparently never called.
+- **So a refusal has to be visible in Relay.** `failure_reason` was already recorded on every
+  attempt and read by nothing. The quiet screen now shows it beside a verdict still awaiting a
+  model, because "Waiting on your model" is otherwise the same row for a model that is thinking,
+  one that is unreachable, and one that is refusing every request.
+- **A gateway names a model differently from the endpoint behind it.** Jev direct is `jev-latest`;
+  through OpenRouter it is `typesafe/jev-1.14`. A preset therefore carries address, protocol _and_
+  model id as one answer — editing a preset's address alone leaves the wrong id behind.
+
+The general lesson for the next protocol: an adapter written from documentation is unverified until
+a real endpoint has answered it, and the request half deserves the same suspicion as the response
+half.
+
 ## Supersedes
 
 Amends [ADR-0012](0012-openai-compatible-semantic-endpoint.md): OpenAI-compatible is no longer the
@@ -89,5 +120,9 @@ network policy and the deferred quiet pass are untouched.
 ## References
 
 - [Laya](https://github.com/NandhaKishorM/laya)
+- [OpenRouter: submit a System One request](https://openrouter.ai/docs/api/api-reference/systemone/submit-a-system-one-request)
+  — the request and response schemas, including the required `noul` criteria
+- [OpenRouter: Jev](https://openrouter.ai/docs/guides/community/jev) — model ids served at
+  `/api/v1/systemone`
 - [Filter model](../architecture/filter-model.md)
 - [OpenAI (BYOK)](../integrations/openai.md)

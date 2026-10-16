@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import RelayDeviceIngress, { SILENCE_OUTCOME_LIMIT } from "@/modules/relay-device-ingress";
+import { latestDisclosureRefusals, localStoreSupported, openLocalStore } from "@/lib/local-store";
 import { compileSilencePlan, reviewableRules, type SilencePlan } from "@/lib/notification-silence";
 import {
   completeDryRun,
@@ -88,6 +89,11 @@ export function useNotificationSilence(
    *
    * A title that is missing is not an error. Retention is thirty days and bounded by size, so an old
    * verdict outlives its content; the row then says what it always said.
+   *
+   * A verdict still waiting on a model also carries why the last attempt failed, which the device
+   * has always recorded and nothing has ever shown. Without it "Waiting on your model" is the same
+   * row whether the model is thinking, unreachable, or rejecting every request -- and a rejected
+   * request never reaches a provider's own logs either, so there is nowhere else to look.
    */
   const outcomes = useQuery({
     enabled,
@@ -97,13 +103,29 @@ export function useNotificationSilence(
         SILENCE_OUTCOME_LIMIT,
       );
       if (recorded.length === 0) return recorded;
+      const envelopeIds = recorded.map((outcome) => outcome.envelopeId);
       const content = await RelayDeviceIngress.getRetainedCaptureContent(
         tenantId as string,
-        recorded.map((outcome) => outcome.envelopeId),
+        envelopeIds,
       );
+      // Only for the rows it can say anything about. Every other verdict is final, and a refusal
+      // behind one of those is history rather than a state a reader can act on.
+      const waiting = recorded
+        .filter((outcome) => outcome.decision === "awaiting-model")
+        .map((outcome) => outcome.envelopeId);
+      const refusals =
+        waiting.length === 0 || !localStoreSupported()
+          ? new Map<string, string>()
+          : await latestDisclosureRefusals(await openLocalStore(), tenantId as string, waiting);
+
       return recorded.map((outcome) => {
         const subject = content[outcome.envelopeId]?.subject;
-        return subject === undefined ? outcome : { ...outcome, subject };
+        const refusal = refusals.get(outcome.envelopeId);
+        return {
+          ...outcome,
+          ...(refusal === undefined ? {} : { refusal }),
+          ...(subject === undefined ? {} : { subject }),
+        };
       });
     },
     queryKey: silenceQueryKeys.outcomes(tenantId),

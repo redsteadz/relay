@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DeviceSemanticResult } from "../device-semantic";
 import type { LocalStore } from "./database";
-import { deviceDisclosures, recordDeviceDisclosure } from "./disclosures";
+import { deviceDisclosures, latestDisclosureRefusals, recordDeviceDisclosure } from "./disclosures";
 import { loadNodeSqlite, nodeSqliteLocalStore } from "./node-sqlite";
 
 const sqlite = await loadNodeSqlite();
@@ -175,6 +175,107 @@ describe("recording what the device disclosed", () => {
       const [row] = await deviceDisclosures(database, TENANT);
       expect(row?.filter_rule_id).toBeNull();
       expect(row?.decision).toBe("no-match");
+    } finally {
+      close();
+    }
+  });
+});
+
+describe("why a capture is still waiting", () => {
+  const OTHER = "70100000-0000-4000-8000-000000000002";
+
+  async function attempt(
+    database: LocalStore,
+    id: string,
+    sourceItemId: string,
+    result: DeviceSemanticResult,
+    at: string,
+  ): Promise<void> {
+    await recordDeviceDisclosure(
+      database,
+      TENANT,
+      { filterRuleId: RULE, id, result, sourceItemId },
+      at,
+    );
+  }
+
+  it("reports the newest attempt's reason for each capture", async () => {
+    const { close, store: database } = store();
+    try {
+      await attempt(
+        database,
+        "d1",
+        ITEM,
+        { decision: "undecided", refusal: "endpoint-unreachable" },
+        "2026-10-16T09:00:00.000Z",
+      );
+      await attempt(
+        database,
+        "d2",
+        ITEM,
+        { ...answered("match"), decision: "undecided", refusal: "rejected" },
+        "2026-10-16T10:00:00.000Z",
+      );
+      await attempt(
+        database,
+        "d3",
+        OTHER,
+        { decision: "undecided", refusal: "timed-out" },
+        "2026-10-16T09:30:00.000Z",
+      );
+
+      const refusals = await latestDisclosureRefusals(database, TENANT, [ITEM, OTHER]);
+      expect(refusals.get(ITEM)).toBe("rejected");
+      expect(refusals.get(OTHER)).toBe("timed-out");
+    } finally {
+      close();
+    }
+  });
+
+  // A capture a later pass got past is not waiting on anything, and a stale reason beside it would
+  // send a reader to fix an endpoint that is working.
+  it("forgets a reason once a later attempt answered", async () => {
+    const { close, store: database } = store();
+    try {
+      await attempt(
+        database,
+        "d1",
+        ITEM,
+        { decision: "undecided", refusal: "rejected" },
+        "2026-10-16T09:00:00.000Z",
+      );
+      await attempt(database, "d2", ITEM, answered("no-match"), "2026-10-16T10:00:00.000Z");
+
+      expect(await latestDisclosureRefusals(database, TENANT, [ITEM])).toStrictEqual(new Map());
+    } finally {
+      close();
+    }
+  });
+
+  it("asks nothing of the store for an empty set", async () => {
+    const { close, store: database } = store();
+    try {
+      expect(await latestDisclosureRefusals(database, TENANT, [])).toStrictEqual(new Map());
+    } finally {
+      close();
+    }
+  });
+
+  it("does not read another tenant's reasons", async () => {
+    const { close, store: database } = store();
+    try {
+      await recordDeviceDisclosure(
+        database,
+        "70000000-0000-4000-8000-000000000002",
+        {
+          filterRuleId: RULE,
+          id: "d1",
+          result: { decision: "undecided", refusal: "rejected" },
+          sourceItemId: ITEM,
+        },
+        "2026-10-16T09:00:00.000Z",
+      );
+      expect(await latestDisclosureRefusals(database, TENANT, [ITEM])).toStrictEqual(new Map());
     } finally {
       close();
     }
