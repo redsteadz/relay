@@ -4,6 +4,11 @@ import { StyleSheet, View } from "react-native";
 import { Chip } from "react-native-paper";
 
 import { AppButton, AppDialog, AppText, AppTextInput, StatusMessage } from "@/components/ui";
+import {
+  deviceSemanticProbeExplanation,
+  probeDeviceSemanticEndpoint,
+  type DeviceSemanticProbe,
+} from "@/lib/device-semantic";
 import { useRelayTheme } from "@/theme";
 
 import {
@@ -45,13 +50,47 @@ export function DeviceModelDialog({
   const theme = useRelayTheme();
   const [values, setValues] = useState<DeviceModelFormValues>(defaults);
   const [attempted, setAttempted] = useState(false);
+  const [probe, setProbe] = useState<DeviceSemanticProbe>();
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setValues(defaults);
       setAttempted(false);
+      setProbe(undefined);
     }
   }, [defaults, visible]);
+
+  /*
+    One real request against the values on screen, before they are saved.
+
+    A reader could previously only find out whether an address worked by saving it, waiting for a
+    notification a rule covered, and watching a verdict not arrive -- and every way of being wrong
+    produced that same non-event. This asks the endpoint directly and reports the status code,
+    which is what separates a wrong path from a wrong key from a wrong model name.
+
+    The question it asks is synthetic. Probing with a real capture would disclose one to an address
+    that has not been shown to work, which is the thing the reader has not yet agreed to.
+  */
+  async function test(): Promise<void> {
+    setAttempted(true);
+    if (deviceModelFormError(values) !== undefined) return;
+    setTesting(true);
+    setProbe(undefined);
+    try {
+      setProbe(
+        await probeDeviceSemanticEndpoint({
+          ...(values.apiKey.trim().length === 0 ? {} : { apiKey: values.apiKey.trim() }),
+          baseUrl: values.baseUrl.trim(),
+          model: values.model.trim(),
+          protocol: values.protocol,
+          responseFormat: values.responseFormat,
+        }),
+      );
+    } finally {
+      setTesting(false);
+    }
+  }
 
   const baseUrlError = attempted ? deviceModelBaseUrlError(values.baseUrl) : undefined;
   const modelError = attempted ? deviceModelError(values.model) : undefined;
@@ -61,7 +100,21 @@ export function DeviceModelDialog({
     <AppDialog
       actions={
         <>
-          <AppButton disabled={saving} label="Cancel" onPress={onDismiss} tone="secondary" />
+          <AppButton
+            disabled={saving || testing}
+            label="Cancel"
+            onPress={onDismiss}
+            tone="secondary"
+          />
+          <AppButton
+            disabled={saving || testing}
+            label={testing ? "Testing..." : "Test"}
+            loading={testing}
+            onPress={() => {
+              void test();
+            }}
+            tone="secondary"
+          />
           <AppButton
             disabled={saving}
             label={saving ? "Saving..." : "Save"}
@@ -173,6 +226,12 @@ export function DeviceModelDialog({
           </View>
         )}
 
+        {/* What the endpoint actually did, in the words of the thing that answered. */}
+        {probe === undefined ? null : (
+          <StatusMessage tone={probe.decided ? "success" : "warning"}>
+            {deviceSemanticProbeExplanation(probe)}
+          </StatusMessage>
+        )}
         {errorMessage === undefined ? null : (
           <StatusMessage tone="error">{errorMessage}</StatusMessage>
         )}

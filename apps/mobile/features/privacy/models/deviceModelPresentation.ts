@@ -122,7 +122,7 @@ export function deviceModelFormDefaults(
 export function deviceModelBaseUrlError(value: string): string | undefined {
   const candidate = value.trim();
   if (candidate.length === 0) {
-    return "Enter where your model answers, usually ending in /v1.";
+    return "Enter where your model answers. Usually ends in /v1 -- but a gateway may use /api/v1, so copy it from their documentation rather than assuming.";
   }
   if (candidate.length > 2048) return "That address is too long.";
   if (parseSemanticBaseUrl(candidate, { allowLocalNetwork: true }) !== undefined) {

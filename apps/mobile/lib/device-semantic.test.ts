@@ -2,7 +2,12 @@ import { filterPlanSchema, type FilterPlan } from "@relay/contracts";
 import { SEMANTIC_SYSTEM_INSTRUCTIONS } from "@relay/domain";
 import { describe, expect, it, vi } from "vitest";
 
-import { evaluateDeviceSemanticClause, type DeviceSemanticRefusal } from "./device-semantic";
+import {
+  deviceSemanticProbeExplanation,
+  evaluateDeviceSemanticClause,
+  probeDeviceSemanticEndpoint,
+  type DeviceSemanticRefusal,
+} from "./device-semantic";
 
 const CLAUSE = {
   allowedFields: ["subject", "sender"] as const,
@@ -236,5 +241,112 @@ describe("every failure leaves the capture alone", () => {
       timeoutMs: 10,
     });
     expect(result.refusal).toBe("timed-out");
+  });
+});
+
+/*
+  Testing an address before trusting it.
+
+  Every way of configuring this wrongly used to produce the same non-event: a rule that quietly
+  never decided. Twice in a row that cost a build cycle and a round trip to work out which of a
+  wrong path, a wrong key and a wrong model name it was. The status code is what separates them,
+  so these assert that it survives to the reader.
+*/
+describe("testing a model endpoint", () => {
+  const SYSTEM_ONE = {
+    ...CONFIG,
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "typesafe/jev-1.14",
+    protocol: "system-one" as const,
+  };
+
+  it("asks a decision engine at /systemone and a chat model at /chat/completions", async () => {
+    const seen: string[] = [];
+    const fetcher = vi.fn((url: string) => {
+      seen.push(url);
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+
+    await probeDeviceSemanticEndpoint(SYSTEM_ONE, { fetcher });
+    await probeDeviceSemanticEndpoint(CONFIG, { fetcher });
+    expect(seen).toStrictEqual([
+      "https://openrouter.ai/api/v1/systemone",
+      "http://192.168.1.10:11434/v1/chat/completions",
+    ]);
+  });
+
+  // The whole reason a probe exists rather than a second evaluation call.
+  it("keeps the status code instead of collapsing every failure to one refusal", async () => {
+    const fetcher = vi.fn(() => Promise.resolve(new Response("not found", { status: 404 })));
+    const probe = await probeDeviceSemanticEndpoint(SYSTEM_ONE, { fetcher });
+    expect(probe).toStrictEqual({ decided: false, httpStatus: 404, refusal: "rejected" });
+  });
+
+  // A 404 is the signature of `openrouter.ai/v1` instead of `openrouter.ai/api/v1`, which is what
+  // the field hint used to steer a reader towards.
+  it("names the path, not the model, when nothing answers there", () => {
+    const text = deviceSemanticProbeExplanation({
+      decided: false,
+      httpStatus: 404,
+      refusal: "rejected",
+    });
+    expect(text).toContain("/api/v1");
+    expect(text).not.toContain("refused");
+  });
+
+  it("separates a bad key from a bad request shape", () => {
+    expect(
+      deviceSemanticProbeExplanation({ decided: false, httpStatus: 401, refusal: "rejected" }),
+    ).toContain("credential");
+    expect(
+      deviceSemanticProbeExplanation({ decided: false, httpStatus: 400, refusal: "rejected" }),
+    ).toContain("model name");
+  });
+
+  it("reports a decision engine that answered as working", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ answers: { relayFilterMatch: { noul: 0.93, type: "noul" } } }),
+          {
+            status: 200,
+          },
+        ),
+      ),
+    );
+    const probe = await probeDeviceSemanticEndpoint(SYSTEM_ONE, { fetcher });
+    expect(probe.decided).toBe(true);
+    expect(deviceSemanticProbeExplanation(probe)).toContain("answered correctly");
+  });
+
+  // 200 with a reply that is not a decision is the "wrong kind of model selected" case, and must
+  // not read as success.
+  it("refuses a 200 that is not a decision", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ hello: "world" }), { status: 200 })),
+    );
+    const probe = await probeDeviceSemanticEndpoint(SYSTEM_ONE, { fetcher });
+    expect(probe.decided).toBe(false);
+    expect(probe.refusal).toBe("invalid-response");
+  });
+
+  // A probe must never carry a real capture to an address that has not been shown to work.
+  it("asks about a synthetic message, never a real one", async () => {
+    let body = "";
+    const fetcher = vi.fn((_url: string, init?: RequestInit) => {
+      body = typeof init?.body === "string" ? init.body : "";
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+    await probeDeviceSemanticEndpoint(SYSTEM_ONE, { fetcher });
+    expect(body).not.toContain("Save 50% today");
+    expect(body).not.toContain("offers@courier.example");
+    expect(body).toContain("parcel");
+  });
+
+  it("reports an unreachable endpoint without a status", async () => {
+    const fetcher = vi.fn(() => Promise.reject(new Error("network down")));
+    const probe = await probeDeviceSemanticEndpoint(SYSTEM_ONE, { fetcher });
+    expect(probe).toStrictEqual({ decided: false, refusal: "endpoint-unreachable" });
+    expect(deviceSemanticProbeExplanation(probe)).toContain("could not reach");
   });
 });
