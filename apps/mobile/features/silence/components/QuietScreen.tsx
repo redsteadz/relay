@@ -1,5 +1,5 @@
 import { AppError } from "@relay/observability";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import {
@@ -20,10 +20,12 @@ import { useAuth } from "@/lib/auth-context";
 import { storedRefusalExplanation } from "@/lib/device-semantic";
 import { reportUnexpectedUiError } from "@/lib/observability";
 import { remainingWindowHours } from "@/lib/notification-silence";
-import RelayDeviceIngress from "@/modules/relay-device-ingress";
+import RelayDeviceIngress, { type NativeSilenceDiagnostics } from "@/modules/relay-device-ingress";
 import { useRelayTheme } from "@/theme";
 
+import { runQuietPass, type QuietPassReport } from "../api/silenceResolution";
 import { useNotificationSilence } from "../hooks/useNotificationSilence";
+import { firstBlockingLine, quietDiagnosticLines } from "../models/quietDiagnostics";
 import {
   capabilityNotice,
   decisionLabel,
@@ -33,6 +35,57 @@ import {
   silenceRuleRow,
   type SilenceRuleRow,
 } from "../models/silencePresentation";
+
+/**
+ * The state of every stage between a notification arriving and a rule deciding.
+ *
+ * Reads the device's own counts on mount, and runs a real pass on demand rather than simulating
+ * one -- a simulation would be a second implementation of the thing being diagnosed, and the bug
+ * worth finding is as likely to be there as anywhere.
+ *
+ * The pass is the one place a thrown error matters. `DeviceCaptureSync` runs the same call through
+ * `runInBackground`, whose log reaches a console that a release build does not forward anywhere,
+ * so a pass that throws on every attempt looks exactly like a pass that finds nothing to do. Here
+ * it is caught and shown.
+ */
+function useQuietDiagnostics(client: ReturnType<typeof useAuth>["client"], tenantId?: string) {
+  const [native, setNative] = useState<NativeSilenceDiagnostics>();
+  const [pass, setPass] = useState<QuietPassReport>();
+  const [failure, setFailure] = useState<string>();
+  const [running, setRunning] = useState(false);
+
+  const read = useCallback(async () => {
+    if (tenantId === undefined) return;
+    try {
+      setNative(await RelayDeviceIngress.getNotificationSilenceDiagnostics(tenantId));
+    } catch (error: unknown) {
+      setFailure(error instanceof Error ? error.message : "The device could not be read.");
+    }
+  }, [tenantId]);
+
+  useEffect(() => {
+    void read();
+  }, [read]);
+
+  const run = useCallback(async () => {
+    if (client === undefined || tenantId === undefined) return;
+    setRunning(true);
+    setFailure(undefined);
+    try {
+      setPass(await runQuietPass(client, tenantId));
+    } catch (error: unknown) {
+      // The failure a reader could never see. Shown verbatim because it is this device telling
+      // this device's owner why their own rule is not running, and a deterministic substitute
+      // would hide the one detail that identifies the stage.
+      setFailure(error instanceof Error ? error.message : "The pass failed.");
+    } finally {
+      setRunning(false);
+      await read();
+    }
+  }, [client, read, tenantId]);
+
+  return { failure, native, pass, run, running };
+}
 
 /** The safe message an `AppError` already carries, or a generic one for anything unclassified. */
 function writeErrorMessage(error: unknown): string {
@@ -63,6 +116,12 @@ export function QuietScreen() {
   // A rule that asks a model decides nothing without one, so the rows have to know whether this
   // phone has an endpoint rather than describing an effect that cannot happen (ADR-0019).
   const { config: deviceModel } = useDeviceModel(tenantId);
+  const diagnostics = useQuietDiagnostics(client, tenantId);
+  const diagnosticLines = useMemo(
+    () => quietDiagnosticLines(diagnostics.native, deviceModel, diagnostics.pass),
+    [deviceModel, diagnostics.native, diagnostics.pass],
+  );
+  const blocking = firstBlockingLine(diagnosticLines);
 
   // Until the first capability read lands, report the state that promises least. A screen that
   // briefly claims a capability it has not confirmed is worse than one that waits a frame.
@@ -203,6 +262,59 @@ export function QuietScreen() {
           {`${writeErrorMessage(silence.writeError)} Nothing on your phone was altered.`}
         </StatusMessage>
       )}
+
+      {/*
+        The chain, stage by stage.
+
+        Placed above the verdict list because when nothing is being decided, the verdict list is
+        empty and says nothing about why -- which was the whole problem.
+      */}
+      <EditorialSurface
+        icon="stethoscope"
+        meta="On this phone"
+        title="Why rules are or are not deciding"
+      >
+        <AppText tone="muted" variant="caption">
+          Counts and modes only. Nothing here names a notification, an app or a rule.
+        </AppText>
+        {diagnosticLines.map((line) => (
+          <View key={line.label} style={[styles.outcome, { gap: spacing.xxs }]}>
+            <View style={styles.outcomeText}>
+              <AppText variant="body">{line.label}</AppText>
+              {line.detail === undefined ? null : (
+                <AppText tone="muted" variant="caption">
+                  {line.detail}
+                </AppText>
+              )}
+            </View>
+            <StatusPill label={line.value} tone={line.ok ? "success" : "warning"} />
+          </View>
+        ))}
+        {blocking === undefined ? (
+          <StatusMessage tone="success">
+            Every stage is ready. A matching notification that is still on screen will be decided on
+            the next pass.
+          </StatusMessage>
+        ) : (
+          <StatusMessage tone="warning">
+            {`First thing stopping it: ${blocking.label} -- ${blocking.value}.`}
+          </StatusMessage>
+        )}
+        {diagnostics.failure === undefined ? null : (
+          <StatusMessage tone="error">
+            {`The pass itself failed: ${diagnostics.failure}`}
+          </StatusMessage>
+        )}
+        <AppButton
+          disabled={diagnostics.running}
+          label={diagnostics.running ? "Running a pass..." : "Run a pass now"}
+          loading={diagnostics.running}
+          onPress={() => {
+            void diagnostics.run();
+          }}
+          tone="secondary"
+        />
+      </EditorialSurface>
 
       <EditorialSurface
         icon="history"

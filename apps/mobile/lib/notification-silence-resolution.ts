@@ -46,11 +46,29 @@ export type SilenceCandidateContent = {
   subject?: string;
 };
 
+/**
+ * Why a candidate was passed over without a model being asked.
+ *
+ * Every one of these used to be a bare `continue`. That is defensible for the pass itself -- none
+ * of them is an error, and each is retried next time -- but it left the only two ways a rule can
+ * silently never decide completely invisible, and "waiting on your model" was the same row whether
+ * a request had been refused or never attempted. Named so a diagnostic can say which.
+ */
+export type SilenceSkip =
+  /** Retention no longer holds what the notification said, so there is nothing to judge. */
+  | "content-missing"
+  /** The rule is gone from this pass's view: edited into a new revision, disabled, or withdrawn. */
+  | "rule-missing"
+  /** A request was made and the model did not answer. The refusal says why. */
+  | "undecided";
+
 export type SilenceResolution = {
   /** How many candidates a model was actually asked about. */
   evaluated: number;
   /** What the device recorded, by envelope, so a caller can report without deciding. */
   recorded: Map<string, string>;
+  /** Why each remaining candidate was not decided, by envelope. */
+  skipped: Map<string, SilenceSkip>;
 };
 
 /**
@@ -98,7 +116,8 @@ export async function resolvePendingSilences(
   },
 ): Promise<SilenceResolution> {
   const recorded = new Map<string, string>();
-  if (options.config === undefined) return { evaluated: 0, recorded };
+  const skipped = new Map<string, SilenceSkip>();
+  if (options.config === undefined) return { evaluated: 0, recorded, skipped };
 
   const byId = new Map(rules.map((rule) => [rule.id, rule]));
   let evaluated = 0;
@@ -107,13 +126,19 @@ export async function resolvePendingSilences(
     const clause = byId.get(candidate.filterRuleId)?.plan.semantic;
     // A rule that has gone away, or one whose clause this pass cannot see, is left for the device to
     // decline on its own terms. Guessing here would be answering for a rule that no longer exists.
-    if (clause === undefined) continue;
+    if (clause === undefined) {
+      skipped.set(candidate.envelopeId, "rule-missing");
+      continue;
+    }
 
     const content = options.content.get(candidate.envelopeId);
     // Retention is thirty days and bounded by size, so a candidate can outlive its own content. A
     // clause cannot be evaluated against nothing, and inventing an empty subject would answer the
     // question "is this urgent?" about a notification nobody can read.
-    if (content === undefined) continue;
+    if (content === undefined) {
+      skipped.set(candidate.envelopeId, "content-missing");
+      continue;
+    }
 
     let result: DeviceSemanticResult;
     try {
@@ -131,6 +156,7 @@ export async function resolvePendingSilences(
         integration: "device-semantic",
         operation: "evaluateDeviceSemanticClause",
       });
+      skipped.set(candidate.envelopeId, "undecided");
       continue;
     }
 
@@ -156,7 +182,10 @@ export async function resolvePendingSilences(
 
     // No answer is not an answer of no. Handing `undecided` over as `matched: false` would record a
     // miss the model never reported and close a candidate that deserves another pass.
-    if (result.decision === "undecided") continue;
+    if (result.decision === "undecided") {
+      skipped.set(candidate.envelopeId, "undecided");
+      continue;
+    }
 
     try {
       const decision = await options.resolve(candidate.envelopeId, result.decision === "match");
@@ -171,5 +200,5 @@ export async function resolvePendingSilences(
     }
   }
 
-  return { evaluated, recorded };
+  return { evaluated, recorded, skipped };
 }
