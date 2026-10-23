@@ -313,7 +313,7 @@ export async function assembleInbox(
   );
 }
 
-export async function listInbox(
+export async function listInboxSnapshot(
   client: SupabaseClient,
   tenantId: string,
   now = new Date().toISOString(),
@@ -357,7 +357,7 @@ export async function listInbox(
   // What the capture said is read from this device's own encrypted copy, keyed by the same envelope
   // ID the server knows as `source_item_id`. It is absent when another device captured the item or
   // when local retention has dropped it, which is ordinary rather than an error.
-  return assembleInbox(
+  const visible = await assembleInbox(
     {
       categories: categories.data ?? [],
       classifications: classifications.data ?? [],
@@ -370,6 +370,19 @@ export async function listInbox(
     now,
     visibility,
   );
+  return {
+    items: visible,
+    observedSourceIds: ((events.data ?? []) as EventRow[]).map((event) => event.source_item_id),
+  };
+}
+
+export async function listInbox(
+  client: SupabaseClient,
+  tenantId: string,
+  now = new Date().toISOString(),
+  visibility: InboxVisibility = "visible",
+) {
+  return (await listInboxSnapshot(client, tenantId, now, visibility)).items;
 }
 
 /**

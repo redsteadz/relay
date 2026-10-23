@@ -1,6 +1,7 @@
 import { createLogger, normalizeError } from "@relay/observability";
 
 export type PipelineMetricName =
+  | "smart_action_maintenance_failed"
   | "dead_letter_parking_failed"
   | "gmail_maintenance_failed"
   | "kek_rotation_failed"

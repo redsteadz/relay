@@ -47,6 +47,31 @@ beforeEach(async () => {
   await demoDeviceIngress.configureNotificationCapture(TENANT, ["com.example.bank"], false);
 });
 
+it("guards demo logout for failed as well as pending captures and isolates explicit discard", async () => {
+  const rows = demoDatabase.rows("capture_queue");
+  rows.push(
+    {
+      tenant_id: TENANT,
+      envelope_id: "synthetic-failed",
+      state: "failed",
+      expires_at: Date.now() + 60_000,
+    },
+    {
+      tenant_id: OTHER_TENANT,
+      envelope_id: "synthetic-other",
+      state: "pending",
+      expires_at: Date.now() + 60_000,
+    },
+    { tenant_id: TENANT, envelope_id: "synthetic-expired", state: "pending", expires_at: 0 },
+  );
+  expect(await demoDeviceIngress.finishCaptureLogout(TENANT, false)).toBe(1);
+  expect(await demoDeviceIngress.getUnsynchronizedCaptureIds(TENANT)).toEqual(["synthetic-failed"]);
+  expect(await demoDeviceIngress.finishCaptureLogout(TENANT, true)).toBe(0);
+  expect(await demoDeviceIngress.getUnsynchronizedCaptureIds(OTHER_TENANT)).toEqual([
+    "synthetic-other",
+  ]);
+});
+
 describe("demo listener decisions", () => {
   it("captures an allowlisted notification", async () => {
     expect((await demoPostNotification(posted(), NOW)).decision).toBe("capture");

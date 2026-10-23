@@ -62,6 +62,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0021: A quiet rule can be authorized directly](../decisions/0021-direct-quiet-authorization.md)
 - [ADR-0022: Decision-engine endpoints](../decisions/0022-decision-engine-endpoints.md)
 - [ADR-0023: Smart Google automations](../decisions/0023-smart-google-automations.md)
+- [ADR-0024: Capture-safe logout and delivery recovery](../decisions/0024-capture-safe-logout-and-recovery.md)
 
 ## Delivery
 

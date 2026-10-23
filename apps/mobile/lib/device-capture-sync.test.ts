@@ -6,9 +6,15 @@ const syncSmsInbox = vi.hoisted(() => vi.fn());
 const registerInstallation = vi.hoisted(() => vi.fn());
 const syncQueuedCaptures = vi.hoisted(() => vi.fn());
 const deriveQueuedCaptures = vi.hoisted(() => vi.fn());
+const retryFailedCaptures = vi.hoisted(() => vi.fn());
 
 vi.mock("../modules/relay-device-ingress", () => ({
-  default: { getCapabilities, syncSmsInbox },
+  default: {
+    getCapabilities,
+    syncSmsInbox,
+    retryFailedCaptures,
+    prepareNotificationCaptureState: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 vi.mock("./device", () => ({ registerInstallation }));
 vi.mock("./capture-sync", () => ({ syncQueuedCaptures }));
@@ -34,6 +40,7 @@ const inactive = {
 describe("syncDeviceCaptures", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    syncQueuedCaptures.mockReset();
     syncSmsInbox.mockResolvedValue(0);
     registerInstallation.mockResolvedValue({ id: "19784902-e7a4-4f7f-b04d-e3a78c876629" });
     deriveQueuedCaptures.mockResolvedValue({ derived: 0, notDerivable: 0, skipped: 0 });
@@ -47,6 +54,43 @@ describe("syncDeviceCaptures", () => {
     expect(syncQueuedCaptures).not.toHaveBeenCalled();
     // Consent gates derivation as well as upload: a paused source is not read for either.
     expect(deriveQueuedCaptures).not.toHaveBeenCalled();
+    expect(retryFailedCaptures).not.toHaveBeenCalled();
+  });
+
+  it("reopens failed captures only for an explicit Sync Now request", async () => {
+    getCapabilities.mockResolvedValue(inactive);
+    await syncDeviceCaptures(session, undefined, true);
+    expect(retryFailedCaptures).toHaveBeenCalledWith(userId);
+    expect(syncQueuedCaptures).not.toHaveBeenCalled();
+  });
+
+  it("refreshes local readers before a registration failure", async () => {
+    getCapabilities.mockResolvedValue({
+      ...inactive,
+      notificationListener: true,
+      notificationCapturePaused: false,
+    });
+    registerInstallation.mockRejectedValue(new Error("synthetic offline"));
+    const onDerived = vi.fn().mockResolvedValue(undefined);
+    await expect(syncDeviceCaptures(session, onDerived)).rejects.toThrow();
+    expect(onDerived).toHaveBeenCalledOnce();
+    expect(onDerived.mock.invocationCallOrder[0]).toBeLessThan(
+      registerInstallation.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("drains multiple bounded snapshots without leaving the second batch stranded", async () => {
+    getCapabilities.mockResolvedValue({
+      ...inactive,
+      notificationListener: true,
+      notificationCapturePaused: false,
+    });
+    syncQueuedCaptures
+      .mockResolvedValueOnce({ acknowledged: 50, failed: 0, pending: 0 })
+      .mockResolvedValueOnce({ acknowledged: 3, failed: 0, pending: 0 });
+    await syncDeviceCaptures(session);
+    expect(syncQueuedCaptures).toHaveBeenCalledTimes(2);
+    expect(deriveQueuedCaptures).toHaveBeenCalledTimes(2);
   });
 
   it("uploads an active notification queue without reading SMS", async () => {

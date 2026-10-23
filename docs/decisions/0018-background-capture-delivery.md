@@ -67,17 +67,16 @@ capped at six hours in twenty-four besides. What was missing was a trigger, not 
 
 `expo-background-task` already builds its periodic schedule out of `OneTimeWorkRequest`s with an
 initial delay, so this is that request with no delay and `setExpedited`, under its own unique work
-name so it cannot disturb the chain. `ExistingWorkPolicy.KEEP` coalesces a burst into one pass.
+name so it cannot disturb the chain. The original `KEEP` policy is amended by [ADR-0024](0024-capture-safe-logout-and-recovery.md)
+to preserve follow-up arrivals and add SMS, cold-start and retry recovery.
 
 Its worker is resolved with `Class.forName` rather than imported: autolinking folds
 `expo-background-task` into `:expo`, and depending on that from a module the app also links risks a
 cycle. The lookup makes the coupling degrade instead of break — a rename resolves to null, nothing
 is enqueued, and the periodic task still delivers.
 
-**Expedited work is not exempt from Doze.** A phone stationary and dark for hours still batches to a
-maintenance window. Screen on or recently used, which is when a reader could notice, it runs in
-seconds. Beating Doze would need the upload itself written natively, which is a larger change and a
-different decision.
+Android constraints, quotas, Doze and OEM policy determine actual execution latency. No latency
+guarantee is made; a native uploader would not remove those restrictions.
 
 ## Consequences
 

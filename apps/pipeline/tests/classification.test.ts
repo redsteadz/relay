@@ -6,6 +6,7 @@ import { evaluateFilterPlan, readFilterField } from "@relay/domain";
 import { AppError } from "@relay/observability";
 
 import { activeRules, classificationItem, classifyCapture } from "../src/classification";
+import * as semantics from "../src/semantic";
 
 const USER = "208455fe-e5ae-4dc3-b416-40c7186ac6b2";
 
@@ -124,6 +125,28 @@ describe("activeRules", () => {
 });
 
 describe("classifyCapture", () => {
+  it.each(["unavailable", "timed-out", "rate-limited"] as const)(
+    "retains a retryable %s semantic decision instead of completing an unmatched capture",
+    async (failureReason) => {
+      const { fetcher, writes } = backend([
+        { category_id: null, id: "rule-1", plan: deterministicPlan, series_id: "s1", version: 1 },
+      ]);
+      vi.stubGlobal("fetch", fetcher);
+      const evaluate = vi.spyOn(semantics, "evaluateFilterWithSemantics").mockResolvedValue({
+        decision: "undecided",
+        semantic: { decision: "undecided", failureReason },
+      } as Awaited<ReturnType<typeof semantics.evaluateFilterWithSemantics>>);
+      try {
+        await expect(
+          classifyCapture(configuration as never, envelope(), USER, {}),
+        ).rejects.toMatchObject({ code: "CLASSIFICATION_SEMANTIC_PENDING", retryable: true });
+        expect(writes).toEqual([]);
+      } finally {
+        evaluate.mockRestore();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
   it("files a capture into the category of the first matching rule", async () => {
     const { fetcher, writes } = backend([
       { category_id: "cat-1", id: "rule-1", plan: deterministicPlan, series_id: "s1", version: 1 },

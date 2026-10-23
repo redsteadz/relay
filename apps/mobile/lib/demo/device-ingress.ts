@@ -613,6 +613,21 @@ export async function demoFailCapture(
 }
 
 /** Drops this tenant's queued captures, as sign-out and account deletion do. */
+export async function demoUnsynchronizedCaptureIds(tenantId: string): Promise<string[]> {
+  await demoDatabase.ready();
+  return demoDatabase
+    .rows("capture_queue")
+    .filter((row) => row.tenant_id === tenantId && Number(row.expires_at) > Date.now())
+    .map((row) => String(row.envelope_id));
+}
+
+export async function demoFinishCaptureLogout(tenantId: string, discard: boolean): Promise<number> {
+  const pending = (await demoUnsynchronizedCaptureIds(tenantId)).length;
+  if (pending > 0 && !discard) return pending;
+  await demoClearCaptureQueue(tenantId);
+  return 0;
+}
+
 export async function demoClearCaptureQueue(tenantId: string): Promise<void> {
   await demoDatabase.ready();
   demoDatabase.replace(
@@ -631,6 +646,10 @@ export async function demoClearCaptureQueue(tenantId: string): Promise<void> {
  */
 /** The device capture module surface this stand-in answers, as its callers invoke it. */
 export type DemoDeviceIngress = {
+  retryFailedCaptures(tenantId: string): Promise<void>;
+  scheduleCaptureRetry(tenantId: string): Promise<void>;
+  getUnsynchronizedCaptureIds(tenantId: string): Promise<string[]>;
+  finishCaptureLogout(tenantId: string, discard: boolean): Promise<number>;
   acknowledgeCapture(tenantId: string, envelopeId: string): Promise<void>;
   clearCaptureQueue(tenantId: string): Promise<void>;
   configureNotificationCapture(
@@ -673,6 +692,7 @@ export type DemoDeviceIngress = {
     tenantId: string | undefined,
     cleanupTenantId: string | undefined,
     generation: number,
+    allowAccountCleanup?: boolean,
   ): Promise<void>;
   requestSmsPermissions(): Promise<boolean>;
   setCapturePreviewSecure(enabled: boolean): Promise<void>;
@@ -680,6 +700,23 @@ export type DemoDeviceIngress = {
 };
 
 export const demoDeviceIngress: DemoDeviceIngress = {
+  retryFailedCaptures: async (tenantId) => {
+    await demoDatabase.ready();
+    for (const row of demoDatabase.rows("capture_queue")) {
+      if (
+        row.tenant_id === tenantId &&
+        row.state === "failed" &&
+        Number(row.expires_at) > Date.now()
+      ) {
+        row.state = "pending";
+        row.attempts = 0;
+      }
+    }
+    demoDatabase.touch();
+  },
+  scheduleCaptureRetry: () => Promise.resolve(),
+  getUnsynchronizedCaptureIds: demoUnsynchronizedCaptureIds,
+  finishCaptureLogout: demoFinishCaptureLogout,
   acknowledgeCapture: demoAcknowledgeCapture,
   clearCaptureQueue: demoClearCaptureQueue,
   configureNotificationCapture: (tenantId, allowedPackages, paused) =>

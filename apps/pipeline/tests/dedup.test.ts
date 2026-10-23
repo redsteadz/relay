@@ -639,9 +639,9 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     expect(results).toContainEqual({ accepted: true, reason: "persisted" });
     expect(results).toContainEqual({ accepted: false, reason: "duplicate" });
-    // Six persistence calls plus one rule read: only the delivery that stored the row classifies it,
-    // so the duplicate never re-evaluates the tenant's rules.
-    expect(fetchMock).toHaveBeenCalledTimes(7);
+    // Without a completed DO marker, both deliveries must be eligible to finish classification.
+    // Database uniqueness still arbitrates every source, fact and event write.
+    expect(fetchMock).toHaveBeenCalledTimes(8);
     expect([sourceCalls, factCalls, eventCalls]).toEqual([2, 2, 2]);
     vi.unstubAllGlobals();
   });
@@ -651,6 +651,8 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     let sourceCalls = 0;
     let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (requestUrl(input).includes("/rest/v1/filter_rules"))
+        return Promise.resolve(Response.json([]));
       if (requestUrl(input).endsWith("persist_source_facts")) {
         return Promise.resolve(Response.json("stored"));
       }
@@ -675,7 +677,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     const retried = await processIngressMessage(storage, env, message);
     expect(await retried.json()).toEqual({ accepted: false, reason: "duplicate" });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect([sourceCalls, eventCalls]).toEqual([2, 1]);
     vi.unstubAllGlobals();
   });
@@ -686,6 +688,8 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     let factCalls = 0;
     let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (requestUrl(input).includes("/rest/v1/filter_rules"))
+        return Promise.resolve(Response.json([]));
       if (requestUrl(input).endsWith("persist_encrypted_source_item_v5")) {
         sourceCalls += 1;
         return Promise.resolve(Response.json(sourceCalls === 1 ? "stored" : "duplicate"));
@@ -716,7 +720,7 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     const retried = await processIngressMessage(storage, env, message);
     expect(await retried.json()).toEqual({ accepted: false, reason: "duplicate" });
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect([sourceCalls, factCalls, eventCalls]).toEqual([2, 2, 1]);
     vi.unstubAllGlobals();
   });
@@ -727,6 +731,8 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     let factCalls = 0;
     let eventCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (requestUrl(input).includes("/rest/v1/filter_rules"))
+        return Promise.resolve(Response.json([]));
       if (requestUrl(input).endsWith("persist_encrypted_source_item_v5")) {
         sourceCalls += 1;
         return Promise.resolve(Response.json(sourceCalls === 1 ? "stored" : "duplicate"));
@@ -924,6 +930,58 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
     vi.unstubAllGlobals();
   });
 
+  it("recovers classification after persistence without losing stable source identity", async () => {
+    const { keyring, serialized } = keyMaterial();
+    let sourceWrites = 0;
+    let classificationAttempts = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.includes("/rest/v1/filter_rules"))
+        return Promise.resolve(
+          Response.json([
+            {
+              category_id: null,
+              id: "5a4c1f1e-7d2b-4c3a-8e9f-0a1b2c3d4e5f",
+              plan: {
+                compilerVersion: 1,
+                deterministic: { field: "subject", operator: "contains", value: "synthetic" },
+                intent: "synthetic subject",
+                schemaVersion: 1,
+              },
+              series_id: "8e7d6c5b-4a39-4281-b7f6-e5d4c3b2a190",
+              version: 1,
+            },
+          ]),
+        );
+      if (url.endsWith("/rpc/record_server_classification_v1")) {
+        classificationAttempts += 1;
+        return Promise.resolve(
+          Response.json({}, { status: classificationAttempts === 1 ? 503 : 200 }),
+        );
+      }
+      if (url.endsWith("persist_encrypted_source_item_v5")) {
+        sourceWrites += 1;
+        return Promise.resolve(Response.json(sourceWrites === 1 ? "stored" : "duplicate"));
+      }
+      return Promise.resolve(Response.json(sourceWrites === 1 ? "stored" : "duplicate"));
+    });
+    const { env } = supabaseEnv(serialized, fetchMock);
+    const { storage } = fakeStorage();
+    const message = await buildMessage(keyring, {});
+    const first = await processIngressMessage(storage, env, message);
+    expect(first.status).toBe(503);
+    expect(await storage.get(`source-binding:${message.envelopeId}`)).toBeUndefined();
+    const recovered = await processIngressMessage(storage, env, message);
+    expect(recovered.status).toBe(200);
+    expect(await storage.get(`source-binding:${message.envelopeId}`)).toMatchObject({
+      sourceItemId: message.envelopeId,
+    });
+    await processIngressMessage(storage, env, message);
+    expect(classificationAttempts).toBe(2);
+    expect(sourceWrites).toBe(2);
+    vi.unstubAllGlobals();
+  });
+
   it("logs a classification routine the database lacks once, by status, and keeps the capture", async () => {
     // A pipeline deployed ahead of `202609170001` meets a PostgREST 404 for the routine on every
     // capture. The status has to reach the terminal log, or that deployment-order mistake reads
@@ -961,7 +1019,12 @@ describe("processIngressMessage — Supabase-backed persistence", () => {
 
     const response = await processIngressMessage(storage, env, message);
 
-    expect(await response.json()).toEqual({ accepted: true, reason: "persisted" });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      accepted: false,
+      failureCode: "persistence_unavailable",
+    });
+    expect(await storage.get(`source-binding:${message.envelopeId}`)).toBeUndefined();
     expect(logged).toHaveBeenCalledOnce();
     const entry = JSON.parse(String(logged.mock.calls[0]?.[0])) as {
       error: Record<string, unknown>;

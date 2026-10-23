@@ -59,7 +59,9 @@ export async function drainCaptureQueue(
         result.acknowledged += 1;
       } else {
         const terminal =
-          (response.status >= 400 && response.status < 500 && response.status !== 408) ||
+          (response.status >= 400 &&
+            response.status < 500 &&
+            ![401, 408, 429].includes(response.status)) ||
           entry.attempts + 1 >= CAPTURE_QUEUE_MAX_ATTEMPTS;
         await store.fail(tenantId, parsedEnvelope.data.id, terminal);
         if (terminal) result.failed += 1;
