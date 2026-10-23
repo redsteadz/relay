@@ -61,7 +61,7 @@ jobs:
       - name: Generate schema types for failure diagnosis
         if: failure()
         id: schema_types
-        run: node scripts/supabase-types.mjs write
+        run: pnpm supabase:types
       - name: Upload generated schema types
         if: failure() && steps.schema_types.outcome == 'success'
         uses: actions/upload-artifact@v4
