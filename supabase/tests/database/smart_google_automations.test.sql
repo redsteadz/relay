@@ -1,12 +1,13 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(15);
-select has_table('public','smart_automation_settings');
-select has_table('public','smart_google_services');
-select has_table('public','smart_automation_rules');
-select has_table('public','smart_action_effects');
-select has_table('public','smart_action_outbox');
-select has_table('public','smart_google_oauth_sessions');
+-- The three-argument overload checks schema + table; two text arguments mean table + description.
+select has_table('public','smart_automation_settings','Smart automation settings exist');
+select has_table('public','smart_google_services','Google service settings exist');
+select has_table('public','smart_automation_rules','Smart automation rules exist');
+select has_table('public','smart_action_effects','Smart action effect identities exist');
+select has_table('public','smart_action_outbox','Smart action outbox exists');
+select has_table('public','smart_google_oauth_sessions','Google OAuth sessions exist');
 select ok(not has_table_privilege('authenticated','public.smart_google_oauth_sessions','select'),'OAuth sessions are backend-only');
 select ok(not has_table_privilege('authenticated','public.smart_action_outbox','update'),'Clients cannot claim execution work');
 select ok(not has_function_privilege('authenticated','public.propose_smart_action_v1(uuid,uuid,uuid,text,jsonb,integer)','execute'),'Clients cannot propose privileged effects');
