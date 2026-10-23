@@ -6,6 +6,7 @@ import { logPipelineError } from "./observability";
 import { processIngressQueue } from "./queue";
 
 export { TenantCoordinator };
+export { SmartActionWorkflow } from "./smart-action-workflow";
 
 export default {
   async fetch(request, env): Promise<Response> {

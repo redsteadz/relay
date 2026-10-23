@@ -68,6 +68,15 @@ export default function SettingsScreen() {
     <ReceiptScreen title="Settings">
       <SectionHeading icon="palette-outline" label="General" />
       <ThemePreferencePanel />
+      <SectionHeading icon="tune-variant" label="Smart Automations" />
+      <CardGroup>
+        <CardRow
+          label="Google Workspace"
+          detail="Connect services, choose destinations, and review authorized actions."
+          icon="google"
+          onPress={() => router.push("/smart-automations")}
+        />
+      </CardGroup>
 
       <SectionHeading icon="database-outline" label="Your data" />
       {configurationError ? (

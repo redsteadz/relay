@@ -1,4 +1,5 @@
 import type { ActionIntent } from "@relay/contracts";
+import { executeSmartGoogleAction, type GoogleFetcher } from "./smart-google-provider";
 
 export type ProviderResult = {
   providerReference?: string;
@@ -95,7 +96,24 @@ export function nextcloudBudgetTransactionRequest(
   });
 }
 
-export function dispatchProvider(intent: ActionIntent): ProviderResult {
+export async function dispatchProvider(
+  intent: ActionIntent,
+  authorization?: { accessToken: string; attempt: number; fetcher?: GoogleFetcher },
+): Promise<ProviderResult> {
+  if (
+    authorization !== undefined &&
+    ["google-tasks", "google-sheets", "google-calendar"].includes(intent.provider)
+  ) {
+    return {
+      status: "delivered",
+      providerReference: await executeSmartGoogleAction(
+        authorization.accessToken,
+        intent,
+        authorization.attempt,
+        authorization.fetcher,
+      ),
+    };
+  }
   // Credential retrieval and live provider calls land in provider-specific issues.
   // Keeping this result explicit prevents a scaffold from pretending side effects occurred.
   return { status: "not-configured", providerReference: `${intent.provider}:${intent.id}` };

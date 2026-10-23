@@ -18,7 +18,8 @@ async function publishPrivate(
     | "/internal/filters/compile"
     | "/internal/gmail/cursor"
     | "/internal/gmail/disconnect"
-    | "/internal/ingest",
+    | "/internal/ingest"
+    | "/internal/smart-automations",
   message: unknown,
   allowLocalStub: boolean,
   signal?: AbortSignal,
@@ -101,6 +102,13 @@ export async function publishIngress(
   requestId?: string,
 ): Promise<Response> {
   return publishPrivate("/internal/ingest", message, true, undefined, requestId);
+}
+
+export async function publishSmartAutomation(
+  message: unknown,
+  requestId?: string,
+): Promise<Response> {
+  return publishPrivate("/internal/smart-automations", message, false, undefined, requestId);
 }
 
 export async function publishFilterCompilation(

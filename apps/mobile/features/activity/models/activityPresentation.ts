@@ -193,6 +193,8 @@ const statusLabels: Readonly<Record<ActionRunStatus, string>> = {
 
 const providerLabels: Readonly<Record<string, string>> = {
   "google-tasks": "Google Tasks",
+  "google-sheets": "Google Sheets",
+  "google-calendar": "Google Calendar",
   "nextcloud-budget": "Nextcloud Budget",
   webhook: "Webhook",
 };

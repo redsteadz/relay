@@ -27,6 +27,7 @@ import {
 import { base64ToPostgresBytea, sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
 import { classifyCapture } from "./classification";
+import { planSmartSource } from "./smart-automations";
 import { readSemanticEndpointDefaults } from "./semantic";
 import { EventPersistenceError, persistSourceEventSet } from "./events";
 import { FactPersistenceError, persistSourceFactSet } from "./facts";
@@ -627,6 +628,7 @@ export async function processIngressMessage(
     performance.now() - startedAt,
     env.DEBUG,
   );
+  await planSmartSource(env, userId.data, envelope.id);
   const records: Record<string, unknown> = {};
   if (
     (persistence !== "duplicate" || factPersistence !== "source-missing") &&

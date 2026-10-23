@@ -4,6 +4,7 @@ import { listDueGmailConnections, scheduleGmailMaintenance } from "./gmail";
 import { executeKekRotationBatch } from "./key-rotation";
 import { recordPipelineMetric } from "./metrics";
 import { logPipelineError } from "./observability";
+import { drainSmartActions } from "./smart-automations";
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 type MaintenanceName = "gmail" | "kek-rotation" | "retention";
@@ -127,4 +128,5 @@ export async function runScheduledMaintenance(env: Env, fetcher: Fetcher = fetch
   if (failures.length > 0) {
     throw new Error(`Scheduled maintenance failed: ${failures.join(",")}`);
   }
+  await drainSmartActions(env);
 }

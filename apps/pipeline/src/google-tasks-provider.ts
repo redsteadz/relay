@@ -260,9 +260,8 @@ function taskId(value: unknown): string {
  *
  * Completed and hidden tasks are included, because a task created by an earlier attempt may already
  * have been dealt with by the user, and treating that as absent would create a second copy. The
- * sweep is bounded: a list large enough to exhaust the page budget returns `undefined`, which makes
- * the caller insert. Duplicating a task in a pathologically large list is the lesser failure against
- * reading it forever, and the marker still records which run produced each copy.
+ * sweep is bounded: exhausting the page budget refuses execution. An incomplete scan is not
+ * evidence that an earlier write did not commit, and must never permit another insert.
  */
 export async function findTaskByMarker(
   accessToken: string,
@@ -307,7 +306,7 @@ export async function findTaskByMarker(
     pageToken = next;
   }
 
-  return undefined;
+  throw new GoogleTasksProviderError("unavailable", new Error("Reconciliation scan incomplete"));
 }
 
 export type GoogleTaskCreation = {

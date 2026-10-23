@@ -105,6 +105,11 @@ export default function AutomationsScreen() {
         Deterministic checks always run first. A rule reaches a model only for a clause they cannot
         decide, and only if you have configured a key.
       </ContextualNotice>
+      <AppButton
+        label="Google Workspace automations"
+        tone="secondary"
+        onPress={() => router.push("/smart-automations")}
+      />
 
       {filters.loadError === null || filters.loadError === undefined ? null : (
         <>

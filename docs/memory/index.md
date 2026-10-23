@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-08-30
+last_verified: 2026-10-23
 ---
 
 # Relay Memory Index
@@ -33,6 +33,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [Gmail](../integrations/gmail.md)
 - [OpenAI (BYOK)](../integrations/openai.md)
 - [Google Tasks](../integrations/google-tasks.md)
+- [Smart Automations Google core](../integrations/smart-google-automations.md)
 - [Nextcloud Budget](../integrations/nextcloud-budget.md)
 - [Signed webhooks](../integrations/webhook.md)
 
@@ -60,6 +61,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0020: Quiet rules need not name an application](../decisions/0020-unscoped-quiet-rules.md)
 - [ADR-0021: A quiet rule can be authorized directly](../decisions/0021-direct-quiet-authorization.md)
 - [ADR-0022: Decision-engine endpoints](../decisions/0022-decision-engine-endpoints.md)
+- [ADR-0023: Smart Google automations](../decisions/0023-smart-google-automations.md)
 
 ## Delivery
 

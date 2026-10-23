@@ -30,6 +30,7 @@ export const DEMO_TABLES = [
   "silence_outcome",
   "source_facts",
   "source_items",
+  "smart_automations",
 ] as const;
 
 export function emptyTables(): DemoTables {
