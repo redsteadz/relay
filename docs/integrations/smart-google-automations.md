@@ -135,8 +135,11 @@ variant/permission configuration, and each application's local production compil
 Chrome also verified rule configuration, service disabling, global pause, all seven scenarios, and
 an Activity receipt at mobile and desktop viewport sizes. This does not replace backend E2E.
 
-Database migration execution, the 15 new pgTAP checks, generated Supabase type verification, and
-real Queue/Workflow/Supabase E2E are blocked by the unavailable local Docker engine. Android-native
+GitHub CI successfully applied the migrations, passed the Gmail migration upgrade harness, and
+passed all 512 database tests across 18 files, including the 15 Smart Automations assertions.
+The original six failures were ambiguous pgTAP table-existence overloads; the corrected tests
+explicitly name schema, table, and description. Schema types are checked against the fresh CI
+database. Local Docker remains unavailable, and real Queue/Workflow/Supabase E2E is still unverified. Android-native
 capture, native OAuth browser return, and APK/device execution are unverified without a connected
 device/AVD. Browser success is not evidence of Android-native success. Google consent, refresh,
 revocation, and external writes are mocked; sandbox-account acceptance remains required. Secondary

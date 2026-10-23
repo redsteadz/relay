@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-10-09
+last_verified: 2026-10-23
 ---
 
 # Supabase Hosted Runtime Operations
@@ -138,6 +138,12 @@ pnpm supabase:types:remote:check
 Hosted generation includes a PostgREST version hint that local generation omits; the check removes
 only that provider metadata before comparison. Any remaining difference blocks deployment. Fix
 migrations or regenerate locally; never edit generated output by hand.
+
+When the Database workflow fails, it attempts the canonical local generator and uploads the
+result as a one-day `database-types-<commit SHA>` diagnostic artifact. This contains schema types,
+not database records or credentials. Confirm its source commit before using that generated file
+to update the checkout. The diagnostic never changes the failed check into a pass; the committed
+types must still match a fresh database on the next run.
 
 ## Encryption Scope Compatibility
 

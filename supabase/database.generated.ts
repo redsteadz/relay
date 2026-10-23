@@ -951,6 +951,185 @@ export type Database = {
           },
         ];
       };
+      smart_action_effects: {
+        Row: {
+          action_run_id: string;
+          effect_key: string;
+          rule_revision: number;
+          sheet_row: number;
+          user_id: string;
+        };
+        Insert: {
+          action_run_id: string;
+          effect_key: string;
+          rule_revision: number;
+          sheet_row?: never;
+          user_id: string;
+        };
+        Update: {
+          action_run_id?: string;
+          effect_key?: string;
+          rule_revision?: number;
+          sheet_row?: never;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "smart_action_effects_user_id_action_run_id_fkey";
+            columns: ["user_id", "action_run_id"];
+            isOneToOne: true;
+            referencedRelation: "action_runs";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      smart_action_outbox: {
+        Row: {
+          action_run_id: string;
+          attempts: number;
+          available_at: string;
+          lease_until: string | null;
+          outcome_unknown: boolean;
+          user_id: string;
+        };
+        Insert: {
+          action_run_id: string;
+          attempts?: number;
+          available_at?: string;
+          lease_until?: string | null;
+          outcome_unknown?: boolean;
+          user_id: string;
+        };
+        Update: {
+          action_run_id?: string;
+          attempts?: number;
+          available_at?: string;
+          lease_until?: string | null;
+          outcome_unknown?: boolean;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "smart_action_outbox_user_id_action_run_id_fkey";
+            columns: ["user_id", "action_run_id"];
+            isOneToOne: false;
+            referencedRelation: "action_runs";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      smart_automation_rules: {
+        Row: {
+          configuration: Json;
+          id: string;
+          revision: number;
+          user_id: string;
+        };
+        Insert: {
+          configuration: Json;
+          id: string;
+          revision: number;
+          user_id: string;
+        };
+        Update: {
+          configuration?: Json;
+          id?: string;
+          revision?: number;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "smart_automation_rules_user_id_id_fkey";
+            columns: ["user_id", "id"];
+            isOneToOne: false;
+            referencedRelation: "action_rules";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      smart_automation_settings: {
+        Row: {
+          paused: boolean;
+          user_id: string;
+        };
+        Insert: {
+          paused?: boolean;
+          user_id: string;
+        };
+        Update: {
+          paused?: boolean;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      smart_google_oauth_sessions: {
+        Row: {
+          expires_at: string;
+          id: string;
+          launched: boolean;
+          sealed: Json;
+          service: string;
+          user_id: string;
+        };
+        Insert: {
+          expires_at: string;
+          id: string;
+          launched?: boolean;
+          sealed: Json;
+          service: string;
+          user_id: string;
+        };
+        Update: {
+          expires_at?: string;
+          id?: string;
+          launched?: boolean;
+          sealed?: Json;
+          service?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      smart_google_services: {
+        Row: {
+          connection_id: string | null;
+          enabled: boolean;
+          permission_required: boolean;
+          service: string;
+          setup_started: boolean;
+          target_id: string;
+          target_label: string;
+          user_id: string;
+        };
+        Insert: {
+          connection_id?: string | null;
+          enabled?: boolean;
+          permission_required?: boolean;
+          service: string;
+          setup_started?: boolean;
+          target_id?: string;
+          target_label?: string;
+          user_id: string;
+        };
+        Update: {
+          connection_id?: string | null;
+          enabled?: boolean;
+          permission_required?: boolean;
+          service?: string;
+          setup_started?: boolean;
+          target_id?: string;
+          target_label?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "smart_google_services_user_id_connection_id_fkey";
+            columns: ["user_id", "connection_id"];
+            isOneToOne: false;
+            referencedRelation: "connections";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
       source_facts: {
         Row: {
           certainty: Database["public"]["Enums"]["source_fact_certainty"];
@@ -1164,6 +1343,10 @@ export type Database = {
         };
         Returns: boolean;
       };
+      check_smart_dispatch_v1: {
+        Args: { p_run_id: string; p_user_id: string };
+        Returns: boolean;
+      };
       claim_action_run_for_workflow_v1: {
         Args: {
           p_action_run_id: string;
@@ -1213,6 +1396,10 @@ export type Database = {
           wrap_nonce: string;
           wrapped_data_key: string;
         }[];
+      };
+      claim_smart_outbox_v1: {
+        Args: { p_run_id: string; p_user_id: string };
+        Returns: boolean;
       };
       complete_action_run_v1: {
         Args: {
@@ -1274,6 +1461,10 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      configure_smart_automation_v1: {
+        Args: { p_configuration: Json; p_user_id: string };
+        Returns: boolean;
       };
       create_filter_rule_revision: {
         Args: {
@@ -1366,6 +1557,10 @@ export type Database = {
           p_user_id: string;
           p_watch_stopped: boolean;
         };
+        Returns: boolean;
+      };
+      disconnect_smart_service_v1: {
+        Args: { p_service: string; p_user_id: string };
         Returns: boolean;
       };
       dismissible_filter_rule: {
@@ -1730,6 +1925,17 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      propose_smart_action_v1: {
+        Args: {
+          p_effect_key: string;
+          p_event_id: string;
+          p_input: Json;
+          p_revision: number;
+          p_rule_id: string;
+          p_user_id: string;
+        };
+        Returns: string;
+      };
       purge_expired_raw_payloads: { Args: { p_now?: string }; Returns: number };
       purge_own_raw_payloads: { Args: never; Returns: number };
       record_dead_letter_item: {
@@ -1919,6 +2125,7 @@ export type Database = {
           user_id: string;
         }[];
       };
+      retry_smart_action_v1: { Args: { p_run_id: string }; Returns: boolean };
       revoke_device: {
         Args: { p_device_id: string };
         Returns: {
@@ -2031,7 +2238,8 @@ export type Database = {
     };
     Enums: {
       account_deletion_state: "requested" | "connectors_revoked" | "completed";
-      action_provider: "google-tasks" | "nextcloud-budget" | "webhook";
+      action_provider:
+        "google-tasks" | "nextcloud-budget" | "webhook" | "google-sheets" | "google-calendar";
       action_status:
         | "proposed"
         | "awaiting-approval"
@@ -2168,7 +2376,13 @@ export const Constants = {
   public: {
     Enums: {
       account_deletion_state: ["requested", "connectors_revoked", "completed"],
-      action_provider: ["google-tasks", "nextcloud-budget", "webhook"],
+      action_provider: [
+        "google-tasks",
+        "nextcloud-budget",
+        "webhook",
+        "google-sheets",
+        "google-calendar",
+      ],
       action_status: [
         "proposed",
         "awaiting-approval",
