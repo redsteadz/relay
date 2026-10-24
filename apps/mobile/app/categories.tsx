@@ -93,7 +93,7 @@ export default function CategoriesScreen() {
       title="Categories"
     >
       <AppText tone="muted" variant="caption">
-        Shape your own taxonomy without changing Relay's stable system vocabulary.
+        Shape your own taxonomy without changing Relay's built-in categories.
       </AppText>
       {session === null ? (
         <ContextualNotice
@@ -199,7 +199,7 @@ export default function CategoriesScreen() {
       )}
       <EditorialSurface icon="shield-check-outline" title="System categories" meta="Stable">
         <AppText tone="muted">
-          System slugs are protected machine identities. They remain visible but cannot be edited,
+          Built-in categories can't be renamed or removed. They remain visible but cannot be edited,
           archived, or deleted here.
         </AppText>
         <View style={{ gap: theme.relay.spacing.md }}>

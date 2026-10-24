@@ -41,6 +41,7 @@ export default function AutomationsScreen() {
   const filters = useFilterRules(client, session?.user.id, session?.access_token);
   const categories = useCategoryManagement(client, session?.user.id);
   const [disableTarget, setDisableTarget] = useState<FilterRuleVersion>();
+  const [toggleFailed, setToggleFailed] = useState(false);
   const signedIn = session !== null;
 
   // Resolved once for the whole list rather than per row: a rule names a category by id, and a row
@@ -57,12 +58,14 @@ export default function AutomationsScreen() {
 
   async function applyDisable() {
     if (disableTarget === undefined) return;
+    setToggleFailed(false);
     try {
       await filters.save(
         filterSaveRequest({ ...filterDraftFor(disableTarget), enabled: !disableTarget.enabled }),
       );
     } catch (error: unknown) {
       reportRuleUiFailure(error, "toggleFilterRule");
+      setToggleFailed(true);
     } finally {
       setDisableTarget(undefined);
     }
@@ -102,8 +105,8 @@ export default function AutomationsScreen() {
       title="Rules"
     >
       <ContextualNotice accessibilityLabel="How rules are evaluated">
-        Deterministic checks always run first. A rule reaches a model only for a clause they cannot
-        decide, and only if you have configured a key.
+        Exact checks such as sender, app, and amount always run first. AI is asked only about the
+        part they cannot decide, and only if you have added your own key.
       </ContextualNotice>
 
       {filters.loadError === null || filters.loadError === undefined ? null : (
@@ -125,9 +128,22 @@ export default function AutomationsScreen() {
 
       {filters.isLoading ? <LoadingState label="Loading rules" /> : null}
 
-      {!filters.isLoading && filters.rules.length === 0 ? (
+      {toggleFailed ? (
+        <StatusMessage tone="error">
+          That rule could not be changed. It is still as it was; try again.
+        </StatusMessage>
+      ) : null}
+
+      {!filters.isLoading && filters.loadError === null && filters.rules.length === 0 ? (
         <EmptyState
-          detail="Describe a rule in plain language. Relay shows the compiled predicates, the semantic clause, and what it would disclose before you save."
+          action={
+            <AppButton
+              label="Create your first rule"
+              onPress={() => router.push("/rules/editor")}
+              tone="primary"
+            />
+          }
+          detail="Describe what to catch in plain language. Before you save, Relay shows exactly what the rule checks and what it would do."
           title="No rules yet"
         />
       ) : null}
