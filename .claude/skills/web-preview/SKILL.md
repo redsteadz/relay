@@ -78,7 +78,7 @@ The route list is in `scripts/lib.mjs`. Update it when screens are added or move
 ## Gotchas found on the way
 
 - **Onboarding.** A fresh browser context lands on `/onboarding`. The scripts click through it; the
-  final button is **Open inbox**, not Continue. State is kept in localStorage per context.
+  final button is **Get started**, not Continue. State is kept in localStorage per context.
 - **Git Bash on Windows** rewrites a leading `/` argument into a Windows path
   (`/inbox` -> `C:/Program Files/Git/inbox`). Prefix commands that pass routes with
   `MSYS_NO_PATHCONV=1`.
