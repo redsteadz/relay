@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { View } from "react-native";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
-import { AppText, EditorialSurface, FeedbackState, LoadingState } from "@/components/ui";
+import { AppButton, AppText, EditorialSurface, FeedbackState, LoadingState } from "@/components/ui";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
 import { formatCaptureTime, summariseByApp } from "@/features/inbox/models/inboxPresentation";
@@ -31,9 +31,22 @@ export default function InboxApplicationsScreen() {
 
   return (
     <ReceiptScreen onBack={() => router.back()} title="Applications">
+      <AppText tone="muted" variant="caption">
+        Every app Relay has captured from. Apps with something waiting on you come first.
+      </AppText>
+
       {inbox.loading ? <LoadingState label="Reading your inbox..." /> : null}
 
-      {!inbox.loading && applications.length === 0 ? (
+      {!inbox.loading && inbox.unavailable ? (
+        <FeedbackState
+          action={<AppButton label="Retry" onPress={inbox.refetch} tone="secondary" />}
+          detail="Relay could not reach your inbox. Nothing was lost; try again when the connection returns."
+          kind="offline"
+          title="Inbox unavailable"
+        />
+      ) : null}
+
+      {!inbox.loading && !inbox.unavailable && applications.length === 0 ? (
         <FeedbackState
           detail="Once a connected source sends something, it will be listed here."
           kind="empty"

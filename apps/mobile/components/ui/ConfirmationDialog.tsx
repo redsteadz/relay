@@ -7,6 +7,8 @@ import { AppText } from "./AppText";
 
 type ConfirmationDialogProps = {
   confirmLabel: string;
+  /** Destructive by default; an affirmative decision such as an approval is not a deletion. */
+  confirmTone?: "destructive" | "primary";
   detail: string;
   loading?: boolean;
   onCancel: () => void;
@@ -17,6 +19,7 @@ type ConfirmationDialogProps = {
 
 export function ConfirmationDialog({
   confirmLabel,
+  confirmTone = "destructive",
   detail,
   loading = false,
   onCancel,
@@ -33,7 +36,12 @@ export function ConfirmationDialog({
         style={{ borderRadius: theme.relay.radii.lg }}
         visible={visible}
       >
-        <Dialog.Icon color={theme.relay.colors.danger} icon="alert-octagon-outline" />
+        <Dialog.Icon
+          color={
+            confirmTone === "destructive" ? theme.relay.colors.danger : theme.relay.colors.accent
+          }
+          icon={confirmTone === "destructive" ? "alert-octagon-outline" : "send-check-outline"}
+        />
         <Dialog.Title style={[theme.relay.typography.heading, { textAlign: "center" }]}>
           {title}
         </Dialog.Title>
@@ -46,7 +54,7 @@ export function ConfirmationDialog({
             label={confirmLabel}
             loading={loading}
             onPress={onConfirm}
-            tone="destructive"
+            tone={confirmTone}
           />
         </Dialog.Actions>
       </Dialog>

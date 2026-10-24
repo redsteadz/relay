@@ -23,6 +23,7 @@ import {
   glanceSummary,
   hourTicks,
 } from "@/features/activity/models/glancePresentation";
+import { useConfirmedApproval } from "@/features/actions/hooks/useConfirmedApproval";
 import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
 import { ReceiptCard } from "@/features/inbox/components/ReceiptCard";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
@@ -55,6 +56,7 @@ export default function TodayScreen() {
   const theme = useRelayTheme();
   const inbox = useInbox();
   const proposals = useProposedActions(client, session?.user.id);
+  const approval = useConfirmedApproval(proposals.approve);
 
   const items = useMemo(() => inbox.sections.flatMap((section) => section.items), [inbox.sections]);
   const actionable = useMemo(
@@ -171,7 +173,7 @@ export default function TodayScreen() {
                   busy={proposal !== undefined && proposals.deciding === proposal.id}
                   item={item}
                   key={item.id}
-                  onApprove={(actionRunId) => void proposals.approve(actionRunId)}
+                  onApprove={approval.request}
                   onOpen={() => router.push(`/inbox/${item.id}`)}
                   onSkip={(actionRunId) => void proposals.skip(actionRunId)}
                   proposal={proposal}
@@ -221,6 +223,7 @@ export default function TodayScreen() {
           </AppText>
         </>
       )}
+      {approval.dialog}
     </ReceiptScreen>
   );
 }

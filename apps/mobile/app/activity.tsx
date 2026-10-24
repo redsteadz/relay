@@ -142,7 +142,7 @@ export default function ActivityScreen() {
 
       {showEmpty ? (
         <EmptyState
-          detail="When Relay proposes an action or sends allowlisted fields to a model, the record appears here."
+          detail="When Relay proposes an action or shares any fields with an AI model, the record appears here."
           title="Nothing has happened yet"
         />
       ) : null}

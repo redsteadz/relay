@@ -59,7 +59,8 @@ export default function HiddenInboxScreen() {
 
             {hidden.unavailable ? (
               <FeedbackState
-                detail="Relay could not read your removed captures. Pull to try again."
+                action={<AppButton label="Retry" onPress={hidden.refetch} tone="secondary" />}
+                detail="Relay could not read your removed captures. Nothing was lost; try again."
                 kind="error"
                 title="Unavailable"
               />

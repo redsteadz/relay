@@ -16,6 +16,7 @@ import {
   UndoBar,
   type OutcomeTab,
 } from "@/components/ui";
+import { useConfirmedApproval } from "@/features/actions/hooks/useConfirmedApproval";
 import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
 import { useCategoryManagement } from "@/features/categories/hooks/useCategoryManagement";
 import { CategoryRow } from "@/features/inbox/components/CategoryRow";
@@ -23,6 +24,7 @@ import { InboxReceiptRow } from "@/features/inbox/components/InboxReceiptRow";
 import { QuietSourceRow } from "@/features/inbox/components/QuietSourceRow";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
+import { undoRemoval } from "@/features/inbox/undoRemoval";
 import {
   groupByThread,
   inboxEverything,
@@ -32,6 +34,7 @@ import {
   type InboxItem,
 } from "@/features/inbox/models/inboxPresentation";
 import { useAuth } from "@/lib/auth-context";
+import { useDismissedHint } from "@/hooks/useDismissedHint";
 import { demoModeEnabled } from "@/lib/demo/mode";
 import { logMobileError } from "@/lib/observability";
 import { useRelayTheme } from "@/theme";
@@ -67,9 +70,18 @@ const TAB_LABEL: Readonly<Record<InboxTab, string>> = {
 const EMPTY_DETAIL: Readonly<Record<InboxTab, string>> = {
   actionable: "Nothing is waiting on a decision from you.",
   all: "Nothing has been captured yet.",
-  categories: "You have no categories yet. Create one from Settings.",
+  categories: "You have no categories yet. Categories let you group captures your own way.",
   quiet: "Nothing has been filed quietly yet.",
   "needs-review": "Relay resolved everything it read.",
+};
+
+/** One line under the tabs, so what a tab holds is said before its list rather than only when it is empty. */
+const TAB_PURPOSE: Readonly<Record<InboxTab, string>> = {
+  actionable: "Things Relay suggests doing. Nothing happens until you approve.",
+  all: "Everything Relay captured, newest first.",
+  categories: "Your captures, grouped by the categories you set up.",
+  quiet: "Filed without bothering you. Still here if you need them.",
+  "needs-review": "Relay could not decide on these. A quick look settles them.",
 };
 
 /** Stable empty list, so a tab with nothing in it does not hand the memo a new array. */
@@ -81,10 +93,12 @@ export default function InboxScreen() {
   const theme = useRelayTheme();
   const inbox = useInbox();
   const proposals = useProposedActions(client, session?.user.id);
+  const approval = useConfirmedApproval(proposals.approve);
   const categories = useCategoryManagement(client, session?.user.id);
   const [tab, setTab] = useState<InboxTab>("all");
   const [searching, setSearching] = useState(false);
   const [hideError, setHideError] = useState<string | undefined>();
+  const removeHint = useDismissedHint("inbox-remove");
 
   // Every derivation below runs over the whole inbox. Removing one item puts this component
   // through several renders -- the optimistic write, the undo offer, the mutation settling -- and
@@ -148,7 +162,6 @@ export default function InboxScreen() {
 
   // Stable across renders so the memoized rows are not invalidated by a new closure each time.
   const hideEvent = inbox.hide;
-  const approveRun = proposals.approve;
   const skipRun = proposals.skip;
   const hide = useCallback(
     (eventId: string) => {
@@ -168,7 +181,7 @@ export default function InboxScreen() {
   );
 
   const openReceipt = useCallback((eventId: string) => router.push(`/inbox/${eventId}`), [router]);
-  const approve = useCallback((actionRunId: string) => void approveRun(actionRunId), [approveRun]);
+  const approve = approval.request;
   const skip = useCallback((actionRunId: string) => void skipRun(actionRunId), [skipRun]);
 
   return (
@@ -203,7 +216,7 @@ export default function InboxScreen() {
             onExpire={inbox.clearLastHidden}
             onUndo={() => {
               const removed = inbox.lastHidden;
-              if (removed !== undefined) void inbox.restore(removed.id);
+              if (removed !== undefined) undoRemoval(inbox.restore, removed.id, setHideError);
             }}
           />
         )
@@ -234,6 +247,22 @@ export default function InboxScreen() {
       {proposals.error === undefined ? null : (
         <StatusMessage tone="error">{proposals.error}</StatusMessage>
       )}
+
+      {inbox.total === 0 ? null : (
+        <AppText tone="muted" variant="caption">
+          {TAB_PURPOSE[tab]}
+        </AppText>
+      )}
+
+      {removeHint.visible && inbox.total > 0 && tab !== "categories" ? (
+        <View style={{ gap: theme.relay.spacing.xs }}>
+          <StatusMessage tone="info">
+            Swipe a capture to remove it from your inbox. You can undo straight away, and anything
+            removed waits in Removed items at the bottom of this list.
+          </StatusMessage>
+          <AppButton label="Got it" onPress={removeHint.dismiss} tone="secondary" />
+        </View>
+      ) : null}
 
       {inbox.loading ? <LoadingState label="Reading your inbox" /> : null}
 
@@ -275,9 +304,16 @@ export default function InboxScreen() {
       ) : null}
 
       {tab === "categories" && !inbox.loading && summaries.length === 0 ? (
-        <AppText tone="muted" variant="caption">
-          {EMPTY_DETAIL.categories}
-        </AppText>
+        <View style={{ gap: theme.relay.spacing.sm }}>
+          <AppText tone="muted" variant="caption">
+            {EMPTY_DETAIL.categories}
+          </AppText>
+          <AppButton
+            label="Set up categories"
+            onPress={() => router.push("/categories")}
+            tone="secondary"
+          />
+        </View>
       ) : null}
 
       {tab !== "categories" &&
@@ -325,11 +361,31 @@ export default function InboxScreen() {
       {tab === "all" || tab === "quiet" || tab === "categories" || quietCount === 0 ? null : (
         <AppButton
           accessibilityHint="Shows everything Relay filed without asking you"
-          label={`${String(quietCount)} filed quietly →`}
+          label={`See ${String(quietCount)} filed quietly`}
           onPress={() => setTab("quiet")}
           tone="secondary"
         />
       )}
+
+      {/* Recovery and the per-app view had routes but no way in: once the undo offer expired, a
+          removed capture could not be found from anywhere. */}
+      {session === null ? null : (
+        <ActionRow>
+          <AppButton
+            accessibilityHint="Lists captures you removed, so you can put them back"
+            label="Removed items"
+            onPress={() => router.push("/inbox/hidden")}
+            tone="secondary"
+          />
+          <AppButton
+            accessibilityHint="Lists every app Relay has captured from"
+            label="Browse by app"
+            onPress={() => router.push("/inbox/apps")}
+            tone="secondary"
+          />
+        </ActionRow>
+      )}
+      {approval.dialog}
     </ReceiptScreen>
   );
 }

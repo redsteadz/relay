@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { ReceiptList } from "@/components/ReceiptList";
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
+  AppButton,
+  AppText,
   AnimatedListItem,
   FeedbackState,
   LoadingState,
@@ -11,10 +13,12 @@ import {
   SwipeableRow,
   UndoBar,
 } from "@/components/ui";
+import { useConfirmedApproval } from "@/features/actions/hooks/useConfirmedApproval";
 import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
 import { useCategoryManagement } from "@/features/categories/hooks/useCategoryManagement";
 import { ReceiptCard } from "@/features/inbox/components/ReceiptCard";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
+import { undoRemoval } from "@/features/inbox/undoRemoval";
 import {
   filterByCategory,
   groupByThread,
@@ -35,6 +39,7 @@ export default function InboxCategoryScreen() {
   const { client, session } = useAuth();
   const inbox = useInbox();
   const proposals = useProposedActions(client, session?.user.id);
+  const approval = useConfirmedApproval(proposals.approve);
   const categories = useCategoryManagement(client, session?.user.id);
   const [hideError, setHideError] = useState<string | undefined>();
 
@@ -77,7 +82,7 @@ export default function InboxCategoryScreen() {
             onExpire={inbox.clearLastHidden}
             onUndo={() => {
               const removed = inbox.lastHidden;
-              if (removed !== undefined) void inbox.restore(removed.id);
+              if (removed !== undefined) undoRemoval(inbox.restore, removed.id, setHideError);
             }}
           />
         )
@@ -91,6 +96,10 @@ export default function InboxCategoryScreen() {
         data={threads}
         header={
           <>
+            <AppText tone="muted" variant="caption">
+              Everything filed in this category, newest first. Swipe one to remove it.
+            </AppText>
+
             {inbox.loading ? <LoadingState label="Reading this category..." /> : null}
 
             {hideError === undefined ? null : (
@@ -100,7 +109,16 @@ export default function InboxCategoryScreen() {
               <StatusMessage tone="error">{proposals.error}</StatusMessage>
             )}
 
-            {!inbox.loading && items.length === 0 ? (
+            {!inbox.loading && inbox.unavailable ? (
+              <FeedbackState
+                action={<AppButton label="Retry" onPress={inbox.refetch} tone="secondary" />}
+                detail="Relay could not reach your inbox. Nothing was lost; try again when the connection returns."
+                kind="offline"
+                title="Inbox unavailable"
+              />
+            ) : null}
+
+            {!inbox.loading && !inbox.unavailable && items.length === 0 ? (
               <FeedbackState
                 detail={
                   key === UNFILED_CATEGORY_KEY
@@ -126,7 +144,7 @@ export default function InboxCategoryScreen() {
                 <ReceiptCard
                   busy={proposal !== undefined && proposals.deciding === proposal.id}
                   item={thread.latest}
-                  onApprove={(runId) => void proposals.approve(runId)}
+                  onApprove={approval.request}
                   onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
                   onSkip={(runId) => void proposals.skip(runId)}
                   proposal={proposal}
@@ -137,6 +155,7 @@ export default function InboxCategoryScreen() {
           );
         }}
       />
+      {approval.dialog}
     </ReceiptScreen>
   );
 }

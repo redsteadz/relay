@@ -36,12 +36,12 @@ export default function DisclosuresScreen() {
             />
           ) : disclosures.isPending ? (
             <LoadingState label="Checking disclosure history..." />
-          ) : (
+          ) : disclosures.error === null ? (
             <EmptyState
-              detail="When Relay sends allowlisted fields to an AI provider, the metadata appears here."
+              detail="When Relay shares fields with an AI provider, you will see which ones, when, and why."
               title="No AI disclosures"
             />
-          )
+          ) : null
         }
         ListHeaderComponent={
           <View style={{ gap: theme.relay.spacing.lg, marginBottom: theme.relay.spacing.sm }}>

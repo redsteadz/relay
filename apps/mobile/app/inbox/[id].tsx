@@ -1,9 +1,10 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, Pressable, StyleSheet, View } from "react-native";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
+  ActionRow,
   AppButton,
   AppText,
   ContextualNotice,
@@ -11,12 +12,14 @@ import {
   LoadingState,
   StatusMessage,
 } from "@/components/ui";
+import { useConfirmedApproval } from "@/features/actions/hooks/useConfirmedApproval";
 import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
 import { DecisionLine } from "@/features/inbox/components/DecisionLine";
 import { FactChipRow } from "@/features/inbox/components/FactChipRow";
 import { ProposedActionBlock } from "@/features/inbox/components/ProposedActionBlock";
 import { ReceiptField, ReceiptStage } from "@/features/inbox/components/ReceiptStage";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
+import { UNDO_FAILED_MESSAGE } from "@/features/inbox/undoRemoval";
 import { formatCaptureTime, type InboxItem } from "@/features/inbox/models/inboxPresentation";
 import { eventKindLabel, receiptDecision } from "@/features/inbox/models/receiptPresentation";
 import { useAuth } from "@/lib/auth-context";
@@ -42,7 +45,7 @@ const METHOD_NOTE: Record<string, string> = {
     "No model was involved. Relay matched the fields a rule names and nothing left this account.",
   manual: "You filed this yourself. No rule and no model decided it.",
   semantic:
-    "No deterministic rule matched, so allowlisted fields were sent to your configured model. The raw body was not among them.",
+    "No exact rule decided this, so only the fields you allowed were sent to your AI model. The full message was not.",
 };
 
 /**
@@ -60,9 +63,14 @@ export default function InboxItemScreen() {
   const { client, session } = useAuth();
   const inbox = useInbox();
   const proposals = useProposedActions(client, session?.user.id);
+  const approval = useConfirmedApproval(proposals.approve);
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState<string | undefined>();
   const [whyOpen, setWhyOpen] = useState(false);
+  // The removed capture, kept so this screen can offer undo. Going back straight away dropped the
+  // offer: the undo state belongs to each screen's own inbox hook, so the list never saw it.
+  const [removed, setRemoved] = useState<InboxItem | undefined>();
+  const [restoring, setRestoring] = useState(false);
 
   const all = inbox.sections.flatMap((section) => section.items);
   const item: InboxItem | undefined = all.find((candidate) => candidate.id === id);
@@ -82,7 +90,8 @@ export default function InboxItemScreen() {
     setStatus(undefined);
     try {
       await inbox.hide(item.id);
-      router.back();
+      setRemoved(item);
+      AccessibilityInfo.announceForAccessibility(`Removed ${item.title} from your inbox`);
     } catch (error: unknown) {
       logMobileError("ui.inbox_hide_failed", error, {
         code: "INBOX_HIDE_FAILED",
@@ -95,14 +104,64 @@ export default function InboxItemScreen() {
     }
   }
 
+  async function undo(): Promise<void> {
+    if (removed === undefined) return;
+    setRestoring(true);
+    setStatus(undefined);
+    try {
+      await inbox.restore(removed.id);
+      setRemoved(undefined);
+    } catch (error: unknown) {
+      logMobileError("ui.inbox_undo_failed", error, {
+        code: "INBOX_UNDO_FAILED",
+        integration: "supabase-postgrest",
+        operation: "restoreInboxEvent",
+      });
+      setStatus(UNDO_FAILED_MESSAGE);
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   const decision =
     item === undefined ? undefined : receiptDecision(item.category, item.reviewReasons.length > 0);
 
   return (
-    <ReceiptScreen onBack={() => router.back()} title={item?.title ?? "Receipt"}>
+    <ReceiptScreen onBack={() => router.back()} title={item?.title ?? removed?.title ?? "Receipt"}>
       {inbox.loading ? <LoadingState label="Reading this capture..." /> : null}
 
-      {!inbox.loading && item === undefined ? (
+      {!inbox.loading && inbox.unavailable ? (
+        <FeedbackState
+          action={<AppButton label="Retry" onPress={inbox.refetch} tone="secondary" />}
+          detail="Relay could not reach your inbox. Nothing was lost; try again when the connection returns."
+          kind="offline"
+          title="Inbox unavailable"
+        />
+      ) : null}
+
+      {removed === undefined ? null : (
+        <>
+          <FeedbackState
+            action={
+              <ActionRow>
+                <AppButton
+                  label="Undo"
+                  loading={restoring}
+                  onPress={() => void undo()}
+                  tone="primary"
+                />
+                <AppButton label="Back to inbox" onPress={() => router.back()} tone="secondary" />
+              </ActionRow>
+            }
+            detail="It is out of your inbox but nothing was deleted. You can also find it later in Removed items."
+            kind="success"
+            title="Removed from your inbox"
+          />
+          {status === undefined ? null : <StatusMessage tone="error">{status}</StatusMessage>}
+        </>
+      )}
+
+      {!inbox.loading && !inbox.unavailable && item === undefined && removed === undefined ? (
         <FeedbackState
           detail="This capture is not in your inbox. It may have been removed."
           kind="empty"
@@ -237,7 +296,7 @@ export default function InboxItemScreen() {
                 >
                   <ProposedActionBlock
                     busy={proposals.deciding === proposal.id}
-                    onApprove={() => void proposals.approve(proposal.id)}
+                    onApprove={() => approval.request(proposal.id)}
                     onSkip={() => void proposals.skip(proposal.id)}
                     proposal={proposal}
                   />
@@ -276,6 +335,7 @@ export default function InboxItemScreen() {
           />
         </View>
       )}
+      {approval.dialog}
     </ReceiptScreen>
   );
 }

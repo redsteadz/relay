@@ -54,6 +54,22 @@ export default function YourDataScreen() {
           />
         </EditorialSurface>
       </ReceiptStage>
+
+      {session === null ? null : (
+        <ReceiptStage label="What you removed" ordinal={4}>
+          <EditorialSurface icon="inbox-remove-outline" meta="Recoverable" title="Removed items">
+            <AppText tone="muted">
+              Captures you took out of your inbox. Nothing in them was deleted, and you can put any
+              of them back.
+            </AppText>
+            <AppButton
+              label="View removed items"
+              onPress={() => router.push("/inbox/hidden")}
+              tone="secondary"
+            />
+          </EditorialSurface>
+        </ReceiptStage>
+      )}
     </ReceiptScreen>
   );
 }

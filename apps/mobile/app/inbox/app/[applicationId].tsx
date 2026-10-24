@@ -4,6 +4,7 @@ import { View } from "react-native";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import {
+  AppButton,
   AnimatedListItem,
   AppText,
   FeedbackState,
@@ -12,10 +13,12 @@ import {
   SwipeableRow,
   UndoBar,
 } from "@/components/ui";
+import { useConfirmedApproval } from "@/features/actions/hooks/useConfirmedApproval";
 import { useProposedActions } from "@/features/actions/hooks/useProposedActions";
 import { ReceiptCard } from "@/features/inbox/components/ReceiptCard";
 import { useApplicationLabels } from "@/features/inbox/hooks/useApplicationLabels";
 import { useInbox } from "@/features/inbox/hooks/useInbox";
+import { undoRemoval } from "@/features/inbox/undoRemoval";
 import {
   groupByThread,
   inboxAppKey,
@@ -47,6 +50,7 @@ export default function InboxApplicationScreen() {
   const { client, session } = useAuth();
   const inbox = useInbox();
   const proposals = useProposedActions(client, session?.user.id);
+  const approval = useConfirmedApproval(proposals.approve);
   const [hideError, setHideError] = useState<string | undefined>();
 
   const key = decodeURIComponent(applicationId ?? "");
@@ -91,13 +95,17 @@ export default function InboxApplicationScreen() {
             onExpire={inbox.clearLastHidden}
             onUndo={() => {
               const removed = inbox.lastHidden;
-              if (removed !== undefined) void inbox.restore(removed.id);
+              if (removed !== undefined) undoRemoval(inbox.restore, removed.id, setHideError);
             }}
           />
         )
       }
       title={label}
     >
+      <AppText tone="muted" variant="caption">
+        Everything Relay captured from this app, newest first. Swipe one to remove it.
+      </AppText>
+
       {inbox.loading ? <LoadingState label="Reading captures..." /> : null}
 
       {hideError === undefined ? null : <StatusMessage tone="error">{hideError}</StatusMessage>}
@@ -105,7 +113,16 @@ export default function InboxApplicationScreen() {
         <StatusMessage tone="error">{proposals.error}</StatusMessage>
       )}
 
-      {!inbox.loading && items.length === 0 ? (
+      {!inbox.loading && inbox.unavailable ? (
+        <FeedbackState
+          action={<AppButton label="Retry" onPress={inbox.refetch} tone="secondary" />}
+          detail="Relay could not reach your inbox. Nothing was lost; try again when the connection returns."
+          kind="offline"
+          title="Inbox unavailable"
+        />
+      ) : null}
+
+      {!inbox.loading && !inbox.unavailable && items.length === 0 ? (
         <FeedbackState
           detail="Nothing from this source is in your inbox. It may all have been removed."
           kind="empty"
@@ -131,7 +148,7 @@ export default function InboxApplicationScreen() {
                     <ReceiptCard
                       busy={proposal !== undefined && proposals.deciding === proposal.id}
                       item={thread.latest}
-                      onApprove={(runId) => void proposals.approve(runId)}
+                      onApprove={approval.request}
                       onOpen={() => router.push(`/inbox/${thread.latest.id}`)}
                       onSkip={(runId) => void proposals.skip(runId)}
                       proposal={proposal}
@@ -144,6 +161,7 @@ export default function InboxApplicationScreen() {
           </View>
         ),
       )}
+      {approval.dialog}
     </ReceiptScreen>
   );
 }
