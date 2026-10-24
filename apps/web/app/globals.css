@@ -14,27 +14,27 @@
  */
 :root,
 .plate {
-  --bg: light-dark(#f3efe7, #151411);
-  --surface: light-dark(#fffcf5, #1d1c18);
-  --surface-raised: light-dark(#eae4d9, #292721);
-  --surface-sunken: light-dark(#ded7cb, #0f0e0c);
+  --bg: light-dark(#f3efe7, #0e0d0b);
+  --surface: light-dark(#fffcf5, #171613);
+  --surface-raised: light-dark(#eae4d9, #23211d);
+  --surface-sunken: light-dark(#ded7cb, #080706);
   --border: light-dark(#2a2824, #e5ded1);
-  --border-subtle: light-dark(#c8c0b4, #514d46);
-  --text: light-dark(#191816, #f4efe6);
-  --text-muted: light-dark(#5f5a52, #b9b1a5);
-  --action: light-dark(#1e1d1a, #f4efe6);
-  --on-action: light-dark(#fffcf5, #1b1915);
-  --accent: light-dark(#b84616, #f08b5e);
-  --accent-subtle: light-dark(#f8d8c8, #522516);
-  --on-accent-subtle: light-dark(#4c1909, #ffdccc);
+  --border-subtle: light-dark(#c8c0b4, #3a362f);
+  --text: light-dark(#191816, #f7f3ec);
+  --text-muted: light-dark(#5f5a52, #b1aa9f);
+  --action: light-dark(#1e1d1a, #f7f3ec);
+  --on-action: light-dark(#fffcf5, #15130f);
+  --accent: light-dark(#b84616, #f28050);
+  --accent-subtle: light-dark(#f8d8c8, #45200f);
+  --on-accent-subtle: light-dark(#4c1909, #ffdccb);
   --success: light-dark(#1d6545, #8dd7ae);
-  --success-surface: light-dark(#cfe8d9, #163a29);
+  --success-surface: light-dark(#cfe8d9, #12331f);
   --on-success-surface: light-dark(#123b29, #b8f0cd);
-  --warning-surface: light-dark(#f4deb7, #47320d);
+  --warning-surface: light-dark(#f4deb7, #40300e);
   --on-warning-surface: light-dark(#3c2600, #ffe2ad);
-  --danger-surface: light-dark(#f9d9d5, #551c1a);
+  --danger-surface: light-dark(#f9d9d5, #4d1714);
   --on-danger-surface: light-dark(#4b1110, #ffdad6);
-  --info-surface: light-dark(#d6e7ee, #183b4a);
+  --info-surface: light-dark(#d6e7ee, #143140);
   --on-info-surface: light-dark(#183846, #cbeaf5);
   --shadow-color: light-dark(rgba(25, 24, 22, 0.12), rgba(0, 0, 0, 0.35));
 
