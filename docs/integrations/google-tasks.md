@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: integrations
-last_verified: 2026-08-28
+last_verified: 2026-10-23
 sources:
   - https://developers.google.com/workspace/tasks/reference/rest
 ---
@@ -10,7 +10,8 @@ sources:
 
 Google Tasks is first action provider. Connector authorization is separate and encrypted — even
 when the same Google account also has a Gmail connection, the two are distinct rows in
-`connections` (different `provider` values), so disconnecting one never touches the other. Relay
+`connections` (different `provider` values). Google project/account grant revocation can still
+invalidate tokens for other Google services; distinct rows do not isolate upstream revocation. Relay
 creates a task only from a user-owned action rule with operation `create-task`.
 
 ## Connector OAuth
@@ -38,9 +39,14 @@ Gmail connector's shape:
 Mapped fields are title, notes, due date, and selected task list. Relay stores Google task ID as
 provider reference. Because insert does not offer a Relay-controlled idempotency key, notes carry a
 stable Relay action marker and ambiguous retries reconcile the target list before another insert.
-Exact marker format and search limitations require implementation validation.
+Reconciliation scans at most ten pages; an incomplete scan refuses another insert. Mocked provider
+tests verify this boundary. Live Google validation remains outstanding.
 
 Approval is default. Automatic task creation is enabled per rule only. Deleting or completing tasks
 is outside MVP scope.
 
 Related: [action model](../architecture/action-model.md).
+
+The opt-in [Smart Automations core](smart-google-automations.md) adds a subject-bound, incremental
+authorization flow and dispatch through the same adapter. The legacy endpoints above remain
+supported. See that guide for explicit legacy reconnection and revocation limitations.

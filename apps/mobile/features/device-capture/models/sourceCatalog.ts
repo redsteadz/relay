@@ -9,7 +9,7 @@ export type SourceDefinition = {
 
 export const sourceCatalog: Record<SourceId, SourceDefinition> = {
   gmail: {
-    description: "New-mail alerts only, never message text. Coming soon.",
+    description: "New-mail alerts from your Google account. Connect it from Smart Automations.",
     icon: "email-outline",
     id: "gmail",
     name: "Gmail",

@@ -58,5 +58,17 @@ jobs:
       - run: pnpm supabase:gmail-upgrade:test
       - run: pnpm exec supabase test db
       - run: pnpm supabase:types:check
+      - name: Generate schema types for failure diagnosis
+        if: failure()
+        id: schema_types
+        run: pnpm supabase:types
+      - name: Upload generated schema types
+        if: failure() && steps.schema_types.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-types-${{ github.sha }}
+          path: supabase/database.generated.ts
+          retention-days: 1
+          if-no-files-found: error
       - if: github.event_name == 'workflow_dispatch'
         run: pnpm e2e:local

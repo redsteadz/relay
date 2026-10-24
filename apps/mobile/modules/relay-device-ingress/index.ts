@@ -377,19 +377,21 @@ const RelayDeviceIngress = {
     tenantId: string | undefined,
     cleanupTenantId: string | undefined,
     generation: number,
+    allowAccountCleanup = true,
   ): Promise<void> {
     if (demoModeEnabled()) {
       preparedCaptureGeneration = generation;
       return;
     }
     if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
-    await NativeRelayDeviceIngress.prepareNotificationCaptureState(
+    const acceptedGeneration = await NativeRelayDeviceIngress.prepareNotificationCaptureState(
       tenantId ?? null,
       cleanupTenantId ?? null,
       generation,
+      allowAccountCleanup,
     );
-    if (preparedCaptureGeneration === undefined || generation > preparedCaptureGeneration) {
-      preparedCaptureGeneration = generation;
+    if (preparedCaptureGeneration === undefined || acceptedGeneration > preparedCaptureGeneration) {
+      preparedCaptureGeneration = acceptedGeneration;
     }
   },
   async requestSmsPermissions(): Promise<boolean> {
@@ -508,6 +510,36 @@ const RelayDeviceIngress = {
       terminal,
       currentCaptureGeneration(),
     );
+  },
+  async retryFailedCaptures(tenantId: string): Promise<void> {
+    if (demoModeEnabled()) return demoDeviceIngress.retryFailedCaptures(tenantId);
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
+    await NativeRelayDeviceIngress.retryFailedCaptures(tenantId, currentCaptureGeneration());
+  },
+  async scheduleCaptureRetry(tenantId: string): Promise<void> {
+    if (demoModeEnabled() || Platform.OS !== "android" || NativeRelayDeviceIngress === null) return;
+    await NativeRelayDeviceIngress.scheduleCaptureRetry(tenantId, currentCaptureGeneration());
+  },
+  async getUnsynchronizedCaptureIds(tenantId: string): Promise<string[]> {
+    if (demoModeEnabled()) return demoDeviceIngress.getUnsynchronizedCaptureIds(tenantId);
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return [];
+    return NativeRelayDeviceIngress.getUnsynchronizedCaptureIds(
+      tenantId,
+      currentCaptureGeneration(),
+    );
+  },
+  async finishCaptureLogout(tenantId: string, discard: boolean): Promise<number> {
+    if (demoModeEnabled()) {
+      return demoDeviceIngress.finishCaptureLogout(tenantId, discard);
+    }
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return 0;
+    const pending = await NativeRelayDeviceIngress.finishCaptureLogout(
+      tenantId,
+      discard,
+      currentCaptureGeneration(),
+    );
+    if (pending === 0) preparedCaptureGeneration = undefined;
+    return pending;
   },
   async clearCaptureQueue(tenantId: string): Promise<void> {
     if (demoModeEnabled()) return demoDeviceIngress.clearCaptureQueue(tenantId);

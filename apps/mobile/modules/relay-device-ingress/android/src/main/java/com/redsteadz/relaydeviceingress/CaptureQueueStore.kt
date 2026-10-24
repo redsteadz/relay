@@ -47,7 +47,7 @@ internal const val PENDING_SILENCE_DECISION = "awaiting-model"
 internal const val SILENCE_OUTCOME_MAX_PENDING = 96
 
 internal class CaptureQueueStore(context: Context) :
-  SQLiteOpenHelper(context, "relay-capture.db", null, 4) {
+  SQLiteOpenHelper(context, "relay-capture.db", null, 5) {
   private val crypto = CaptureQueueCrypto()
 
   override fun onCreate(db: SQLiteDatabase) {
@@ -60,6 +60,7 @@ internal class CaptureQueueStore(context: Context) :
         expires_at INTEGER NOT NULL,
         byte_count INTEGER NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
         state TEXT NOT NULL CHECK(state IN ('pending','failed')),
         nonce BLOB NOT NULL,
         ciphertext BLOB NOT NULL,
@@ -124,6 +125,9 @@ internal class CaptureQueueStore(context: Context) :
     }
     if (oldVersion < 3) createContentTable(db)
     if (oldVersion < 4) createSilenceOutcomeTable(db)
+    if (oldVersion < 5) {
+      db.execSQL("ALTER TABLE capture_queue ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0")
+    }
   }
 
   /**
@@ -437,11 +441,11 @@ internal class CaptureQueueStore(context: Context) :
   fun ready(tenantId: String, now: Long, includeSms: Boolean): List<Map<String, Any>> {
     expire(writableDatabase, now)
     val selection = if (includeSms) {
-      "tenant_id=? AND state='pending' AND expires_at>?"
+      "tenant_id=? AND state='pending' AND expires_at>? AND next_attempt_at<=?"
     } else {
-      "tenant_id=? AND state='pending' AND expires_at>? AND source_kind!='sms'"
+      "tenant_id=? AND state='pending' AND expires_at>? AND next_attempt_at<=? AND source_kind!='sms'"
     }
-    return readyRows(tenantId, selection, arrayOf(tenantId, now.toString()))
+    return readyRows(tenantId, selection, arrayOf(tenantId, now.toString(), now.toString()))
   }
 
   fun readyBySource(
@@ -495,8 +499,8 @@ internal class CaptureQueueStore(context: Context) :
   fun fail(tenantId: String, envelopeId: String, terminal: Boolean) {
     val state = if (terminal) "failed" else "pending"
     writableDatabase.execSQL(
-      "UPDATE capture_queue SET attempts=attempts+1, state=? WHERE tenant_id=? AND envelope_id=?",
-      arrayOf(state, tenantId, envelopeId)
+      "UPDATE capture_queue SET next_attempt_at=? + MIN(900000, 30000 * (1 << MIN(attempts, 5))), attempts=attempts+1, state=? WHERE tenant_id=? AND envelope_id=?",
+      arrayOf(System.currentTimeMillis(), state, tenantId, envelopeId)
     )
   }
 
@@ -520,6 +524,40 @@ internal class CaptureQueueStore(context: Context) :
       "tenant_id=? AND source_kind=?",
       arrayOf(tenantId, sourceKind)
     )
+  }
+
+  fun retryFailed(tenantId: String) {
+    writableDatabase.execSQL(
+      "UPDATE capture_queue SET state='pending', attempts=0, next_attempt_at=0 WHERE tenant_id=? AND state='failed' AND expires_at>?",
+      arrayOf(tenantId, System.currentTimeMillis())
+    )
+  }
+
+  fun nextDeliveryDelay(tenantId: String): Long? {
+    val now = System.currentTimeMillis()
+    readableDatabase.rawQuery(
+      "SELECT MIN(next_attempt_at) FROM capture_queue WHERE tenant_id=? AND state='pending' AND expires_at>?",
+      arrayOf(tenantId, now.toString())
+    ).use { cursor ->
+      if (!cursor.moveToFirst() || cursor.isNull(0)) return null
+      return maxOf(60_000L, cursor.getLong(0) - now)
+    }
+  }
+
+  fun unsynchronizedIds(tenantId: String): List<String> {
+    val ids = mutableListOf<String>()
+    readableDatabase.rawQuery(
+      "SELECT envelope_id FROM capture_queue WHERE tenant_id=? AND expires_at>?",
+      arrayOf(tenantId, System.currentTimeMillis().toString())
+    ).use { cursor -> while (cursor.moveToNext()) ids += cursor.getString(0) }
+    return ids
+  }
+
+  fun unsynchronizedCount(tenantId: String): Int {
+    readableDatabase.rawQuery(
+      "SELECT COUNT(*) FROM capture_queue WHERE tenant_id=? AND expires_at>?",
+      arrayOf(tenantId, System.currentTimeMillis().toString())
+    ).use { cursor -> return if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
   }
 
   fun clearTenant(tenantId: String) {

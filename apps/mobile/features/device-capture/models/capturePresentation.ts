@@ -16,7 +16,7 @@ const loadingStatus: SourceStatus = {
 
 export const gmailStatus: SourceStatus = {
   icon: "clock-outline",
-  label: "Coming soon",
+  label: "Not connected",
   tone: "muted",
 };
 

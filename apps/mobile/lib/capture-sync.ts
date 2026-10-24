@@ -30,6 +30,7 @@ export async function syncQueuedCaptures(tenantId: string, deviceId: string, acc
           "x-relay-request-id": operationRequestId,
         },
         body: JSON.stringify({ deviceId, envelope }),
+        signal: AbortSignal.timeout(30_000),
       });
     } catch (error: unknown) {
       throw normalizeError(error, {

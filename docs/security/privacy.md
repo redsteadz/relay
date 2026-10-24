@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-10-08
+last_verified: 2026-10-23
 ---
 
 # Privacy And Data Lifecycle
@@ -220,3 +220,12 @@ the harness.
 Related: [key rotation](key-rotation.md), [threat model](threat-model.md),
 [filter model](../architecture/filter-model.md), and
 [Supabase operations](../operations/supabase.md).
+
+## Logout with pending captures
+
+The clear-on-logout policy is unchanged. Unexpired unsynchronized captures require a choice:
+Sync Now attempts delivery and rechecks, Cancel leaves the account signed in, and Discard & Sign Out
+explicitly authorizes local loss. The native check includes failed rows and is atomic with clearing.
+Synchronized server facts, events, classifications and action history remain readable after same-account
+login, subject to retention/deletion. Local encrypted message bodies are cleared and are not restored
+from server ciphertext. See [ADR-0024](../decisions/0024-capture-safe-logout-and-recovery.md).

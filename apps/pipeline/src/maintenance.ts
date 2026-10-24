@@ -4,9 +4,10 @@ import { listDueGmailConnections, scheduleGmailMaintenance } from "./gmail";
 import { executeKekRotationBatch } from "./key-rotation";
 import { recordPipelineMetric } from "./metrics";
 import { logPipelineError } from "./observability";
+import { drainSmartActions } from "./smart-automations";
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
-type MaintenanceName = "gmail" | "kek-rotation" | "retention";
+type MaintenanceName = "gmail" | "kek-rotation" | "retention" | "smart-actions";
 
 export const MAINTENANCE_TASK_TIMEOUT_MS = 30_000;
 
@@ -37,7 +38,11 @@ function fetcherWithSignal(fetcher: Fetcher, signal: AbortSignal): Fetcher {
 async function attemptMaintenance(
   env: Env,
   name: MaintenanceName,
-  failureMetric: "gmail_maintenance_failed" | "kek_rotation_failed" | "retention_purge_failed",
+  failureMetric:
+    | "gmail_maintenance_failed"
+    | "kek_rotation_failed"
+    | "retention_purge_failed"
+    | "smart_action_maintenance_failed",
   operation: (signal: AbortSignal) => Promise<void>,
 ): Promise<MaintenanceName | undefined> {
   const startedAt = performance.now();
@@ -80,6 +85,9 @@ export async function runScheduledMaintenance(env: Env, fetcher: Fetcher = fetch
 
   const failures = (
     await Promise.all([
+      attemptMaintenance(env, "smart-actions", "smart_action_maintenance_failed", async () => {
+        await drainSmartActions(env);
+      }),
       attemptMaintenance(env, "retention", "retention_purge_failed", async (signal) => {
         const retentionStartedAt = performance.now();
         const response = await fetcher(`${supabase.url}/rest/v1/rpc/purge_expired_raw_payloads`, {

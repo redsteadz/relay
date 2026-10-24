@@ -23,7 +23,15 @@ import { AppButton, FeedbackState, LoadingState } from "@/components/ui";
 import { resolvePendingSilencesForTenant } from "@/features/silence/api/silenceResolution";
 import { SubscriptionProvider } from "@/features/subscription/context/subscription-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
-import { restoreBackgroundSyncRegistration } from "@/lib/background-capture-sync";
+import { prepareCaptureTenant } from "@/lib/capture-preparation";
+import { serializeCaptureWork } from "@/lib/capture-work";
+import { clearLocalStoreForTenant } from "@/lib/local-store";
+import { clearDeviceSemanticConfig } from "@/lib/device-semantic-config";
+import { demoModeEnabled } from "@/lib/demo/mode";
+import {
+  restoreBackgroundSyncRegistration,
+  setBackgroundSyncEnabled,
+} from "@/lib/background-capture-sync";
 import {
   canEnterApp,
   canEnterSignIn,
@@ -61,15 +69,17 @@ function AuthenticatedStack() {
   const [preparationFailed, setPreparationFailed] = useState(false);
   // Bumped by Retry so the preparation effect runs again without asking the reader to restart.
   const [preparationAttempt, setPreparationAttempt] = useState(0);
-  const preparationGenerationRef = useRef(0);
   const previousUserIdRef = useRef<string | undefined>(undefined);
+  const previousCaptureTenantRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const userId = session?.user.id;
     if (previousUserIdRef.current !== userId) {
-      queryClient.removeQueries({
-        predicate: (query) => query.queryKey[0] === "categories" || query.queryKey[0] === "privacy",
+      runInBackground(queryClient.cancelQueries(), "auth.cache_cancel_failed", {
+        code: "AUTH_CACHE_CANCEL_FAILED",
+        operation: "cancelQueries",
       });
+      queryClient.clear();
       previousUserIdRef.current = userId;
     }
   }, [queryClient, session?.user.id]);
@@ -77,16 +87,19 @@ function AuthenticatedStack() {
   useEffect(() => {
     if (!initialized) return;
     let active = true;
-    const generation = Math.max(Date.now(), preparationGenerationRef.current + 1);
-    preparationGenerationRef.current = generation;
     setPreparedStateKey(undefined);
     setPreparationFailed(false);
     void (async () => {
-      await RelayDeviceIngress.prepareNotificationCaptureState(
-        captureMode.tenantId,
-        captureMode.cleanupTenantId,
-        generation,
-      );
+      await serializeCaptureWork(async () => {
+        const previous = previousCaptureTenantRef.current;
+        if (previous !== undefined && previous !== captureMode.tenantId) {
+          await clearLocalStoreForTenant(previous);
+          if (!demoModeEnabled()) await clearDeviceSemanticConfig(previous);
+          await setBackgroundSyncEnabled(false);
+        }
+        await prepareCaptureTenant(captureMode.tenantId, captureMode.cleanupTenantId);
+        previousCaptureTenantRef.current = captureMode.tenantId;
+      });
       if (active) setPreparedStateKey(captureMode.stateKey);
     })().catch((error: unknown) => {
       logMobileError("background.capture_state_preparation_failed", error, {
@@ -140,8 +153,11 @@ function AuthenticatedStack() {
 
   return (
     <>
-      <DeviceCaptureSync />
-      <Stack screenOptions={{ headerShown: false }}>
+      <DeviceCaptureSync key={`capture:${session?.user.id ?? "signed-out"}`} />
+      <Stack
+        key={`navigation:${session?.user.id ?? "signed-out"}`}
+        screenOptions={{ headerShown: false }}
+      >
         <Stack.Protected guard={!introduced}>
           <Stack.Screen name="onboarding" />
         </Stack.Protected>
@@ -155,6 +171,7 @@ function AuthenticatedStack() {
           <Stack.Screen name="rules/editor" />
           <Stack.Screen name="sources" />
           <Stack.Screen name="categories" />
+          <Stack.Screen name="smart-automations" />
           <Stack.Screen name="activity" />
           <Stack.Screen name="demo" />
           <Stack.Screen name="disclosures" />
@@ -192,16 +209,25 @@ const CAPTURE_SYNC_COALESCE_MS = 1_200;
 
 function DeviceCaptureSync() {
   const { client, session } = useAuth();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (session === null) return;
     const tenantId = session.user.id;
     const sync = () => {
-      runInBackground(syncDeviceCaptures(session), "background.device_capture_sync_failed", {
-        code: "DEVICE_CAPTURE_SYNC_FAILED",
-        integration: "relay-device-ingress",
-        operation: "syncDeviceCaptures",
-      });
+      runInBackground(
+        syncDeviceCaptures(session, async () => {
+          await queryClient.invalidateQueries({ queryKey: ["inbox-local", tenantId] });
+        }).finally(async () => {
+          await queryClient.invalidateQueries({ queryKey: ["inbox", tenantId] });
+        }),
+        "background.device_capture_sync_failed",
+        {
+          code: "DEVICE_CAPTURE_SYNC_FAILED",
+          integration: "relay-device-ingress",
+          operation: "syncDeviceCaptures",
+        },
+      );
       // Finishes the quiet decisions the notification listener could not make. The listener runs in
       // a system-bound process with no session and cannot reach a model, so a rule carrying a
       // semantic clause records a candidate and leaves the notification alone; this pass and the
@@ -260,7 +286,7 @@ function DeviceCaptureSync() {
       unsubscribe();
       if (pending !== undefined) clearTimeout(pending);
     };
-  }, [client, session]);
+  }, [client, queryClient, session]);
 
   return null;
 }

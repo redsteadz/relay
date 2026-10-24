@@ -5,6 +5,13 @@
   "compatibility_date": "2026-08-24",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": false,
+  "workflows": [
+    {
+      "binding": "SMART_ACTION_WORKFLOW",
+      "name": "relay-smart-google-actions",
+      "class_name": "SmartActionWorkflow",
+    },
+  ],
   "preview_urls": false,
   "observability": {
     "enabled": true,

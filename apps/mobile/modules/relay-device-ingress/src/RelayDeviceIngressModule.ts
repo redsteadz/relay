@@ -74,6 +74,10 @@ export type NativePendingSilence = {
 export type CaptureEnqueuedEvent = { sourceKind: string };
 
 type RelayDeviceIngressNativeModule = {
+  retryFailedCaptures(tenantId: string, generation: number): Promise<void>;
+  scheduleCaptureRetry(tenantId: string, generation: number): Promise<void>;
+  getUnsynchronizedCaptureIds(tenantId: string, generation: number): Promise<string[]>;
+  finishCaptureLogout(tenantId: string, discard: boolean, generation: number): Promise<number>;
   addListener(
     event: "onCaptureEnqueued",
     handler: (payload: CaptureEnqueuedEvent) => void,
@@ -91,7 +95,8 @@ type RelayDeviceIngressNativeModule = {
     tenantId: string | null,
     cleanupTenantId: string | null,
     generation: number,
-  ): Promise<void>;
+    allowAccountCleanup: boolean,
+  ): Promise<number>;
   configureSmsCapture(
     tenantId: string,
     allowedSenders: string[],

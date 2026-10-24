@@ -31,10 +31,11 @@ import { reportUnexpectedUiError } from "@/lib/observability";
  * whole argument is consent, is a claim worth being able to make sparingly.
  */
 export default function SettingsScreen() {
-  const { configurationError, session, signOut } = useAuth();
+  const { configurationError, session, signOut, syncBeforeSignOut } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [pendingCaptures, setPendingCaptures] = useState(0);
   const signedIn = session !== null;
 
   function openSignIn() {
@@ -49,11 +50,12 @@ export default function SettingsScreen() {
     router.push(pathname);
   }
 
-  async function endSession() {
+  async function endSession(discard = false, sync = false) {
     setSigningOut(true);
     setSignOutError(false);
     try {
-      await signOut();
+      if (sync) await syncBeforeSignOut();
+      setPendingCaptures(await signOut(discard));
     } catch (error: unknown) {
       reportUnexpectedUiError(error, "ui.sign_out_failed", {
         code: "AUTH_SIGN_OUT_UI_FAILED",
@@ -70,6 +72,15 @@ export default function SettingsScreen() {
     <ReceiptScreen title="Settings">
       <SectionHeading icon="palette-outline" label="General" />
       <ThemePreferencePanel />
+      <SectionHeading icon="tune-variant" label="Smart Automations" />
+      <CardGroup>
+        <CardRow
+          label="Google Workspace"
+          detail="Connect services, choose destinations, and review authorized actions."
+          icon="google"
+          onPress={() => router.push("/smart-automations")}
+        />
+      </CardGroup>
 
       <SectionHeading icon="database-outline" label="Your data" />
       {configurationError ? (
@@ -127,7 +138,7 @@ export default function SettingsScreen() {
       <SectionHeading icon="account-outline" label="Account" />
       <AppText tone="muted" variant="caption">
         {signedIn
-          ? "Signing out forgets this device. Your inbox, rules, and data stay in your account."
+          ? "Signing out clears this account's captures and settings from this device. Your synced records stay in your account and come back when you sign in again."
           : "Sign in to manage account-backed categories and privacy controls."}
       </AppText>
       {signedIn ? (
@@ -141,11 +152,38 @@ export default function SettingsScreen() {
         <AppButton label="Sign in" onPress={openSignIn} tone="primary" />
       )}
       {signOutError ? (
-        <StatusMessage tone="error">Could not clear the local session. Try again.</StatusMessage>
+        <StatusMessage tone="error">
+          Could not finish. You are still signed in. Try again.
+        </StatusMessage>
+      ) : null}
+      {pendingCaptures > 0 ? (
+        <>
+          <StatusMessage tone="warning">
+            {`${pendingCaptures} ${pendingCaptures === 1 ? "capture has" : "captures have"} not synchronized. Sync before signing out, or explicitly discard. Discarding cannot be undone.`}
+          </StatusMessage>
+          <AppButton
+            label="Sync Now"
+            loading={signingOut}
+            onPress={() => void endSession(false, true)}
+            tone="primary"
+          />
+          <AppButton
+            label="Cancel"
+            disabled={signingOut}
+            onPress={() => setPendingCaptures(0)}
+            tone="secondary"
+          />
+          <AppButton
+            label="Discard & Sign Out"
+            disabled={signingOut}
+            onPress={() => void endSession(true)}
+            tone="destructive"
+          />
+        </>
       ) : null}
       <ConfirmationDialog
         confirmLabel="Sign out"
-        detail="Relay stops showing your inbox on this device until you sign in again. Nothing in your account is deleted."
+        detail="Relay clears this account from this device. Anything already synced stays in your account."
         loading={signingOut}
         onCancel={() => setConfirmSignOut(false)}
         onConfirm={() => {

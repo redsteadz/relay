@@ -40,6 +40,18 @@ function memoryStore(initial: QueuedCapture[]) {
 }
 
 describe("drainCaptureQueue", () => {
+  it.each([401, 408, 429, 503])(
+    "retains retryable status %s for a later delivery pass",
+    async (status) => {
+      const state = memoryStore([{ envelope, attempts: 0 }]);
+      expect(
+        await drainCaptureQueue(state.store, "tenant", () =>
+          Promise.resolve({ status, body: undefined }),
+        ),
+      ).toEqual({ acknowledged: 0, failed: 0, pending: 1 });
+      expect(state.failed.size).toBe(0);
+    },
+  );
   it("retains a stable ID across offline restart and retry", async () => {
     const state = memoryStore([{ envelope, attempts: 0 }]);
     await drainCaptureQueue(state.store, "tenant", () => Promise.reject(new Error("offline")));

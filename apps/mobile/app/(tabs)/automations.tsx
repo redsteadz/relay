@@ -108,6 +108,11 @@ export default function AutomationsScreen() {
         Exact checks such as sender, app, and amount always run first. AI is asked only about the
         part they cannot decide, and only if you have added your own key.
       </ContextualNotice>
+      <AppButton
+        label="Google Workspace automations"
+        tone="secondary"
+        onPress={() => router.push("/smart-automations")}
+      />
 
       {filters.loadError === null || filters.loadError === undefined ? null : (
         <>

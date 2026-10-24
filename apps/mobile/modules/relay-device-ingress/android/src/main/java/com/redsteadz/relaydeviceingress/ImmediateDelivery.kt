@@ -1,6 +1,7 @@
 package com.redsteadz.relaydeviceingress
 
 import android.content.Context
+import android.os.Build
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
@@ -9,27 +10,10 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
 
-/**
- * Asks for a delivery pass now, rather than when the periodic one comes round.
- *
- * Capture was always immediate; delivery waited. With the app open an event tells the running
- * runtime to sync, and with the app closed there was nothing to tell -- so a capture sat in the
- * queue for up to fifteen minutes with the listener that took it still running beside it.
- *
- * This runs the **same worker** `expo-background-task` already registers, with no delay and
- * expedited priority. That matters: it is not a second headless path to keep in step with the first,
- * it is the existing one asked to run sooner. `BackgroundTaskWork` reads `appScopeKey` and hands off
- * to the task registry, which is where `runBackgroundCaptureSync` already lives.
- *
- * **A foreground service was considered and is not this.** A service keeps a process alive; it does
- * not start a JavaScript runtime, and delivery needs one. The permanent notification would have
- * bought nothing that this does not, and on Android 15 a `dataSync` service is capped at six hours
- * in twenty-four besides.
- *
- * What this does not beat is deep Doze. Expedited work is not exempt from it, so a phone that has
- * been stationary and dark for hours still batches to a maintenance window. Screen on or recently
- * used -- which is when a reader could notice -- it runs in seconds.
+/** Runs the installed Expo delivery worker, subject to consent checks in its task body.
+ * Android constraints, quotas and OEM restrictions still determine when execution is possible.
  */
 internal object ImmediateDelivery {
   /**
@@ -63,35 +47,29 @@ internal object ImmediateDelivery {
     }
   }
 
-  /**
-   * Requests a pass, coalescing by construction.
-   *
-   * `KEEP` is what turns a burst of notifications into one delivery: a request made while another
-   * is queued or running is dropped, because that one has not read the queue yet and will take
-   * everything in it.
-   *
-   * Never throws. The periodic task is still scheduled underneath, so a failure here costs the
-   * immediacy and not the delivery -- which is also what happens if a future `expo-background-task`
-   * moves the worker this reaches for.
+  /** Append a pass so an arrival after an active worker's queue snapshot is not dropped.
+   * A failed or cancelled predecessor can be replaced. The periodic Expo chain remains independent.
    */
-  fun request(context: Context) {
+  fun request(context: Context, delayMillis: Long = 0) {
     val workerClass = worker
     if (workerClass == null) {
       NotificationDebugDiagnostics.event("immediate delivery unavailable: worker not found")
       return
     }
     try {
-      val request = OneTimeWorkRequest.Builder(workerClass)
+      val builder = OneTimeWorkRequest.Builder(workerClass)
         .setInputData(Data.Builder().putString("appScopeKey", context.packageName).build())
         .setConstraints(
           Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         )
-        // Falls back to ordinary work rather than failing when the expedited quota is spent, which
-        // is the difference between a late delivery and none.
-        .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        .build()
+      // Expo's worker has no foreground-info implementation for pre-Android 12 expedited work.
+      if (delayMillis > 0) builder.setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
+      if (delayMillis == 0L && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+      }
+      val request = builder.build()
       WorkManager.getInstance(context)
-        .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.KEEP, request)
+        .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     } catch (error: RuntimeException) {
       NotificationDebugDiagnostics.failure("immediate delivery request failed", error)
     }

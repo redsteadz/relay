@@ -14,6 +14,9 @@ import { handleGmailDisconnect, handleVerifiedGmailCursor } from "./gmail";
 import { publishEncryptedIngress } from "./ingress";
 import { logPipelineError } from "./observability";
 import { listDeadLetterItems, replayDeadLetterItem } from "./recovery";
+import { SmartAutomationRepository, drainSmartActions } from "./smart-automations";
+import { smartGoogleResources } from "./smart-google-resources";
+import { googleServiceSchema, smartResourcesSchema } from "@relay/contracts";
 
 function isInternalRequest(request: Request, env: Env): boolean {
   const expected = env.RELAY_INGEST_SHARED_SECRET;
@@ -28,6 +31,32 @@ function isRecoveryRequest(request: Request, env: Env): boolean {
 export async function handlePipelineRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const operationRequestId = resolveRequestId(request.headers.get("x-relay-request-id"));
+  if (request.method === "POST" && url.pathname === "/internal/smart-automations") {
+    if (!isInternalRequest(request, env)) return new Response("Unauthorized", { status: 401 });
+    if (env.RELAY_SMART_GOOGLE_ENABLED !== "true")
+      return Response.json({ error: "disabled" }, { status: 503 });
+    const body = await request
+      .json<{ userId?: unknown; command?: unknown; resources?: unknown }>()
+      .catch(() => undefined);
+    const user = relayUserIdSchema.safeParse(body?.userId);
+    if (!user.success) return Response.json({ error: "invalid" }, { status: 400 });
+    const repository = new SmartAutomationRepository(env);
+    if (body?.resources !== undefined) {
+      const service = googleServiceSchema.safeParse(body.resources);
+      if (!service.success) return Response.json({ error: "invalid" }, { status: 400 });
+      return Response.json(
+        smartResourcesSchema.parse({
+          resources: await smartGoogleResources(repository, user.data, service.data),
+        }),
+      );
+    }
+    const result =
+      body?.command === undefined
+        ? await repository.read(user.data)
+        : await repository.command(user.data, body.command);
+    await drainSmartActions(env);
+    return Response.json(result);
+  }
   if (request.method === "GET" && url.pathname === "/health") {
     return Response.json(
       healthResponseSchema.parse({ service: "relay-pipeline", status: "ok", version: "0.1.0" }),

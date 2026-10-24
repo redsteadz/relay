@@ -54,6 +54,29 @@ function message(body: IngressQueueMessage, attempts = 1) {
 }
 
 describe("processIngressQueue", () => {
+  it("parks a permanent classification failure without repeating unauthorized/configured requests", async () => {
+    const queued = message(queueMessage("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8"));
+    const send = vi.fn().mockResolvedValue(undefined);
+    const fetch = vi.fn(() =>
+      Promise.resolve(
+        Response.json({ accepted: false, failureCode: "persistence_unavailable" }, { status: 422 }),
+      ),
+    );
+    const env = {
+      TENANT_COORDINATOR: { getByName: () => ({ fetch }) },
+      DEAD_LETTER_QUEUE: { send },
+    } as unknown as Env;
+    await processIngressQueue(
+      { messages: [queued.value] } as unknown as MessageBatch<IngressQueueMessage>,
+      env,
+    );
+    expect(send).toHaveBeenCalledWith({
+      ...queued.value.body,
+      failureCode: "persistence_unavailable",
+    });
+    expect(queued.retry).not.toHaveBeenCalled();
+    expect(queued.ack).toHaveBeenCalledOnce();
+  });
   beforeEach(() => {
     // The fixture pins a real retention window -- accepted 24 August, raw payload expiring 31
     // August -- and `processIngressQueue` compares that expiry against the clock to decide whether

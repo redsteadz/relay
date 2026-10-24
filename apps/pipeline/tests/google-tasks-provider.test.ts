@@ -342,7 +342,7 @@ describe("findTaskByMarker", () => {
     expect(tokens).toEqual([null, "page-2"]);
   });
 
-  it("stops rather than sweeping an unbounded list forever", async () => {
+  it("refuses an incomplete scan instead of permitting another insert", async () => {
     let pages = 0;
     const fetcher = () => {
       pages += 1;
@@ -351,7 +351,7 @@ describe("findTaskByMarker", () => {
 
     await expect(
       findTaskByMarker("token", "MTIzNDU2", ACTION_RUN_ID, fetcher),
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({ code: "unavailable" });
     expect(pages).toBe(10);
   });
 

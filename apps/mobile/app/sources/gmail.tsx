@@ -9,13 +9,7 @@ import { gmailStatus } from "@/features/device-capture/models/capturePresentatio
 import { gmailDisclosure } from "@/features/device-capture/models/sourceCatalog";
 import { ReceiptStage } from "@/features/inbox/components/ReceiptStage";
 
-/**
- * The Gmail source boundary.
- *
- * The settings control is gone rather than opening an empty dialog: there are no Gmail controls
- * until the restricted-scope connection ships, and a gear that leads nowhere is worse than no gear.
- * What the scope will be is stated here instead, because that is the part a person can act on now.
- */
+/** Gmail privacy disclosure and entry into the shared Google connection settings. */
 export default function GmailSourceScreen() {
   const router = useRouter();
   const [disclosureVisible, setDisclosureVisible] = useState(false);
@@ -35,16 +29,19 @@ export default function GmailSourceScreen() {
     >
       <SourceStatusLabel status={gmailStatus} />
 
-      <ReceiptStage label="How Gmail will work" ordinal={1}>
+      <ReceiptStage label="How Gmail works" ordinal={1}>
         <AppText>
-          Gmail will tell Relay that new mail arrived, not what it says. Before you connect, Relay
-          will show exactly what it asks Google for.
+          Google tells Relay when new mail arrives, and that notice carries no message text. Relay
+          asks Google for read access only when you connect this source.
         </AppText>
         <ContextualNotice accessibilityLabel="Gmail connection availability">
-          Gmail is not available yet, and Relay asks for no mailbox access. Notifications capture
-          works today and covers mail apps on this device.
+          Connect and manage Gmail from Smart Automations. Google asks for permission in your
+          browser, and your Google sign-in is never stored on this phone.
         </ContextualNotice>
-        <AppButton disabled label="Connect Gmail" onPress={() => undefined} />
+        <AppButton
+          label="Manage Gmail connection"
+          onPress={() => router.push("/smart-automations")}
+        />
       </ReceiptStage>
 
       <SourceDisclosureDialog

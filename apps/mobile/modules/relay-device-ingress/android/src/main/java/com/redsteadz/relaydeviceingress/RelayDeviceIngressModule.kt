@@ -390,16 +390,16 @@ class RelayDeviceIngressModule : Module() {
     }
 
     AsyncFunction("prepareNotificationCaptureState") {
-      tenantId: String?, cleanupTenantId: String?, generation: Double ->
+      tenantId: String?, cleanupTenantId: String?, generation: Double, allowAccountCleanup: Boolean ->
       require(tenantId == null || tenantId.isNotBlank()) { "tenant_required" }
       require(cleanupTenantId == null || cleanupTenantId.isNotBlank()) { "cleanup_tenant_required" }
       require(generation.isFinite() && generation >= 0) { "generation_invalid" }
       synchronized(NotificationCaptureStateLock) {
         val preparationGeneration = generation.toLong()
         if (preparationGeneration < NotificationCaptureStateLock.latestPreparationGeneration) {
-          return@synchronized
+          require(NotificationCaptureStateLock.preparedTenantId == tenantId) { "capture_tenant_mismatch" }
+          return@synchronized NotificationCaptureStateLock.latestPreparationGeneration.toDouble()
         }
-        NotificationCaptureStateLock.latestPreparationGeneration = preparationGeneration
         val context = requireNotNull(appContext.reactContext).applicationContext
         val notificationSettings = NotificationCaptureSettings(context)
         val smsSettings = SmsCaptureSettings(context)
@@ -408,6 +408,8 @@ class RelayDeviceIngressModule : Module() {
         cleanupTenantId?.let(staleTenantIds::add)
         notificationSettings.read()?.tenantId?.takeIf { it != tenantId }?.let(staleTenantIds::add)
         smsSettings.read()?.tenantId?.takeIf { it != tenantId }?.let(staleTenantIds::add)
+        require(allowAccountCleanup || staleTenantIds.isEmpty()) { "capture_tenant_mismatch" }
+        NotificationCaptureStateLock.latestPreparationGeneration = preparationGeneration
 
         staleTenantIds.forEach { staleTenantId ->
           queue.clearTenant(staleTenantId)
@@ -416,6 +418,7 @@ class RelayDeviceIngressModule : Module() {
           silenceSettings.clear(staleTenantId)
         }
         NotificationCaptureStateLock.preparedTenantId = tenantId
+        preparationGeneration.toDouble()
       }
     }
 
@@ -553,6 +556,46 @@ class RelayDeviceIngressModule : Module() {
       synchronized(NotificationCaptureStateLock) {
         requirePreparedCaptureTenant(tenantId, generation)
         queue.fail(tenantId, envelopeId, terminal)
+      }
+    }
+
+    // Only requested by the explicit Sync Now logout choice, never by automatic delivery.
+    AsyncFunction("retryFailedCaptures") { tenantId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.retryFailed(tenantId)
+      }
+    }
+
+    AsyncFunction("scheduleCaptureRetry") { tenantId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.nextDeliveryDelay(tenantId)?.let { delay ->
+          ImmediateDelivery.request(requireNotNull(appContext.reactContext).applicationContext, delay)
+        }
+      }
+    }
+
+    AsyncFunction("getUnsynchronizedCaptureIds") { tenantId: String, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        queue.unsynchronizedIds(tenantId)
+      }
+    }
+
+    // Count and clear share the capture lock: a new arrival cannot slip past a zero-count check.
+    AsyncFunction("finishCaptureLogout") { tenantId: String, discard: Boolean, generation: Double ->
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        val pending = queue.unsynchronizedCount(tenantId)
+        if (pending > 0 && !discard) return@synchronized pending
+        queue.clearTenant(tenantId)
+        val context = requireNotNull(appContext.reactContext).applicationContext
+        NotificationCaptureSettings(context).clear(tenantId)
+        SmsCaptureSettings(context).clear(tenantId)
+        NotificationSilenceSettings(context).clear(tenantId)
+        NotificationCaptureStateLock.preparedTenantId = null
+        0
       }
     }
 
