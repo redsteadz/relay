@@ -19,7 +19,7 @@ import { AppState, Platform, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { FeedbackState, LoadingState } from "@/components/ui";
+import { AppButton, FeedbackState, LoadingState } from "@/components/ui";
 import { resolvePendingSilencesForTenant } from "@/features/silence/api/silenceResolution";
 import { SubscriptionProvider } from "@/features/subscription/context/subscription-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
@@ -59,6 +59,8 @@ function AuthenticatedStack() {
   );
   const [preparedStateKey, setPreparedStateKey] = useState<string>();
   const [preparationFailed, setPreparationFailed] = useState(false);
+  // Bumped by Retry so the preparation effect runs again without asking the reader to restart.
+  const [preparationAttempt, setPreparationAttempt] = useState(0);
   const preparationGenerationRef = useRef(0);
   const previousUserIdRef = useRef<string | undefined>(undefined);
 
@@ -97,7 +99,13 @@ function AuthenticatedStack() {
     return () => {
       active = false;
     };
-  }, [captureMode.cleanupTenantId, captureMode.stateKey, captureMode.tenantId, initialized]);
+  }, [
+    captureMode.cleanupTenantId,
+    captureMode.stateKey,
+    captureMode.tenantId,
+    initialized,
+    preparationAttempt,
+  ]);
 
   // `seen` is undefined only while the local read is in flight. Holding the existing splash for it
   // is what stops a returning user seeing one frame of the introduction.
@@ -111,9 +119,16 @@ function AuthenticatedStack() {
     }
     return (
       <FeedbackState
-        detail="Restart Relay to retry the encrypted device boundary."
+        action={
+          <AppButton
+            label="Try again"
+            onPress={() => setPreparationAttempt((attempt) => attempt + 1)}
+            tone="primary"
+          />
+        }
+        detail="Relay could not set up its protected storage on this device. Nothing was captured or lost."
         kind="error"
-        title="Could not prepare secure device capture"
+        title="Relay could not start"
       />
     );
   }

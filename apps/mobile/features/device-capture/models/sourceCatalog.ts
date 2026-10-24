@@ -9,19 +9,19 @@ export type SourceDefinition = {
 
 export const sourceCatalog: Record<SourceId, SourceDefinition> = {
   gmail: {
-    description: "Restricted-scope mailbox events with minimized delivery.",
+    description: "New-mail alerts only, never message text. Coming soon.",
     icon: "email-outline",
     id: "gmail",
     name: "Gmail",
   },
   notifications: {
-    description: "Allowlisted Android app notifications only.",
+    description: "Notifications from the apps you pick, and nothing else.",
     icon: "bell-outline",
     id: "notifications",
     name: "Android notifications",
   },
   sms: {
-    description: "Incoming SMS from selected contacts in sideload builds.",
+    description: "Texts from the contacts you pick. Not in every version of Relay.",
     icon: "message-text-outline",
     id: "sms",
     name: "Android SMS",

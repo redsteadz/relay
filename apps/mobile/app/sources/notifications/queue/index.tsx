@@ -43,7 +43,7 @@ export default function NotificationQueueScreen() {
   );
   const emptyMessage = capture.mode.developmentLocal
     ? "No pending notification captures reached the local queue."
-    : "Authenticated captures synchronize in the background. Readable queue previews are limited to local diagnostic mode.";
+    : "Captures are sent to your account automatically, so there is usually nothing waiting here.";
 
   return (
     <SourceQueueScreen

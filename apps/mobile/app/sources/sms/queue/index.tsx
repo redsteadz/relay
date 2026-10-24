@@ -46,7 +46,7 @@ export default function SmsQueueScreen() {
   );
   const emptyMessage = capture.mode.developmentLocal
     ? "No pending SMS captures reached the local queue."
-    : "Authenticated captures synchronize in the background. Readable queue previews are limited to local diagnostic mode.";
+    : "Captures are sent to your account automatically, so there is usually nothing waiting here.";
 
   async function deleteQueue() {
     if (capture.mode.tenantId === undefined) return;

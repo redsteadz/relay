@@ -23,7 +23,7 @@ export default function SignInScreen() {
   const [statusTone, setStatusTone] = useState<"error" | "success">("error");
   const [status, setStatus] = useState(
     configurationError
-      ? "Supabase public configuration is unavailable."
+      ? "Sign-in is not set up in this build of Relay. Use a build that includes account services."
       : reason === "invalid-link"
         ? "This sign-in link is invalid or expired. Request a new link."
         : "",
@@ -58,8 +58,8 @@ export default function SignInScreen() {
   return (
     <ReceiptScreen title="Sign in">
       <AppText tone="muted" variant="caption">
-        Use an approved Relay account. Relay stores the refreshable session in device-secure
-        storage.
+        We will email you a one-time link. No password needed, and you stay signed in on this device
+        until you sign out.
       </AppText>
       <EditorialSurface
         icon="email-fast-outline"
@@ -90,14 +90,31 @@ export default function SignInScreen() {
         />
         <AppButton
           disabled={pending || configurationError}
-          label={pending ? "Requesting..." : "Send sign-in link"}
+          label={
+            pending
+              ? "Sending..."
+              : statusTone === "success" && status.length > 0
+                ? "Send the link again"
+                : "Send sign-in link"
+          }
           loading={pending}
           onPress={() => void submit()}
         />
         {status.length === 0 ? null : <StatusMessage tone={statusTone}>{status}</StatusMessage>}
+        {statusTone === "success" && status.length > 0 ? (
+          <AppButton
+            label="Use a different email"
+            onPress={() => {
+              setEmail("");
+              setStatus("");
+            }}
+            tone="secondary"
+          />
+        ) : null}
       </EditorialSurface>
       <AppText style={styles.note} tone="muted" variant="caption">
-        Account enrollment remains operator controlled.
+        Relay is invite-only for now. If your email is not recognised, ask the person who invited
+        you to add it.
       </AppText>
     </ReceiptScreen>
   );

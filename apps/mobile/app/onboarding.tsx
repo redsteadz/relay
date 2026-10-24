@@ -113,31 +113,52 @@ export default function OnboardingScreen() {
             style={[styles.dots, { gap: spacing.sm }]}
           >
             {STEPS.map((entry, index) => (
-              <View
+              <Pressable
+                accessibilityLabel={`Step ${String(index + 1)}: ${entry.label}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: index === step }}
+                hitSlop={spacing.md}
                 key={entry.label}
-                style={{
-                  backgroundColor: index === step ? colors.accent : colors.actionSubtle,
-                  borderRadius: radii.pill,
-                  height: spacing.sm,
-                  width: index === step ? spacing.xl : spacing.sm,
-                }}
-              />
+                onPress={() => setStep(index)}
+              >
+                <View
+                  style={{
+                    backgroundColor: index === step ? colors.accent : colors.actionSubtle,
+                    borderRadius: radii.pill,
+                    height: spacing.sm,
+                    width: index === step ? spacing.xl : spacing.sm,
+                  }}
+                />
+              </Pressable>
             ))}
           </View>
 
           <AppButton
-            label={last ? "Open inbox" : "Continue"}
+            accessibilityHint={
+              last ? "Finishes the introduction" : "Shows the next part of the introduction"
+            }
+            label={last ? "Get started" : "Continue"}
             onPress={() => {
               if (last) finish();
               else setStep(step + 1);
             }}
           />
 
-          <Pressable accessibilityRole="button" onPress={finish} style={styles.skip}>
-            <AppText tone="muted" variant="caption">
-              {last ? "Set sources up later" : "Skip"}
-            </AppText>
-          </Pressable>
+          {/* Back and Skip are real buttons with full-size targets: a faint caption was easy to miss
+              and hard to hit, and there was no way to reread a step once past it. */}
+          <View style={[styles.secondary, { gap: spacing.sm }]}>
+            {step === 0 ? null : (
+              <AppButton label="Back" onPress={() => setStep(step - 1)} tone="secondary" />
+            )}
+            {last ? null : (
+              <AppButton
+                accessibilityHint="Skips the rest of the introduction"
+                label="Skip intro"
+                onPress={finish}
+                tone="secondary"
+              />
+            )}
+          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -151,7 +172,7 @@ const styles = StyleSheet.create({
   frame: { flex: 1, width: "100%" },
   head: { alignItems: "flex-start", width: "100%" },
   safeArea: { flex: 1 },
-  skip: { alignItems: "center", width: "100%" },
+  secondary: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center" },
   source: { width: "100%" },
   sources: { width: "100%" },
 });

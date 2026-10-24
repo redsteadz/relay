@@ -16,7 +16,7 @@ const loadingStatus: SourceStatus = {
 
 export const gmailStatus: SourceStatus = {
   icon: "clock-outline",
-  label: "Not connected",
+  label: "Coming soon",
   tone: "muted",
 };
 
@@ -36,7 +36,7 @@ export function notificationStatus(capabilities: DeviceCapabilities | undefined)
 export function smsStatus(capabilities: DeviceCapabilities | undefined): SourceStatus {
   if (capabilities === undefined) return loadingStatus;
   if (!capabilities.smsAvailable) {
-    return { icon: "minus-circle-outline", label: "NOT IN THIS BUILD", tone: "warning" };
+    return { icon: "minus-circle-outline", label: "Not in this build", tone: "warning" };
   }
   if (!capabilities.smsPermissionGranted) {
     return { icon: "alert-circle-outline", label: "No access", tone: "warning" };

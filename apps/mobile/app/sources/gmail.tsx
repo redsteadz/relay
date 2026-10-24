@@ -35,13 +35,14 @@ export default function GmailSourceScreen() {
     >
       <SourceStatusLabel status={gmailStatus} />
 
-      <ReceiptStage label="Restricted-scope design" ordinal={1}>
+      <ReceiptStage label="How Gmail will work" ordinal={1}>
         <AppText>
-          Google Pub/Sub delivers mailbox cursors to Relay, not message bodies. A future connection
-          flow will show the exact requested scope before authorization.
+          Gmail will tell Relay that new mail arrived, not what it says. Before you connect, Relay
+          will show exactly what it asks Google for.
         </AppText>
         <ContextualNotice accessibilityLabel="Gmail connection availability">
-          Gmail connection is coming later. No mailbox permission is requested in this build.
+          Gmail is not available yet, and Relay asks for no mailbox access. Notifications capture
+          works today and covers mail apps on this device.
         </ContextualNotice>
         <AppButton disabled label="Connect Gmail" onPress={() => undefined} />
       </ReceiptStage>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import type { MessageTone } from "@/components/ui/component-state";
 import { enableSmsCapture, isValidSmsSenderAllowlist } from "@/lib/sms-capture";
 import { logMobileError } from "@/lib/observability";
 import RelayDeviceIngress from "@/modules/relay-device-ingress";
@@ -11,7 +12,11 @@ export function useSmsCaptureController() {
   const capture = useDeviceCaptureCapabilities();
   const [busy, setBusy] = useState(false);
   const [consentVisible, setConsentVisible] = useState(false);
-  const [message, setMessage] = useState<string>();
+  const [message, setMessageState] = useState<{ text: string; tone: MessageTone }>();
+  // The tone is decided where the message is written. Inferring it from the wording read "access
+  // was not granted. Capture remains paused." as a success because it contains "paused".
+  const setMessage = (text: string | undefined, tone: MessageTone = "error") =>
+    setMessageState(text === undefined ? undefined : { text, tone });
   const capabilities = capture.capabilities;
   const intent = capabilities === undefined ? "authorize" : smsControlIntent(capabilities);
 
@@ -21,7 +26,7 @@ export function useSmsCaptureController() {
       capabilities === undefined ||
       !isValidSmsSenderAllowlist(capabilities.smsAllowedSenders)
     ) {
-      setMessage("Choose at least one contact before updating SMS capture.");
+      setMessage("Choose at least one contact before updating SMS capture.", "warning");
       return;
     }
     setBusy(true);
@@ -33,7 +38,7 @@ export function useSmsCaptureController() {
         true,
       );
       await capture.refresh();
-      setMessage("SMS capture paused.");
+      setMessage("SMS capture paused.", "success");
     } catch (error: unknown) {
       logMobileError("capture.sms_pause_update_failed", error, {
         code: "SMS_CAPTURE_STATE_FAILED",
@@ -54,7 +59,7 @@ export function useSmsCaptureController() {
       !capabilities.smsAvailable ||
       !isValidSmsSenderAllowlist(capabilities.smsAllowedSenders)
     ) {
-      setMessage("Choose at least one contact before enabling SMS capture.");
+      setMessage("Choose at least one contact before enabling SMS capture.", "warning");
       return;
     }
 
@@ -74,6 +79,7 @@ export function useSmsCaptureController() {
         result.granted
           ? `SMS capture enabled. ${result.captured.toString()} matching messages queued.`
           : "SMS access was not granted. Capture remains paused.",
+        result.granted ? "success" : "warning",
       );
     } catch (error: unknown) {
       logMobileError("capture.sms_enable_failed", error, {
@@ -94,7 +100,8 @@ export function useSmsCaptureController() {
     confirmConsent,
     consentVisible,
     intent,
-    message,
+    message: message?.text,
+    messageTone: message?.tone,
     openConsent: () => setConsentVisible(true),
     pause,
   };

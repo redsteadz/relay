@@ -57,7 +57,8 @@ export default function SmsSourceScreen() {
 
       {capabilities !== undefined && !available ? (
         <ContextualNotice accessibilityLabel="Why SMS capture is unavailable" tone="warning">
-          Not in this build. Install the reviewed sideload APK to test SMS capture.
+          SMS capture is not included in this version of Relay. Notifications capture works the same
+          way and is available now.
         </ContextualNotice>
       ) : null}
 
@@ -65,15 +66,7 @@ export default function SmsSourceScreen() {
         <StatusMessage tone="error">{controller.error}</StatusMessage>
       )}
       {controller.message === undefined ? null : (
-        <StatusMessage
-          tone={
-            controller.message.includes("enabled") || controller.message.includes("paused")
-              ? "success"
-              : "error"
-          }
-        >
-          {controller.message}
-        </StatusMessage>
+        <StatusMessage tone={controller.messageTone ?? "error"}>{controller.message}</StatusMessage>
       )}
 
       <ReceiptStage label="Capture" ordinal={1}>

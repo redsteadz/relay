@@ -7,6 +7,7 @@ import {
   AppText,
   CardGroup,
   CardRow,
+  ConfirmationDialog,
   SectionHeading,
   StatusMessage,
 } from "@/components/ui";
@@ -33,6 +34,7 @@ export default function SettingsScreen() {
   const { configurationError, session, signOut } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const signedIn = session !== null;
 
   function openSignIn() {
@@ -125,14 +127,14 @@ export default function SettingsScreen() {
       <SectionHeading icon="account-outline" label="Account" />
       <AppText tone="muted" variant="caption">
         {signedIn
-          ? "Signing out removes the refreshable session from secure device storage. Nothing on the server is deleted."
+          ? "Signing out forgets this device. Your inbox, rules, and data stay in your account."
           : "Sign in to manage account-backed categories and privacy controls."}
       </AppText>
       {signedIn ? (
         <AppButton
           label={signingOut ? "Signing out..." : "Sign out"}
           loading={signingOut}
-          onPress={() => void endSession()}
+          onPress={() => setConfirmSignOut(true)}
           tone="destructive"
         />
       ) : (
@@ -141,6 +143,18 @@ export default function SettingsScreen() {
       {signOutError ? (
         <StatusMessage tone="error">Could not clear the local session. Try again.</StatusMessage>
       ) : null}
+      <ConfirmationDialog
+        confirmLabel="Sign out"
+        detail="Relay stops showing your inbox on this device until you sign in again. Nothing in your account is deleted."
+        loading={signingOut}
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={() => {
+          setConfirmSignOut(false);
+          void endSession();
+        }}
+        title="Sign out of Relay?"
+        visible={confirmSignOut}
+      />
     </ReceiptScreen>
   );
 }

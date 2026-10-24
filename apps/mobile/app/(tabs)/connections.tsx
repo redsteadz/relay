@@ -1,9 +1,7 @@
 import { useRouter } from "expo-router";
-import { useState } from "react";
 
 import { ReceiptScreen } from "@/components/ReceiptScreen";
 import { ContextualNotice, StatusMessage } from "@/components/ui";
-import { SourceDisclosureDialog } from "@/features/device-capture/components/source/SourceDisclosureDialog";
 import { SourceSummaryRow } from "@/features/device-capture/components/source/SourceSummaryRow";
 import { useDeviceCaptureCapabilities } from "@/features/device-capture/hooks/useDeviceCaptureCapabilities";
 import {
@@ -11,27 +9,22 @@ import {
   notificationStatus,
   smsStatus,
 } from "@/features/device-capture/models/capturePresentation";
-import {
-  gmailDisclosure,
-  notificationDisclosure,
-  smsDisclosure,
-  sourceCatalog,
-  type SourceId,
-} from "@/features/device-capture/models/sourceCatalog";
+import { sourceCatalog, type SourceId } from "@/features/device-capture/models/sourceCatalog";
 import {
   sourceConfigurationRoute,
   sourceConfigurationRoutes,
 } from "@/features/device-capture/models/sourceRoutes";
 
+/**
+ * Every source, one row each.
+ *
+ * A row is a single target that opens its source. The privacy notice lives on each source's own
+ * screen, behind the same information button, so it is read where the source is turned on rather
+ * than competing with that tap here -- and a button nested in a button was invalid on web.
+ */
 export default function ConnectionsScreen() {
   const router = useRouter();
-  const { capabilities, error, mode } = useDeviceCaptureCapabilities();
-  const [disclosureSource, setDisclosureSource] = useState<SourceId>();
-  const disclosures = {
-    gmail: gmailDisclosure,
-    notifications: notificationDisclosure(mode.developmentLocal),
-    sms: smsDisclosure(mode.developmentLocal),
-  };
+  const { capabilities, error } = useDeviceCaptureCapabilities();
   const statuses = {
     gmail: gmailStatus,
     notifications: notificationStatus(capabilities),
@@ -41,28 +34,18 @@ export default function ConnectionsScreen() {
   return (
     <ReceiptScreen title="Sources">
       <ContextualNotice accessibilityLabel="What a source can do">
-        Every source is authorized on its own, reads only the fields it names, and can be revoked
-        here without touching the others.
+        Tap a source to set it up. Each one is turned on separately, reads only what it lists, and
+        can be turned off here at any time.
       </ContextualNotice>
       {error === undefined ? null : <StatusMessage tone="error">{error}</StatusMessage>}
       {(Object.keys(sourceConfigurationRoutes) as SourceId[]).map((sourceId) => (
         <SourceSummaryRow
-          disclosure
           key={sourceId}
-          onDisclosure={() => setDisclosureSource(sourceId)}
           onPress={() => router.push(sourceConfigurationRoute(sourceId))}
           source={sourceCatalog[sourceId]}
           status={statuses[sourceId]}
         />
       ))}
-      <SourceDisclosureDialog
-        disclosure={disclosureSource === undefined ? "" : disclosures[disclosureSource]}
-        onDismiss={() => setDisclosureSource(undefined)}
-        sourceName={
-          disclosureSource === undefined ? "Source" : sourceCatalog[disclosureSource].name
-        }
-        visible={disclosureSource !== undefined}
-      />
     </ReceiptScreen>
   );
 }

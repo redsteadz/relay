@@ -72,50 +72,10 @@ export default function NotificationSourceScreen() {
         <StatusMessage tone="error">{controller.error}</StatusMessage>
       )}
       {controller.message === undefined ? null : (
-        <StatusMessage
-          tone={
-            controller.message.includes("paused") || controller.message.includes("resumed")
-              ? "success"
-              : "error"
-          }
-        >
-          {controller.message}
-        </StatusMessage>
+        <StatusMessage tone={controller.messageTone ?? "error"}>{controller.message}</StatusMessage>
       )}
 
-      <ReceiptStage label="Capture" ordinal={1}>
-        <AppSwitch
-          accessibilityHint={
-            capturing
-              ? "Stops capturing new notifications immediately"
-              : "Opens the consent notice before capture resumes"
-          }
-          detail={
-            capturing
-              ? "Capturing. Changes apply before the next item enters the encrypted queue."
-              : "Paused. Nothing new is captured, and what was already queued is untouched."
-          }
-          disabled={capabilities === undefined || unsupported || controller.busy}
-          label={capturing ? "Capturing" : "Paused"}
-          onValueChange={(next) => {
-            if (next) controller.openConsent();
-            else void controller.pause();
-          }}
-          value={capturing}
-        />
-        {allowedCount === 0 && !unsupported ? (
-          <AppText tone="muted" variant="caption">
-            Nothing is allowlisted yet, so capture has nothing to read. Choose apps below first.
-          </AppText>
-        ) : null}
-        <AppButton
-          label="Open Android access settings"
-          onPress={() => void controller.openSystemSettings()}
-          tone="secondary"
-        />
-      </ReceiptStage>
-
-      <ReceiptStage label="Allowlist" ordinal={2}>
+      <ReceiptStage label="Choose apps" ordinal={1}>
         <AppText tone="muted" variant="mono">
           {`${String(allowedCount)} ${allowedCount === 1 ? "app" : "apps"} · title and visible text only`}
         </AppText>
@@ -126,6 +86,44 @@ export default function NotificationSourceScreen() {
           disabled={capabilities === undefined || unsupported}
           label="Manage apps"
           onPress={() => router.push(sourceSelectorRoutes.notifications)}
+          tone="secondary"
+        />
+      </ReceiptStage>
+
+      <ReceiptStage label="Turn on capture" ordinal={2}>
+        <AppSwitch
+          accessibilityHint={
+            capturing
+              ? "Stops capturing new notifications immediately"
+              : "Opens the consent notice before capture resumes"
+          }
+          detail={
+            capturing
+              ? "On. New notifications from your chosen apps are captured."
+              : "Off. Nothing new is captured; anything already captured is kept."
+          }
+          disabled={
+            capabilities === undefined ||
+            unsupported ||
+            controller.busy ||
+            (!capturing && allowedCount === 0)
+          }
+          label="Capture notifications"
+          onValueChange={(next) => {
+            if (next) controller.openConsent();
+            else void controller.pause();
+          }}
+          value={capturing}
+        />
+        {allowedCount === 0 && !unsupported ? (
+          <AppText tone="muted" variant="caption">
+            Choose at least one app above first. Capture only reads the apps you pick.
+          </AppText>
+        ) : null}
+        <AppButton
+          accessibilityHint="Opens Android settings, where you can grant or revoke Relay's notification access"
+          label="Change Android access"
+          onPress={() => void controller.openSystemSettings()}
           tone="secondary"
         />
       </ReceiptStage>

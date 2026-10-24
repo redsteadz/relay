@@ -50,6 +50,6 @@ describe("source presentation", () => {
   });
 
   it("preserves the required unsupported SMS label", () => {
-    expect(smsStatus({ ...base, smsAvailable: false }).label).toBe("NOT IN THIS BUILD");
+    expect(smsStatus({ ...base, smsAvailable: false }).label).toBe("Not in this build");
   });
 });

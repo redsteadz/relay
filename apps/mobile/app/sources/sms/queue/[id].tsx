@@ -31,7 +31,7 @@ export default function SmsQueueItemScreen() {
   const item = previews.captures.find((preview) => preview.envelopeId === id);
   const error =
     (!capture.mode.developmentLocal
-      ? "Queue-item previews are available only in local diagnostic mode."
+      ? "Previews of waiting captures are only shown in developer builds."
       : undefined) ??
     security.error ??
     previews.error;
