@@ -1,7 +1,7 @@
 ---
 status: implemented-unreleased
 owner: integrations
-last_verified: 2026-10-23
+last_verified: 2026-10-24
 sources:
   - https://developers.google.com/identity/protocols/oauth2/web-server
   - https://developers.google.com/workspace/sheets/api/scopes
@@ -89,7 +89,10 @@ replace them; a different account is never silently substituted.
 ## Local review and deployment prerequisites
 
 The development branch is `feat/smart-google-automations`, based on updated `origin/dev`.
-No deployment, push, PR, production migration, or live Google write has been authorized.
+Authorized pushes are under Draft PR #236 targeting `dev`; merge, deployment, production migrations,
+and live Google writes remain outside the review authorization. The complete environment inventory,
+placeholder configuration and Android build steps are in the
+[senior review setup guide](../operations/smart-google-review-setup.md).
 
 From `apps/mobile`, with the repository's existing frozen-lockfile dependencies:
 
@@ -117,6 +120,10 @@ execution without deleting history; forward-only migrations leave existing recor
 
 ## Verification record
 
+The subsequent logout/background recovery increment passed **2,051 tests**. See the
+[recovery verification record](../operations/session-background-verification.md) for current counts
+and boundaries; the 2,017-test totals below describe the original core increment.
+
 Canonical command output is saved locally under ignored `out/smart-google`. The full original suite
 was run before implementation: it exposed an existing Windows file-URL bug in the dismissal
 boundary test. That test now uses `fileURLToPath`, retaining every original boundary assertion.
@@ -125,7 +132,7 @@ Chrome verified mobile and desktop synthetic flows. Expo web export, Next.js pro
 synthetic public settings and dotenv processing disabled, and Wrangler local dry-run compilation
 succeeded. Final aggregate results are reported with the delivery rather than inferred from builds.
 
-Final regression totals: **2,017 tests passed**, with no failed or skipped tests in that run:
+Core-increment regression totals: **2,017 tests passed**, with no failed or skipped tests in that run:
 Contracts 90, domain 272, crypto 14, observability 7, API 176, Pipeline 373, mobile 1,050, landing
 site 25, and root scripts 10. Forty-eight added tests cover policy, mocked adapters/resources,
 capture-to-proposal, Workflow execution/failures, OAuth, API authorization, and synthetic demo
