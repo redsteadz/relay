@@ -123,13 +123,15 @@ one most likely to still be wrong and a two-hour delay is recoverable where a ca
 The first matching rule decides, in snapshot order, whatever its action — one verdict per
 notification, mirroring how one rule claims a capture.
 
-Where Relay cannot act, it hands over the control that can. The quiet screen lists the applications
-the tenant's own rules name and opens each one's Android notification settings
+Where Relay cannot act, it hands over the control that can. The rule editor lists the applications
+the rule names and opens each one's Android notification settings
 (`ACTION_APP_NOTIFICATION_SETTINGS`), which is the only thing on the device that stops the sound.
 
-Which of the two a rule does is chosen when its dry run starts, as two separate controls rather than
-one with a default: the choice between reversible and not is the whole decision. Changing it restarts
-the window.
+Which of the two a rule does is chosen on the rule itself, as a stage of the editor with four
+choices -- leave it, watch first, put away, clear for good -- decided from the draft's own
+compilation, and shown on the rule's row in Rules. The stop that halts every rule sits at the top of
+that list. There is no separate quiet screen
+([ADR-0023](../decisions/0023-quiet-on-the-rule-and-model-diagnostics.md)).
 
 **Authorization lives beside the revision, not on it.** A filter revision is immutable --
 `filter_rules_enforce_immutability` refuses every update to `filter_rules` -- so the original
@@ -185,6 +187,12 @@ notification already gone by then is recorded as `no-longer-posted` rather than 
 and a model that does not answer leaves the candidate for a later pass. The deterministic part stays
 required: it is what bounds both the rule's scope and how often a model is asked anything. See
 [ADR-0019](../decisions/0019-device-semantic-evaluation.md).
+
+Every such pass writes one content-free report to a device-local journal -- what triggered it, where
+it stopped, what each request sent and got back -- and the capabilities report whether the listener
+is bound and how many candidates are pending, so a verdict that says "waiting on your model" can be
+traced to its reason on the "Model on this phone" page under Your data
+([ADR-0023](../decisions/0023-quiet-on-the-rule-and-model-diagnostics.md)).
 
 Scope is the capture allowlist intersected with the applications a rule names. A notification no rule
 names is never evaluated and never recorded, so the ledger cannot become a log of every app a person

@@ -4,6 +4,12 @@ import type { ClassifiableRule } from "@relay/domain";
 import { classifiableRules } from "@/features/inbox/models/deviceClassification";
 import { listFilterRevisions } from "@/features/filters/api/filters";
 import { readDeviceSemanticConfig } from "@/lib/device-semantic-config";
+import {
+  EMPTY_PASS_COUNTS,
+  journaledDeviceModelPass,
+  type DeviceModelPassOutcome,
+  type DeviceModelPassTrigger,
+} from "@/lib/device-semantic-diagnostics";
 import { localStoreSupported, openLocalStore } from "@/lib/local-store";
 import {
   resolvePendingSilences,
@@ -26,6 +32,11 @@ import RelayDeviceIngress, { PENDING_SILENCE_LIMIT } from "@/modules/relay-devic
  * `rules` is passed in by a caller that already has them, and fetched otherwise, so the inbox does
  * not repeat a read it just performed and the background task does not need a React tree to get one.
  *
+ * Every pass writes one report to the device model journal saying where it stopped. The gates below
+ * each used to be a bare `return 0`, and together they were why a reader could stare at "waiting on
+ * your model" for days while no request was ever made: the shade could not be read, or no model was
+ * configured, or every candidate had already been swiped away, and nothing said which.
+ *
  * Returns how many notifications were acted on, which is zero in every ordinary case: nothing
  * pending, no endpoint, a model that did not answer, an answer of no, or a notification the reader
  * already dealt with.
@@ -33,43 +44,76 @@ import RelayDeviceIngress, { PENDING_SILENCE_LIMIT } from "@/modules/relay-devic
 export async function resolvePendingSilencesForTenant(
   client: SupabaseClient,
   tenantId: string,
-  rules?: readonly ClassifiableRule[],
+  options: { rules?: readonly ClassifiableRule[]; trigger: DeviceModelPassTrigger },
 ): Promise<number> {
-  const candidates = await RelayDeviceIngress.getPendingNotificationSilences(
-    tenantId,
-    PENDING_SILENCE_LIMIT,
-  );
-  if (candidates.length === 0) return 0;
+  return journaledDeviceModelPass(tenantId, "quiet", options.trigger, async () => {
+    const stopped = (outcome: DeviceModelPassOutcome, candidates = 0) => ({
+      attempts: [],
+      counts: { ...EMPTY_PASS_COUNTS, candidates },
+      outcome,
+      result: 0,
+    });
 
-  const config = await readDeviceSemanticConfig(tenantId);
-  if (config === undefined || !localStoreSupported()) return 0;
-
-  // The device's own retained copy of what each notification said. A capture that was uploaded and
-  // acknowledged still has it: retention is kept separately from the outbox so forgetting one does
-  // not forget the other.
-  const retained = await RelayDeviceIngress.getRetainedCaptureContent(
-    tenantId,
-    candidates.map((candidate) => candidate.envelopeId),
-  );
-
-  const database = await openLocalStore();
-  const resolution = await resolvePendingSilences(
-    candidates,
-    rules ?? classifiableRules(await listFilterRevisions(client)),
-    {
-      config,
-      content: new Map<string, SilenceCandidateContent>(Object.entries(retained)),
-      database,
-      resolve: async (envelopeId, matched) =>
-        (await RelayDeviceIngress.resolveNotificationSilence(tenantId, envelopeId, matched)) ??
-        null,
+    const candidates = await RelayDeviceIngress.getPendingNotificationSilences(
       tenantId,
-    },
-  );
+      PENDING_SILENCE_LIMIT,
+    );
+    if (candidates.length === 0) {
+      // Nothing offered is three different states, and only one of them is "nothing is waiting".
+      // The other two -- a shade this runtime cannot read, and candidates that were all closed as
+      // no longer posted -- are the ones a reader needs named.
+      const capabilities = await RelayDeviceIngress.getCapabilities();
+      const pending = capabilities.notificationSilencePendingCount ?? 0;
+      if (pending === 0) return stopped("no-candidates");
+      return stopped(
+        capabilities.notificationListenerBound === false ? "shade-unreadable" : "none-posted",
+        pending,
+      );
+    }
 
-  let acted = 0;
-  for (const decision of resolution.recorded.values()) {
-    if (decision === "snoozed" || decision === "dismissed") acted += 1;
-  }
-  return acted;
+    const config = await readDeviceSemanticConfig(tenantId);
+    if (config === undefined) return stopped("not-configured", candidates.length);
+    if (!localStoreSupported()) return stopped("store-unsupported", candidates.length);
+
+    // The device's own retained copy of what each notification said. A capture that was uploaded and
+    // acknowledged still has it: retention is kept separately from the outbox so forgetting one does
+    // not forget the other.
+    const retained = await RelayDeviceIngress.getRetainedCaptureContent(
+      tenantId,
+      candidates.map((candidate) => candidate.envelopeId),
+    );
+
+    const database = await openLocalStore();
+    const resolution = await resolvePendingSilences(
+      candidates,
+      options.rules ?? classifiableRules(await listFilterRevisions(client)),
+      {
+        config,
+        content: new Map<string, SilenceCandidateContent>(Object.entries(retained)),
+        database,
+        resolve: async (envelopeId, matched) =>
+          (await RelayDeviceIngress.resolveNotificationSilence(tenantId, envelopeId, matched)) ??
+          null,
+        tenantId,
+      },
+    );
+
+    let acted = 0;
+    for (const decision of resolution.recorded.values()) {
+      if (decision === "snoozed" || decision === "dismissed") acted += 1;
+    }
+    return {
+      attempts: resolution.attempts,
+      counts: {
+        acted,
+        candidates: candidates.length,
+        evaluated: resolution.evaluated,
+        skippedNoContent: resolution.skippedNoContent,
+        skippedRuleGone: resolution.skippedRuleGone,
+        undecided: resolution.undecided,
+      },
+      outcome: "evaluated",
+      result: acted,
+    };
+  });
 }

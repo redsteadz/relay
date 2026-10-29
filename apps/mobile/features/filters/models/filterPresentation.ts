@@ -315,6 +315,22 @@ export function filterDraftFor(revision: FilterRuleVersion | undefined): FilterD
 }
 
 /**
+ * Whether saving the draft would append a revision that differs from the stored one.
+ *
+ * The editor asks before saving, because a revision is not free: authorization for what a rule does
+ * to a notification is keyed to the revision, and an edit withdraws it by construction. A reader who
+ * only changed that choice should not lose it to a version that says the same thing as the last.
+ */
+export function filterDraftChanged(revision: FilterRuleVersion, draft: FilterDraft): boolean {
+  return (
+    revision.name !== draft.name.trim() ||
+    revision.intent !== draft.intent.trim() ||
+    revision.enabled !== draft.enabled ||
+    (revision.categoryId ?? undefined) !== draft.categoryId
+  );
+}
+
+/**
  * The save body.
  *
  * `seriesId` and `expectedVersion` travel together — the contract refuses one without the other —

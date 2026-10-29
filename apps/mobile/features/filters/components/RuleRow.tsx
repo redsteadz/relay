@@ -2,7 +2,7 @@ import type { FilterRuleVersion } from "@relay/contracts";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Switch } from "react-native-paper";
 
-import { AppText, RelayIcon } from "@/components/ui";
+import { AppText, RelayIcon, StatusPill, type StatusPillTone } from "@/components/ui";
 import { useRelayTheme } from "@/theme";
 
 import { filterRuleSentence } from "../models/filterPresentation";
@@ -29,6 +29,7 @@ export function RuleRow({
   history,
   onOpen,
   onToggleEnabled,
+  quiet,
   revision,
 }: {
   busy: boolean;
@@ -37,6 +38,8 @@ export function RuleRow({
   history: readonly FilterRuleVersion[];
   onOpen: () => void;
   onToggleEnabled: () => void;
+  /** What the rule does to a matching notification, when it does anything (ADR-0023). */
+  quiet?: { label: string; tone: StatusPillTone } | undefined;
   revision: FilterRuleVersion;
 }) {
   const theme = useRelayTheme();
@@ -117,6 +120,16 @@ export function RuleRow({
           </AppText>
         )}
 
+        {/*
+          Whether the rule also touches the notification itself. Most rules only file, so the pill
+          appears only on the ones that do more; its words are the same ones the editor uses.
+        */}
+        {quiet === undefined ? null : (
+          <View style={styles.quiet}>
+            <StatusPill label={quiet.label} tone={quiet.tone} />
+          </View>
+        )}
+
         <View style={[styles.footer, { gap: spacing.sm }]}>
           {prior.length === 0 ? (
             <View />
@@ -141,6 +154,7 @@ const styles = StyleSheet.create({
   },
   head: { width: "100%" },
   name: { flexShrink: 1, flexGrow: 1 },
+  quiet: { alignSelf: "flex-start" },
   row: { overflow: "hidden", width: "100%" },
   switch: { justifyContent: "center" },
   title: { alignItems: "center", flexDirection: "row", width: "100%" },

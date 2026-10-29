@@ -39,7 +39,7 @@ export default function SettingsScreen() {
     router.push({ params: { reason: "settings" }, pathname: "/sign-in" });
   }
 
-  function openIfSignedIn(pathname: "/categories" | "/quiet" | "/your-data") {
+  function openIfSignedIn(pathname: "/categories" | "/your-data") {
     if (!signedIn && pathname !== "/your-data") {
       openSignIn();
       return;
@@ -91,16 +91,11 @@ export default function SettingsScreen() {
         />
       </CardGroup>
 
-      <SectionHeading icon="shield-check-outline" label="Safeguards" />
-      <CardGroup>
-        <CardRow
-          accessibilityHint="Opens the quiet controls, including the stop that halts every rule"
-          detail="A rule can make a matching notification arrive without a sound, after a watching period you review. It needs an app named exactly and no model, and it is reversible until the moment it acts."
-          icon="bell-off-outline"
-          label={signedIn ? "Quiet notifications" : "Sign in to set up quiet rules"}
-          onPress={() => openIfSignedIn("/quiet")}
-        />
-      </CardGroup>
+      {/*
+        There is no quiet section here any more. What a rule does to a matching notification is
+        chosen on the rule, in Rules, and the stop that halts every rule lives at the top of that
+        tab -- one step from any row that shows a rule acting (ADR-0023).
+      */}
 
       {/* A demo build carries no billing SDK, so there is nothing here to show or sell. */}
       {demoModeEnabled() ? (

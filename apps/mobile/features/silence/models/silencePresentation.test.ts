@@ -4,10 +4,14 @@ import { describe, expect, it } from "vitest";
 import type { SilenceAuthorization, SilenceRuleStatus } from "@/lib/notification-silence";
 
 import {
+  applicationsNamedBy,
   capabilityNotice,
   decisionLabel,
   decisionTone,
   namedApplications,
+  quietChoiceFor,
+  quietPill,
+  quietStageState,
   reviewSummary,
   silenceRuleRow,
 } from "./silencePresentation";
@@ -347,5 +351,160 @@ describe("the apps a person can silence themselves", () => {
   // silence on its behalf.
   it("lists nothing for a rule that did not compile", () => {
     expect(namedApplications([status("refused", {}, "unreadable-field")])).toStrictEqual([]);
+  });
+});
+
+describe("the choice a stored rule expresses", () => {
+  it("reads the action of an acting rule and the watch of an observing one", () => {
+    expect(quietChoiceFor(status("acting", { action: "dismiss", authorized: true }))).toBe(
+      "dismiss",
+    );
+    expect(quietChoiceFor(status("acting", { action: "snooze", authorized: true }))).toBe("snooze");
+    expect(quietChoiceFor(status("observing"))).toBe("observe");
+  });
+
+  it("is none for a rule that does nothing to notifications, or no rule at all", () => {
+    expect(quietChoiceFor(status("unauthorized"))).toBe("none");
+    expect(quietChoiceFor(status("refused", {}, "unreadable-field"))).toBe("none");
+    expect(quietChoiceFor(undefined)).toBe("none");
+  });
+});
+
+describe("the quiet stage of the editor", () => {
+  const compiled = (flags: { awaitsModel?: boolean; unscoped?: boolean } = {}) => ({
+    rule: {
+      action: "snooze" as const,
+      awaitsModel: flags.awaitsModel ?? false,
+      clauses: flags.unscoped
+        ? []
+        : [
+            {
+              tests: [
+                {
+                  field: "source.applicationId" as const,
+                  operator: "equals" as const,
+                  values: ["com.courier.app"],
+                },
+              ],
+            },
+          ],
+      filterRuleId: RULE_ID,
+      observing: false,
+      unscoped: flags.unscoped ?? false,
+    },
+    status: "compiled" as const,
+  });
+  const base = {
+    compilation: compiled(),
+    enabled: true,
+    killSwitchEngaged: false,
+    modelConfigured: true,
+  };
+
+  it("blocks every choice but leaving it when the device would refuse the rule", () => {
+    const state = quietStageState({
+      ...base,
+      choice: "snooze",
+      compilation: { refusal: "unreadable-field", status: "refused" },
+    });
+    expect(state.blocked).toContain("Only the app and the title");
+  });
+
+  it("blocks a paused rule, and a rule with nothing compiled yet", () => {
+    expect(quietStageState({ ...base, choice: "snooze", enabled: false }).blocked).toContain(
+      "paused",
+    );
+    expect(
+      quietStageState({ ...base, choice: "snooze", compilation: undefined }).blocked,
+    ).toContain("Describe what the rule matches first");
+  });
+
+  // The two acting states never share wording, and the stage says the same thing the row will.
+  it("describes each acting choice in its own words", () => {
+    expect(quietStageState({ ...base, choice: "snooze" }).detail).toContain(
+      "put away for two hours",
+    );
+    expect(quietStageState({ ...base, choice: "dismiss" }).detail).toContain("cleared for good");
+    expect(quietStageState({ ...base, choice: "observe" }).detail).toContain("changes none");
+    expect(quietStageState({ ...base, choice: "none" }).detail).toContain("stay on your phone");
+  });
+
+  it("says when a rule asks a model this phone does not have", () => {
+    const state = quietStageState({
+      ...base,
+      choice: "snooze",
+      compilation: compiled({ awaitsModel: true }),
+      modelConfigured: false,
+    });
+    expect(state.needsModel).toBe(true);
+    expect(state.detail).toContain("no model is set up on this phone");
+    // Leaving it alone needs no model, whatever the rule asks.
+    expect(
+      quietStageState({
+        ...base,
+        choice: "none",
+        compilation: compiled({ awaitsModel: true }),
+        modelConfigured: false,
+      }).needsModel,
+    ).toBe(false);
+  });
+
+  it("says an unscoped rule reaches everything, and that the stop is engaged", () => {
+    const state = quietStageState({
+      ...base,
+      choice: "dismiss",
+      compilation: compiled({ awaitsModel: true, unscoped: true }),
+      killSwitchEngaged: true,
+    });
+    expect(state.detail).toContain("Every notification Relay captures");
+    expect(state.detail).toContain("Everything is stopped right now");
+  });
+});
+
+describe("the pill a rule's row carries", () => {
+  const options = { killSwitchEngaged: false, modelConfigured: true };
+
+  it("shows nothing for a rule that only files", () => {
+    expect(quietPill(status("unauthorized"), options)).toBeUndefined();
+    expect(quietPill(status("refused", {}, "unreadable-field"), options)).toBeUndefined();
+    expect(quietPill(undefined, options)).toBeUndefined();
+  });
+
+  it("uses the row's own words for a rule that acts or watches", () => {
+    expect(quietPill(status("acting", { action: "dismiss", authorized: true }), options)).toEqual({
+      label: "Clearing",
+      tone: "success",
+    });
+    expect(quietPill(status("observing"), options)?.label).toBe("Watching");
+    expect(
+      quietPill(status("acting", { authorized: true }), { ...options, killSwitchEngaged: true })
+        ?.label,
+    ).toBe("Stopped");
+  });
+});
+
+describe("the apps one rule names", () => {
+  it("reads equals and in tests on the application id, and nothing else", () => {
+    expect(
+      applicationsNamedBy({
+        action: "snooze",
+        awaitsModel: false,
+        clauses: [
+          {
+            tests: [
+              { field: "source.applicationId", operator: "in", values: ["b.app", "a.app"] },
+              { field: "subject", operator: "contains", values: ["sale"] },
+            ],
+          },
+          {
+            tests: [{ field: "source.applicationId", operator: "contains", values: ["c"] }],
+          },
+        ],
+        filterRuleId: RULE_ID,
+        observing: false,
+        unscoped: false,
+      }),
+    ).toStrictEqual(["a.app", "b.app"]);
+    expect(applicationsNamedBy(undefined)).toStrictEqual([]);
   });
 });

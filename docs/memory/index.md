@@ -60,6 +60,7 @@ This page is canonical map, not duplicate specification. Follow links to authori
 - [ADR-0020: Quiet rules need not name an application](../decisions/0020-unscoped-quiet-rules.md)
 - [ADR-0021: A quiet rule can be authorized directly](../decisions/0021-direct-quiet-authorization.md)
 - [ADR-0022: Decision-engine endpoints](../decisions/0022-decision-engine-endpoints.md)
+- [ADR-0023: Quiet on the rule, and model diagnostics](../decisions/0023-quiet-on-the-rule-and-model-diagnostics.md)
 
 ## Delivery
 

@@ -196,6 +196,76 @@ describe("finishing a deferred quiet decision", () => {
     }
   });
 
+  // Each silent `continue` this used to have was a way for a notification to wait forever with no
+  // request and nothing to say why. They are counted now, so the journal can say.
+  it("counts a candidate whose rule has gone, and asks nothing about it", async () => {
+    const { close, store: database } = store();
+    const fetcher = vi.fn();
+    try {
+      const result = await resolvePendingSilences(
+        [candidate(ENVELOPE, "70300000-0000-4000-8000-00000000dead")],
+        [semanticRule()],
+        {
+          config: CONFIG,
+          content: contentFor(ENVELOPE),
+          database,
+          fetcher,
+          resolve: device().resolve,
+          tenantId: TENANT,
+        },
+      );
+      expect(result.skippedRuleGone).toBe(1);
+      expect(result.evaluated).toBe(0);
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      close();
+    }
+  });
+
+  it("counts a candidate whose retained content has expired", async () => {
+    const { close, store: database } = store();
+    try {
+      const result = await resolvePendingSilences([candidate()], [semanticRule()], {
+        config: CONFIG,
+        content: new Map(),
+        database,
+        fetcher: vi.fn(),
+        resolve: device().resolve,
+        tenantId: TENANT,
+      });
+      expect(result.skippedNoContent).toBe(1);
+    } finally {
+      close();
+    }
+  });
+
+  it("reports each attempt with its refusal and status, and counts the undecided", async () => {
+    const { close, store: database } = store();
+    try {
+      const result = await resolvePendingSilences([candidate()], [semanticRule()], {
+        config: CONFIG,
+        content: contentFor(ENVELOPE),
+        database,
+        fetcher: () => Promise.resolve(new Response("nope", { status: 401 })),
+        resolve: device().resolve,
+        tenantId: TENANT,
+      });
+      expect(result.undecided).toBe(1);
+      expect(result.attempts).toStrictEqual([
+        expect.objectContaining({
+          decision: "undecided",
+          host: "192.168.1.10",
+          model: "llama3.2:3b",
+          protocol: "openai",
+          refusal: "rejected",
+          statusCode: 401,
+        }),
+      ]);
+    } finally {
+      close();
+    }
+  });
+
   it("asks nothing when no endpoint is configured", async () => {
     const { close, store: database } = store();
     try {

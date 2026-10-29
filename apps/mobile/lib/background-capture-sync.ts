@@ -96,7 +96,7 @@ export async function runBackgroundCaptureSync(): Promise<BackgroundSyncOutcome>
   // in seconds -- or not at all. Its own failure is reported on its own terms rather than failing
   // the run, since the captures are already uploaded by here.
   try {
-    await resolvePendingSilencesForTenant(client, session.user.id);
+    await resolvePendingSilencesForTenant(client, session.user.id, { trigger: "background" });
   } catch (error: unknown) {
     logMobileError("background.silence_resolution_failed", error, {
       code: "BACKGROUND_SILENCE_RESOLUTION_FAILED",

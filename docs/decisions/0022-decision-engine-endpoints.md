@@ -17,7 +17,7 @@ with a confidence — and it gets one by asking a general model for JSON, pinnin
 schema, capping the completion at 200 tokens, and refusing anything that is not exactly that shape.
 The `rationale` field it insists on is discarded entirely on the device path.
 
-A class of model answers that question directly. Jev (`thejevai.com`) and
+A class of model answers that question directly. Jev (TypeSafe, served at `api.typesafe.ai`) and
 [Laya](https://github.com/NandhaKishorM/laya) are non-autoregressive decision engines: typed
 `choice` and yes/no questions over a state, answered in a single forward pass with no generation.
 Laya is 421M parameters, reports ~33 ms per question on a T4 and ~146 ms on Apple silicon, and

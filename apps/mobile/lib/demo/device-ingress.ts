@@ -44,8 +44,10 @@ export type DemoNativeCapabilities = {
   notificationAllowedPackages: string[];
   notificationCapturePaused: boolean;
   notificationListener: boolean;
+  notificationListenerBound: boolean;
   notificationSilenceKillSwitch: boolean;
   notificationSilenceMode: NotificationSilenceMode;
+  notificationSilencePendingCount: number;
   notificationSilenceRevision: number;
   notificationSilenceRuleCount: number;
   platform: string;
@@ -127,6 +129,8 @@ export async function demoCapabilities(): Promise<DemoNativeCapabilities> {
     notificationAllowedPackages: stringList(current.notification_allowed_packages),
     notificationCapturePaused: current.notification_capture_paused === true,
     notificationListener: current.notification_listener === true,
+    // A demo listener is bound whenever it is granted: there is no service to lose the binding.
+    notificationListenerBound: current.notification_listener === true,
     notificationSilenceKillSwitch:
       current.notification_silence_kill_switch === true || (snapshot?.killSwitchEngaged ?? false),
     notificationSilenceMode: snapshot?.mode ?? "off",
@@ -134,6 +138,8 @@ export async function demoCapabilities(): Promise<DemoNativeCapabilities> {
       typeof current.notification_silence_revision === "number"
         ? current.notification_silence_revision
         : 0,
+    // The demo never defers a decision to a model, so nothing is ever pending.
+    notificationSilencePendingCount: 0,
     notificationSilenceRuleCount: snapshot?.rules.length ?? 0,
     // Reported as Android so the source screens are demonstrable wherever the build runs. Nothing
     // here touches a platform API; the capability is the demo's own state.

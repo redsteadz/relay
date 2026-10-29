@@ -12,6 +12,7 @@ import {
   decisionTone,
   describeFilterExpression,
   explainUnsupportedClauses,
+  filterDraftChanged,
   filterDraftError,
   filterDraftFor,
   filterFieldLabel,
@@ -628,5 +629,27 @@ describe("filterRuleSentence", () => {
     ).condition;
     expect(condition).toContain("…");
     expect(condition.length).toBeLessThan(100);
+  });
+});
+
+describe("whether a draft would append a revision", () => {
+  // Authorization for what a rule does to a notification is keyed to the revision, so a save that
+  // changes nothing would withdraw it for nothing.
+  it("is unchanged when the draft restates the stored revision", () => {
+    const stored = revision();
+    expect(filterDraftChanged(stored, filterDraftFor(stored))).toBe(false);
+    expect(filterDraftChanged(stored, { ...filterDraftFor(stored), name: "  Receipts " })).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    ["name", { name: "Invoices" }],
+    ["intent", { intent: "Invoices from my bank" }],
+    ["enabled", { enabled: false }],
+    ["category", { categoryId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f0" }],
+  ])("changes with the %s", (_field, patch) => {
+    const stored = revision();
+    expect(filterDraftChanged(stored, { ...filterDraftFor(stored), ...patch })).toBe(true);
   });
 });

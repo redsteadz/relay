@@ -166,7 +166,8 @@ describe("every failure leaves the capture alone", () => {
   ])("is undecided for %s", async (_label, config, refusal) => {
     const fetcher = vi.fn();
     const result = await evaluateDeviceSemanticClause(clause(), ITEM, config, { fetcher });
-    expect(result).toStrictEqual({ decision: "undecided", refusal });
+    expect(result).toMatchObject({ decision: "undecided", refusal });
+    expect(result.statusCode).toBeUndefined();
     // Nothing was sent, so nothing may claim a host it did not contact.
     expect(fetcher).not.toHaveBeenCalled();
     expect(result.disclosure).toBeUndefined();
@@ -215,6 +216,24 @@ describe("every failure leaves the capture alone", () => {
     expect(result.refusal).toBe(refusal);
   });
 
+  // The status is what separates a wrong key from a wrong address from a server that is down, and
+  // all three used to read as `rejected`.
+  it("carries the HTTP status of a refusal", async () => {
+    const result = await evaluateDeviceSemanticClause(clause(), ITEM, CONFIG, {
+      fetcher: () => Promise.resolve(new Response("nope", { status: 404 })),
+    });
+    expect(result).toMatchObject({ protocol: "openai", refusal: "rejected", statusCode: 404 });
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("times every outcome, including one that never sent anything", async () => {
+    const result = await evaluateDeviceSemanticClause(clause(), ITEM, undefined, {
+      fetcher: vi.fn(),
+    });
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    expect(result.protocol).toBeUndefined();
+  });
+
   // A request that left names the endpoint it reached, so the disclosure history can say where data
   // actually went even when the answer was useless.
   it("records the endpoint it contacted even when the reply was unusable", async () => {
@@ -236,5 +255,33 @@ describe("every failure leaves the capture alone", () => {
       timeoutMs: 10,
     });
     expect(result.refusal).toBe("timed-out");
+  });
+});
+
+describe("asking a decision engine", () => {
+  const ENGINE = {
+    baseUrl: "https://api.typesafe.ai/v1",
+    model: "jev-latest",
+    protocol: "system-one" as const,
+    responseFormat: "json-object" as const,
+  };
+
+  it("posts to the systemone route and reads the yes/no probability back", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ answers: { relayFilterMatch: { noul: 0.97 } } }), {
+        status: 200,
+      }),
+    );
+    const result = await evaluateDeviceSemanticClause(clause(), ITEM, ENGINE, { fetcher });
+    expect(fetcher.mock.calls[0]?.[0]).toBe("https://api.typesafe.ai/v1/systemone");
+    expect(result).toMatchObject({ decision: "match", protocol: "system-one", statusCode: 200 });
+  });
+
+  it("refuses a reply with no answer under the key it asked for", async () => {
+    const result = await evaluateDeviceSemanticClause(clause(), ITEM, ENGINE, {
+      fetcher: () =>
+        Promise.resolve(new Response(JSON.stringify({ answers: {} }), { status: 200 })),
+    });
+    expect(result.refusal).toBe("invalid-response");
   });
 });

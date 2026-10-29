@@ -17,6 +17,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import RelayDeviceIngress, { SILENCE_OUTCOME_LIMIT } from "@/modules/relay-device-ingress";
 import { compileSilencePlan, reviewableRules, type SilencePlan } from "@/lib/notification-silence";
+import { reportUnexpectedUiError } from "@/lib/observability";
+import type { QuietChoice } from "../models/silencePresentation";
 import {
   completeDryRun,
   listSilenceAuthorizations,
@@ -165,6 +167,56 @@ export function useNotificationSilence(
   });
 
   /**
+   * Sets what one revision does to a matching notification, from the choice the editor offers.
+   *
+   * One mutation rather than three, because the editor has one control. `observe` opens a window;
+   * `snooze` and `dismiss` authorize directly with that action (ADR-0021); `none` withdraws. A window
+   * that was open when the reader chose to act is closed first so its counts land in the audit
+   * record -- the evidence is a record, not a gate, so a window too young for the server to close
+   * is reported and does not stop the enable.
+   */
+  const applyChoice = useMutation({
+    mutationFn: async ({
+      choice,
+      filterRuleId,
+      observingSince,
+    }: {
+      choice: QuietChoice;
+      filterRuleId: string;
+      /** When the revision's observation window opened, if one is open. */
+      observingSince?: string | undefined;
+    }) => {
+      const database = client as SupabaseClient;
+      if (choice === "observe") {
+        await startDryRun(database, filterRuleId, "snooze");
+        return;
+      }
+      if (choice === "none") {
+        await setRuleDismissal(database, filterRuleId, false);
+        return;
+      }
+      if (observingSince !== undefined) {
+        try {
+          const counts = await RelayDeviceIngress.getNotificationSilenceCounts(
+            tenantId as string,
+            filterRuleId,
+            Date.parse(observingSince),
+          );
+          await completeDryRun(database, filterRuleId, counts);
+        } catch (cause: unknown) {
+          reportUnexpectedUiError(cause, "ui.silence_observation_not_recorded", {
+            code: "SILENCE_OBSERVATION_NOT_RECORDED",
+            integration: "supabase-postgrest",
+            operation: "completeDryRun",
+          });
+        }
+      }
+      await setRuleDismissal(database, filterRuleId, true, choice);
+    },
+    onSuccess: refreshAll,
+  });
+
+  /**
    * The stop, device first.
    *
    * Engaging it reaches the native store before the network, so a person who loses signal
@@ -182,6 +234,8 @@ export function useNotificationSilence(
 
   const statuses = state.data?.plan.statuses ?? [];
   return {
+    applyChoice: applyChoice.mutateAsync,
+    applying: applyChoice.isPending,
     authorize: authorize.mutateAsync,
     authorizing: authorize.isPending,
     completeObservation: completeObservation.mutateAsync,
@@ -197,9 +251,12 @@ export function useNotificationSilence(
     outcomes: outcomes.data ?? [],
     refresh: refreshAll,
     reviewable: reviewableRules(statuses),
+    /** Where the newest revision of one series stands, which is the only revision that can act. */
+    statusForSeries: (seriesId: string) =>
+      statuses.find((status) => status.rule.seriesId === seriesId),
     statuses,
     stopError: stop.error,
     stopping: stop.isPending,
-    writeError: observe.error ?? completeObservation.error ?? authorize.error,
+    writeError: observe.error ?? completeObservation.error ?? authorize.error ?? applyChoice.error,
   };
 }

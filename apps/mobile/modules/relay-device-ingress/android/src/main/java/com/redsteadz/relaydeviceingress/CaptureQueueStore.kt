@@ -229,6 +229,21 @@ internal class CaptureQueueStore(context: Context) :
   }
 
   /**
+   * How many notifications still owe a model's answer, posted or not.
+   *
+   * `pendingSilenceOutcomes` filters by what is still on screen and returns nothing while the shade
+   * cannot be read; this does neither, so the app can tell "nothing is waiting" from "something is
+   * waiting and cannot be reached". A count, not the rows: it is a diagnostic, not work.
+   */
+  fun pendingSilenceCount(tenantId: String): Int {
+    expireSilenceOutcomes(writableDatabase, System.currentTimeMillis())
+    return readableDatabase.rawQuery(
+      "SELECT COUNT(*) FROM silence_outcome WHERE tenant_id=? AND decision=? AND filter_rule_id IS NOT NULL",
+      arrayOf(tenantId, PENDING_SILENCE_DECISION)
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
+  }
+
+  /**
    * One candidate, or nothing.
    *
    * Re-read at the moment of acting rather than trusted from the listing, because the row may have
