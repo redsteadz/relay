@@ -8,6 +8,7 @@ import {
   type SourceFactSet,
 } from "@relay/contracts";
 import { decryptValue, encryptValue } from "@relay/crypto";
+import { AppError } from "@relay/observability";
 import {
   SOURCE_FACT_NORMALIZER_VERSION,
   contentFingerprint,
@@ -27,6 +28,7 @@ import {
 import { base64ToPostgresBytea, sourceItemEncryptionContext } from "./encryption";
 import type { Env, IngressQueueMessage } from "./env";
 import { classifyCapture } from "./classification";
+import { planSmartSource } from "./smart-automations";
 import { readSemanticEndpointDefaults } from "./semantic";
 import { EventPersistenceError, persistSourceEventSet } from "./events";
 import { FactPersistenceError, persistSourceFactSet } from "./facts";
@@ -126,8 +128,8 @@ export type E2EResult = {
     | "persisted";
 };
 
-function failureResponse(failureCode: DeadLetterFailureCode): Response {
-  return Response.json({ accepted: false, failureCode }, { status: 503 });
+function failureResponse(failureCode: DeadLetterFailureCode, status = 503): Response {
+  return Response.json({ accepted: false, failureCode }, { status });
 }
 
 export async function handleE2EResultRequest(
@@ -582,10 +584,13 @@ export async function processIngressMessage(
     );
     return failureResponse("event_integrity_conflict");
   }
-  // Classification runs only for a capture this delivery actually stored. A redelivery has already
-  // been classified, and re-running would evaluate the tenant's rules again -- and disclose the same
-  // fields to their provider again -- to reach the answer already on the row.
-  if (persistence === "stored") {
+  // A failed classification never publishes the completed dedup markers below. Queue redelivery
+  // can therefore converge an already-persisted source without creating another source or action.
+  // A duplicate under a different source ID has no matching facts and must not be classified.
+  if (
+    persistence === "stored" ||
+    (persistence === "duplicate" && factPersistence !== "source-missing")
+  ) {
     try {
       const outcome = await classifyCapture(configuration, envelope, userId.data, {
         debugSpecification: env.DEBUG,
@@ -601,9 +606,8 @@ export async function processIngressMessage(
         );
       }
     } catch (error: unknown) {
-      // A capture that could not be classified is still a capture. Failing the message would send
-      // a durably persisted item back through the queue to be stored again, so the failure is
-      // recorded and the item stays unclassified until a rule change or a replay revisits it.
+      // Retain the durable capture but leave this delivery retryable. The existing encrypted Queue,
+      // bounded backoff, dead-letter metadata and replay path own recovery, not the mobile session.
       recordPipelineMetric(
         env.PIPELINE_METRICS,
         "source_item_classification_failed",
@@ -617,6 +621,10 @@ export async function processIngressMessage(
         operation: "classifyCapture",
         startedAt: logStartedAt,
       });
+      return failureResponse(
+        "persistence_unavailable",
+        error instanceof AppError && !error.retryable ? 422 : 503,
+      );
     }
   }
 
@@ -627,6 +635,7 @@ export async function processIngressMessage(
     performance.now() - startedAt,
     env.DEBUG,
   );
+  await planSmartSource(env, userId.data, envelope.id);
   const records: Record<string, unknown> = {};
   if (
     (persistence !== "duplicate" || factPersistence !== "source-missing") &&

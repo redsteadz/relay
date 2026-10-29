@@ -4,6 +4,7 @@ import { generateKek } from "@relay/crypto";
 
 import type { Env } from "../src/env";
 import { MAINTENANCE_TASK_TIMEOUT_MS, runScheduledMaintenance } from "../src/maintenance";
+import * as smartActions from "../src/smart-automations";
 
 function environment(): Env {
   return {
@@ -18,6 +19,22 @@ function environment(): Env {
 }
 
 describe("scheduled pipeline maintenance", () => {
+  it("attempts action recovery even when an unrelated retention task fails", async () => {
+    const drain = vi.spyOn(smartActions, "drainSmartActions").mockResolvedValue(undefined);
+    try {
+      const fetcher = vi.fn((input: string) =>
+        Promise.resolve(
+          new URL(input).pathname.endsWith("purge_expired_raw_payloads")
+            ? new Response(null, { status: 503 })
+            : Response.json([]),
+        ),
+      );
+      await expect(runScheduledMaintenance(environment(), fetcher)).rejects.toThrow("retention");
+      expect(drain).toHaveBeenCalledOnce();
+    } finally {
+      drain.mockRestore();
+    }
+  });
   it("attempts retention, KEK rotation, and Gmail maintenance concurrently", async () => {
     const requests: { body: BodyInit | null | undefined; path: string }[] = [];
     const fetcher = vi.fn((input: string, init?: RequestInit) => {

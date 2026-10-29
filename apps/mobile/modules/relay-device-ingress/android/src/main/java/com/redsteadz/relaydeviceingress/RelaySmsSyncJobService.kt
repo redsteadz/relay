@@ -18,7 +18,11 @@ class RelaySmsSyncJobService : JobService() {
       executor.execute {
         var wantsReschedule = false
         try {
-          SmsInboxSynchronizer.sync(applicationContext, configuration.tenantId)
+          val captured = SmsInboxSynchronizer.sync(applicationContext, configuration.tenantId)
+          if (captured > 0) {
+            CaptureEventBridge.captureEnqueued("sms")
+            ImmediateDelivery.request(applicationContext)
+          }
         } catch (error: Exception) {
           wantsReschedule = true
           SmsDebugDiagnostics.failure("sync job failed", error)

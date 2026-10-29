@@ -8,7 +8,9 @@ import { localStoreSupported, openLocalStore, setLocalHidden } from "@/lib/local
 import { runInBackground } from "@/lib/observability";
 
 import { recordDeviceClassifications } from "../api/classifications";
-import { hideInboxEvent, listInbox, restoreInboxEvent } from "../api/inbox";
+import { hideInboxEvent, listInboxSnapshot, restoreInboxEvent } from "../api/inbox";
+import RelayDeviceIngress from "@/modules/relay-device-ingress";
+import { reconcileInbox } from "../models/reconciliation";
 import { listLocalInbox } from "../api/localInbox";
 import { resolveAwaitingModelForTenant } from "../api/semanticFiling";
 import { classifiableRules, classificationPass } from "../models/deviceClassification";
@@ -64,7 +66,7 @@ export function useInbox(): InboxState {
 
   const inbox = useQuery({
     enabled: client !== undefined && userId !== undefined,
-    queryFn: () => listInbox(client as NonNullable<typeof client>, userId as string),
+    queryFn: () => listInboxSnapshot(client as NonNullable<typeof client>, userId as string),
     queryKey: inboxQueryKeys.all(userId),
   });
 
@@ -74,13 +76,16 @@ export function useInbox(): InboxState {
    * Read alongside the server rather than after it, because the device derived these rows before it
    * uploaded anything: waiting for PostgREST meant a capture the phone had already understood stayed
    * invisible until a round trip completed. This answers the first paint and an offline open; the
-   * server read replaces it the moment it lands.
+   * server read reconciles by source identity while unsynchronized captures remain visible.
    *
    * It needs no client, only a tenant, so it still answers when the network does not.
    */
   const local = useQuery({
     enabled: userId !== undefined,
-    queryFn: () => listLocalInbox(userId as string),
+    queryFn: async () => ({
+      items: await listLocalInbox(userId as string),
+      pending: new Set(await RelayDeviceIngress.getUnsynchronizedCaptureIds(userId as string)),
+    }),
     queryKey: localInboxQueryKeys.all(userId),
   });
 
@@ -145,14 +150,20 @@ export function useInbox(): InboxState {
     },
     onMutate: async ({ action, eventId, item }) => {
       await queryClient.cancelQueries({ queryKey: inboxKey });
-      const previous = queryClient.getQueryData<readonly InboxItem[]>(inboxKey);
-      queryClient.setQueryData<readonly InboxItem[]>(inboxKey, (current) => {
-        const rows = current ?? [];
-        if (action === "hide") return rows.filter((row) => row.id !== eventId);
-        // Undo returns the item to the list it was taken from, in its original order.
-        if (item === undefined || rows.some((row) => row.id === item.id)) return rows;
-        return [...rows, item];
-      });
+      const previous =
+        queryClient.getQueryData<Awaited<ReturnType<typeof listInboxSnapshot>>>(inboxKey);
+      queryClient.setQueryData<Awaited<ReturnType<typeof listInboxSnapshot>>>(
+        inboxKey,
+        (current) => {
+          const rows = current?.items ?? [];
+          const observedSourceIds = current?.observedSourceIds ?? [];
+          if (action === "hide")
+            return { items: rows.filter((row) => row.id !== eventId), observedSourceIds };
+          // Undo returns the item to the list it was taken from, in its original order.
+          if (item === undefined || rows.some((row) => row.id === item.id)) return current;
+          return { items: [...rows, item], observedSourceIds };
+        },
+      );
       return { previous };
     },
     onError: (_error, _variables, context) => {
@@ -171,15 +182,16 @@ export function useInbox(): InboxState {
     queryKey: ["filter-rules", userId],
   });
 
-  /**
-   * The server's answer when there is one, this device's until then.
-   *
-   * Not merged. The two stores disagree about event ids -- a locally derived event carries a locally
-   * generated id and the server generates its own for the same capture (ADR-0015) -- so merging would
-   * show one capture twice. Preferring the server once it answers keeps a single identity per item
-   * and makes reconciliation a replacement rather than a diff.
-   */
-  const items = useMemo(() => inbox.data ?? local.data ?? [], [inbox.data, local.data]);
+  const items = useMemo(
+    () =>
+      reconcileInbox(
+        inbox.data?.items,
+        local.data?.items ?? [],
+        local.data?.pending ?? new Set(),
+        inbox.data?.observedSourceIds,
+      ),
+    [inbox.data, local.data],
+  );
   const rules = useMemo(() => classifiableRules(revisions.data ?? []), [revisions.data]);
 
   /**

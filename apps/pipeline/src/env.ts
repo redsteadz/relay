@@ -3,6 +3,8 @@ import type { IngressQueueMessage as ContractIngressQueueMessage } from "@relay/
 export type IngressQueueMessage = ContractIngressQueueMessage;
 
 export interface Env {
+  RELAY_SMART_GOOGLE_ENABLED?: string;
+  SMART_ACTION_WORKFLOW?: Workflow<{ userId: string; runId: string }>;
   DEBUG?: string;
   DEAD_LETTER_QUEUE: Queue<IngressQueueMessage>;
   INGRESS_QUEUE: Queue<IngressQueueMessage>;

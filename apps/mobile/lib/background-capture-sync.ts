@@ -34,6 +34,7 @@ import { demoModeEnabled } from "./demo/mode";
 import { logMobileError } from "./observability";
 import { createConfiguredClient } from "./auth-configuration";
 import { syncDeviceCaptures } from "./device-capture-sync";
+import RelayDeviceIngress from "../modules/relay-device-ingress";
 
 export const BACKGROUND_CAPTURE_SYNC_TASK = "relay.background-capture-sync";
 
@@ -48,7 +49,7 @@ const BACKGROUND_SYNC_FLAG_KEY = "relay.background-capture-sync.enabled";
 export const BACKGROUND_SYNC_MINIMUM_INTERVAL_MINUTES = 15;
 
 /** Why a background run did nothing, for the one log line it is allowed to write. */
-type BackgroundSyncOutcome = "delivered" | "no-session" | "unsupported";
+type BackgroundSyncOutcome = "delivered" | "no-session" | "unsupported" | "disabled";
 
 /** Whether this runtime has a background executor at all. */
 export function backgroundSyncSupported(): boolean {
@@ -75,19 +76,39 @@ export async function backgroundSyncEnabled(): Promise<boolean> {
  */
 export async function runBackgroundCaptureSync(): Promise<BackgroundSyncOutcome> {
   if (!backgroundSyncSupported()) return "unsupported";
+  if (!(await backgroundSyncEnabled())) return "disabled";
 
-  // Its own client, because there is no provider tree here to take one from. Safe in this context:
-  // the app is not in the foreground, so its auto-refresh controller is not also rotating the
-  // refresh token, and a refresh that fails anyway leaves no session -- which this records and
-  // treats as the ordinary signed-out case rather than an incident.
+  // Reuse this runtime's configured client so refresh and logout share its auth synchronization.
+  // A cold runtime creates it lazily; neither path depends on a mounted provider tree.
   const client = createConfiguredClient();
   if (client === undefined) return "unsupported";
   const { data, error } = await client.auth.getSession();
   if (error !== null) throw error;
-  const session = data.session;
+  let session = data.session;
   if (session === null) return "no-session";
+  if (session.expires_at !== undefined && session.expires_at <= Date.now() / 1000 + 60) {
+    const refreshed = await client.auth.refreshSession();
+    if (refreshed.error !== null) throw refreshed.error;
+    session = refreshed.data.session;
+    if (session === null) return "no-session";
+  }
+  if (!(await backgroundSyncEnabled())) return "disabled";
 
-  await syncDeviceCaptures(session);
+  try {
+    await syncDeviceCaptures(session);
+  } finally {
+    if (await backgroundSyncEnabled()) {
+      try {
+        await RelayDeviceIngress.scheduleCaptureRetry(session.user.id);
+      } catch (error: unknown) {
+        logMobileError("background.capture_retry_schedule_failed", error, {
+          code: "CAPTURE_RETRY_SCHEDULE_FAILED",
+          integration: "relay-device-ingress",
+          operation: "scheduleCaptureRetry",
+        });
+      }
+    }
+  }
 
   // The other thing that cannot happen without a running app. A notification listener cannot reach a
   // model, so a rule carrying a semantic clause records a candidate and leaves the notification

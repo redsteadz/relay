@@ -290,6 +290,10 @@ class RelayNotificationListenerService : NotificationListenerService() {
       NotificationDebugDiagnostics.event(
         "swept already-posted notifications found=${active.size} captured=$captured"
       )
+      if (captured > 0) {
+        CaptureEventBridge.captureEnqueued("notification")
+        ImmediateDelivery.request(applicationContext)
+      }
     }
   }
 

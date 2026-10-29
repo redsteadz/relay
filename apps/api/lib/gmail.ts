@@ -252,7 +252,7 @@ type TokenResponse = {
   scope: string;
 };
 
-async function readBoundedJson(response: Response, maximumBytes: number): Promise<unknown> {
+export async function readBoundedJson(response: Response, maximumBytes: number): Promise<unknown> {
   const contentLength = response.headers.get("content-length");
   if (
     contentLength !== null &&

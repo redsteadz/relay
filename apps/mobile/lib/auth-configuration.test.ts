@@ -13,7 +13,7 @@ vi.mock("./supabase", () => ({
 import { createConfiguredClient } from "./auth-configuration";
 
 describe("auth client configuration", () => {
-  it("reports repeated configuration failures once without caching clients", () => {
+  it("retries configuration failures but shares a successful client across foreground and background", () => {
     const configurationError = new Error("synthetic missing configuration");
     dependencies.createRelaySupabaseClient.mockImplementation(() => {
       throw configurationError;
@@ -37,6 +37,7 @@ describe("auth client configuration", () => {
     const configuredClient = { auth: {} };
     dependencies.createRelaySupabaseClient.mockReturnValue(configuredClient);
 
+    expect(createConfiguredClient()).toBe(configuredClient);
     expect(createConfiguredClient()).toBe(configuredClient);
     expect(dependencies.createRelaySupabaseClient).toHaveBeenCalledTimes(26);
     expect(dependencies.logMobileError).toHaveBeenCalledOnce();

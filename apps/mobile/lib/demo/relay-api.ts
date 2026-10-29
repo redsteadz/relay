@@ -18,6 +18,12 @@ import { DEMO_USER_ID } from "./account";
 import { demoRandomUuid } from "./ids";
 import { demoDatabase } from "./store";
 import { DEMO_TABLES, type DemoRow } from "./types";
+import {
+  commandSmartDemo,
+  smartDemoOverview,
+  runSmartDemoScenario,
+  connectSmartDemo,
+} from "./smart-automations";
 
 export type DemoApiResponse = { body: unknown; status: number };
 
@@ -288,6 +294,39 @@ export async function demoRelayApi(
   await demoDatabase.ready();
   const method = init.method ?? "GET";
   const [route = path, query = ""] = path.split("?", 2);
+  if (route === "/api/smart-automations/resources" && method === "GET") {
+    const state = await smartDemoOverview();
+    const service = state.services.find(
+      (item) => item.service === new URLSearchParams(query).get("service"),
+    );
+    return {
+      status: 200,
+      body: {
+        resources:
+          service === undefined ? [] : [{ id: service.targetId, label: service.targetLabel }],
+      },
+    };
+  }
+  if (route === "/api/smart-automations") {
+    try {
+      return {
+        status: 200,
+        body: method === "GET" ? await smartDemoOverview() : await commandSmartDemo(init.body),
+      };
+    } catch {
+      return failure(
+        409,
+        "smart_transition_refused",
+        "That change is not allowed in the current state.",
+      );
+    }
+  }
+  if (route === "/api/smart-automations/demo" && method === "POST") {
+    const body = init.body as { scenario?: string; connect?: string };
+    if (body.connect !== undefined)
+      return { status: 200, body: await connectSmartDemo(body.connect) };
+    return { status: 200, body: await runSmartDemoScenario(body.scenario ?? "transaction") };
+  }
 
   if (route === "/api/privacy" && method === "GET") {
     const deletion = deletionStatus();

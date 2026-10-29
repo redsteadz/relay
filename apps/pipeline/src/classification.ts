@@ -1,6 +1,6 @@
 import { filterPlanSchema, type IngressEnvelope } from "@relay/contracts";
 import { filterItem } from "@relay/domain";
-import { createLogger, httpResponseError } from "@relay/observability";
+import { AppError, createLogger, httpResponseError } from "@relay/observability";
 
 import { supabaseBackendHeaders, type PersistenceConfiguration } from "./configuration";
 import { evaluateFilterWithSemantics, type SemanticEvaluationOptions } from "./semantic";
@@ -115,7 +115,12 @@ async function readRulePage(
   const response = await fetch(url, {
     headers: supabaseBackendHeaders(supabase.serviceRoleKey),
   });
-  if (!response.ok) throw new Error(`Filter rule read failed with status ${response.status}`);
+  if (!response.ok)
+    throw httpResponseError(response, {
+      code: "CLASSIFICATION_RULE_READ_FAILED",
+      integration: "supabase",
+      operation: "loadActiveRules",
+    });
   const rows: FilterRuleRow[] = await response.json();
   return rows;
 }
@@ -278,6 +283,19 @@ export async function classifyCapture(
       configuration,
       userId,
     });
+    if (
+      evaluation.decision === "undecided" &&
+      "semantic" in evaluation &&
+      ["unavailable", "timed-out", "rate-limited"].includes(evaluation.semantic.failureReason ?? "")
+    ) {
+      throw new AppError("Classification is awaiting semantic recovery", {
+        category: "upstream-service",
+        code: "CLASSIFICATION_SEMANTIC_PENDING",
+        integration: "semantic-endpoint",
+        operation: "classifyCapture",
+        retryable: true,
+      });
+    }
     if (evaluation.decision !== "match") continue;
 
     const semantic = "semantic" in evaluation ? evaluation.semantic : undefined;

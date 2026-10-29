@@ -3,6 +3,7 @@ import type { IngressEnvelope } from "@relay/contracts";
 import { sha256Hex } from "./digest.js";
 
 export * from "./action-ledger.js";
+export * from "./smart-automations.js";
 export * from "./classification.js";
 export * from "./digest.js";
 export * from "./events.js";

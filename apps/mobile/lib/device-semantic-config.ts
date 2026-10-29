@@ -1,6 +1,7 @@
 import { deviceSemanticConfigSchema, type DeviceSemanticConfig } from "@relay/contracts";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+import { AppError } from "@relay/observability";
 
 /**
  * The model endpoint this device uses, and its key if it needs one.
@@ -87,7 +88,13 @@ export async function clearDeviceSemanticConfig(tenantId: string): Promise<void>
   }
   try {
     await SecureStore.deleteItemAsync(key);
-  } catch {
-    // Already gone is the outcome this was asked for.
+  } catch (error: unknown) {
+    throw new AppError("Device model credential cleanup failed", {
+      category: "internal",
+      cause: error,
+      code: "DEVICE_MODEL_CLEAR_FAILED",
+      integration: "expo-secure-store",
+      operation: "clearDeviceSemanticConfig",
+    });
   }
 }

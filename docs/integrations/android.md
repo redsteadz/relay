@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-10-09
+last_verified: 2026-10-23
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -362,3 +362,10 @@ Sources: [EAS profiles](https://docs.expo.dev/build/eas-json/),
 Android's [`Telephony.Sms` provider contract](https://developer.android.com/reference/android/provider/Telephony.Sms),
 [`SMS_RECEIVED_ACTION` contract](https://developer.android.com/reference/android/provider/Telephony.Sms.Intents#SMS_RECEIVED_ACTION),
 and [runtime permission workflow](https://developer.android.com/training/permissions/requesting).
+
+## Capture/session recovery amendment
+
+[ADR-0024](../decisions/0024-capture-safe-logout-and-recovery.md) defines the current logout guard,
+Inbox reconciliation, headless tenant preparation, immediate SMS/notification triggers and durable
+retry scheduling. Follow the [local verification/device checklist](../operations/session-background-verification.md)
+before claiming Android background delivery is verified. No replacement APK is prepared by these changes.

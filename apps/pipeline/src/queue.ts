@@ -49,9 +49,10 @@ async function routeFailedMessage(
   value: IngressQueueMessage,
   failureCode: DeadLetterFailureCode,
   env: Env,
+  permanent = false,
 ): Promise<void> {
   const maxAttempts = env.RELAY_E2E_MODE === "true" ? 1 : MAX_PROCESSING_ATTEMPTS;
-  if (message.attempts < maxAttempts) {
+  if (!permanent && message.attempts < maxAttempts) {
     message.retry({ delaySeconds: processingRetryDelay(message.attempts) });
     return;
   }
@@ -181,6 +182,7 @@ export async function processIngressQueue(
           parsed.data,
           failureCode.success ? failureCode.data : "coordinator_unavailable",
           env,
+          response.status === 422 && failureCode.success,
         );
       }
     } catch (error: unknown) {

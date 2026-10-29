@@ -29,7 +29,9 @@ type FileSystem = {
 const fileSystemSpecifier = "node:fs";
 const fileSystem = (await import(fileSystemSpecifier)) as FileSystem;
 
-const mobileRoot = new URL("../../../", import.meta.url).pathname;
+const urlSpecifier = "node:url";
+const { fileURLToPath } = (await import(urlSpecifier)) as { fileURLToPath: (value: URL) => string };
+const mobileRoot = fileURLToPath(new URL("../../../", import.meta.url)).replaceAll("\\", "/");
 const nativeRoot = `${mobileRoot}modules/relay-device-ingress/android/src/main/java/com/redsteadz/relaydeviceingress/`;
 
 const SOURCE_SUFFIXES = [".ts", ".tsx", ".kt"];

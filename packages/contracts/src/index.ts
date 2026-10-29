@@ -1,4 +1,5 @@
 import { z } from "zod";
+export * from "./smart-automations.js";
 
 export const sourceKindSchema = z.enum(["gmail", "notification", "sms", "email"]);
 export type SourceKind = z.infer<typeof sourceKindSchema>;
@@ -1304,7 +1305,13 @@ export const semanticOutcomeSchema = z
   });
 export type SemanticOutcome = z.infer<typeof semanticOutcomeSchema>;
 
-export const actionProviderSchema = z.enum(["google-tasks", "nextcloud-budget", "webhook"]);
+export const actionProviderSchema = z.enum([
+  "google-tasks",
+  "nextcloud-budget",
+  "webhook",
+  "google-sheets",
+  "google-calendar",
+]);
 export const actionIntentSchema = z.object({
   id: canonicalUuidSchema,
   eventId: canonicalUuidSchema,

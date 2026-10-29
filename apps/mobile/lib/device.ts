@@ -47,6 +47,7 @@ export async function registerInstallation(
         "x-relay-request-id": operationRequestId,
       },
       body: JSON.stringify({ id, platform: Platform.OS }),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
       throw new AppError("Device registration failed", {

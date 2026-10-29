@@ -18,8 +18,8 @@ import { assembleInbox, type InboxRows, type InboxVisibility } from "./inbox";
  * already holds the answer should not have to wait for.
  *
  * The server stays authoritative. This answers the first paint and an offline open; the PostgREST
- * read replaces it as soon as it lands, which is what reconciles a locally derived event id with the
- * different id the server generated for the same capture.
+ * read reconciles by source identity as soon as it lands. Unsynchronized captures can supplement
+ * an incomplete server answer; synchronized local copies cannot resurrect server-hidden rows.
  *
  * Column names mirror PostgREST on purpose, so both readers hand `assembleInbox` the same shapes and
  * an item cannot be explained one way here and another way there. The three adaptations below are
