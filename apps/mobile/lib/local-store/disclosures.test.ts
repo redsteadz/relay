@@ -24,6 +24,7 @@ const RULE = "70300000-0000-4000-8000-000000000001";
 function answered(decision: "match" | "no-match"): DeviceSemanticResult {
   return {
     decision,
+    durationMs: 120,
     disclosure: {
       disclosure: {
         disclosedFields: ["subject", "sender"],
@@ -94,7 +95,7 @@ describe("recording what the device disclosed", () => {
       await recordDeviceDisclosure(database, TENANT, {
         filterRuleId: RULE,
         id: "d1",
-        result: { decision: "undecided", refusal: "not-configured" },
+        result: { decision: "undecided", durationMs: 1, refusal: "not-configured" },
         sourceItemId: ITEM,
       });
       const [row] = await deviceDisclosures(database, TENANT);

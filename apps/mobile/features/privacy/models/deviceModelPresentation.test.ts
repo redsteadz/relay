@@ -152,6 +152,18 @@ describe("choosing the kind of model", () => {
     expect(DEVICE_MODEL_PRESETS.some((preset) => preset.protocol === "system-one")).toBe(true);
   });
 
+  // The product site answers nothing at /v1/systemone. A preset that pointed there asked a web
+  // server for a decision and recorded `rejected` where nobody could see it.
+  it("points the Jev preset at the API host, as a decision engine", () => {
+    const jev = DEVICE_MODEL_PRESETS.find((preset) => preset.id === "jev");
+    expect(jev).toMatchObject({
+      baseUrl: "https://api.typesafe.ai/v1",
+      model: "jev-latest",
+      protocol: "system-one",
+    });
+    expect(deviceModelBaseUrlError(jev?.baseUrl ?? "")).toBeUndefined();
+  });
+
   it("carries the chosen protocol into what is stored", () => {
     expect(deviceModelConfigFrom(values({ protocol: "system-one" })).protocol).toBe("system-one");
   });
@@ -165,7 +177,7 @@ describe("choosing the kind of model", () => {
   // A reader seeing no explanation on a verdict should know that is the model, not a fault.
   it("says a decision engine does not explain itself", () => {
     const summary = deviceModelSummary({
-      baseUrl: "https://thejevai.com/v1",
+      baseUrl: "https://api.typesafe.ai/v1",
       model: "jev-latest",
       protocol: "system-one",
       responseFormat: "json-object",

@@ -6,10 +6,18 @@ export type NativeDeviceCapabilities = {
   notificationAllowedPackages: string[];
   notificationCapturePaused: boolean;
   notificationListener: boolean;
+  /**
+   * Whether Android has the listener service bound right now. Distinct from the permission: a dev
+   * client reinstall keeps the grant and drops the binding until the toggle is flipped. Absent on a
+   * native build older than this field, which a caller reads as unknown rather than false.
+   */
+  notificationListenerBound?: boolean;
   notificationSilenceKillSwitch: boolean;
   notificationSilenceMode: NotificationSilenceMode;
   notificationSilenceRevision: number;
   notificationSilenceRuleCount: number;
+  /** Notifications still waiting on a model, whether or not they are still on screen. */
+  notificationSilencePendingCount?: number;
   smsAllowedSenders: string[];
   smsAvailable: boolean;
   smsCapturePaused: boolean;

@@ -55,9 +55,11 @@ export const DEVICE_MODEL_PRESETS: readonly {
     responseFormat: "json-object",
   },
   {
-    baseUrl: "https://thejevai.com/v1",
+    // The API host, not the product site. `thejevai.com` is where Jev is described; requests go to
+    // TypeSafe's API, which answers 404 to anything else and needs a key from console.typesafe.ai.
+    baseUrl: "https://api.typesafe.ai/v1",
     id: "jev",
-    label: "Jev (hosted)",
+    label: "Jev (TypeSafe, hosted)",
     model: "jev-latest",
     protocol: "system-one",
     responseFormat: "json-object",

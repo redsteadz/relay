@@ -20,12 +20,17 @@
  * [ADR-0003](../../../docs/decisions/0003-deterministic-before-ai.md)'s ordering kept intact across
  * the boundary the deferral introduced. See
  * [ADR-0019](../../../docs/decisions/0019-device-semantic-evaluation.md).
+ *
+ * Every candidate this pass does not ask about is counted and said why. The two silent `continue`s
+ * this used to have -- content gone, rule gone -- were each a way for a notification to sit at
+ * "waiting on your model" indefinitely with no request ever made and nothing to say so.
  */
 
 import { filterItem, type ClassifiableRule } from "@relay/domain";
 import * as Crypto from "expo-crypto";
 
 import { evaluateDeviceSemanticClause, type DeviceSemanticResult } from "./device-semantic";
+import { attemptFromResult, type DeviceModelAttempt } from "./device-semantic-diagnostics";
 // Imported from the module directly rather than through `./local-store`, whose barrel re-exports
 // `database` and so pulls in `expo-sqlite` and React Native. This module takes its store and its
 // native calls as parameters and must stay loadable in a plain test runtime.
@@ -47,10 +52,18 @@ export type SilenceCandidateContent = {
 };
 
 export type SilenceResolution = {
+  /** Each model request, as the diagnostics journal keeps it. Bounded by the candidate limit. */
+  attempts: DeviceModelAttempt[];
   /** How many candidates a model was actually asked about. */
   evaluated: number;
   /** What the device recorded, by envelope, so a caller can report without deciding. */
   recorded: Map<string, string>;
+  /** Candidates whose retained content had expired, so there was nothing to ask about. */
+  skippedNoContent: number;
+  /** Candidates naming a rule that is no longer enabled, or no longer the current revision. */
+  skippedRuleGone: number;
+  /** Requests that produced no decision: the candidate stays for a later pass. */
+  undecided: number;
 };
 
 /**
@@ -97,23 +110,35 @@ export async function resolvePendingSilences(
     tenantId: string;
   },
 ): Promise<SilenceResolution> {
-  const recorded = new Map<string, string>();
-  if (options.config === undefined) return { evaluated: 0, recorded };
+  const resolution: SilenceResolution = {
+    attempts: [],
+    evaluated: 0,
+    recorded: new Map<string, string>(),
+    skippedNoContent: 0,
+    skippedRuleGone: 0,
+    undecided: 0,
+  };
+  if (options.config === undefined) return resolution;
 
   const byId = new Map(rules.map((rule) => [rule.id, rule]));
-  let evaluated = 0;
 
   for (const candidate of candidates) {
     const clause = byId.get(candidate.filterRuleId)?.plan.semantic;
     // A rule that has gone away, or one whose clause this pass cannot see, is left for the device to
     // decline on its own terms. Guessing here would be answering for a rule that no longer exists.
-    if (clause === undefined) continue;
+    if (clause === undefined) {
+      resolution.skippedRuleGone += 1;
+      continue;
+    }
 
     const content = options.content.get(candidate.envelopeId);
     // Retention is thirty days and bounded by size, so a candidate can outlive its own content. A
     // clause cannot be evaluated against nothing, and inventing an empty subject would answer the
     // question "is this urgent?" about a notification nobody can read.
-    if (content === undefined) continue;
+    if (content === undefined) {
+      resolution.skippedNoContent += 1;
+      continue;
+    }
 
     let result: DeviceSemanticResult;
     try {
@@ -134,7 +159,8 @@ export async function resolvePendingSilences(
       continue;
     }
 
-    evaluated += 1;
+    resolution.evaluated += 1;
+    resolution.attempts.push(attemptFromResult(result));
 
     // Before acting, because a request that happened and was not recorded is the failure that
     // matters here: something left the device that the disclosure history will not account for.
@@ -156,11 +182,14 @@ export async function resolvePendingSilences(
 
     // No answer is not an answer of no. Handing `undecided` over as `matched: false` would record a
     // miss the model never reported and close a candidate that deserves another pass.
-    if (result.decision === "undecided") continue;
+    if (result.decision === "undecided") {
+      resolution.undecided += 1;
+      continue;
+    }
 
     try {
       const decision = await options.resolve(candidate.envelopeId, result.decision === "match");
-      if (decision !== null) recorded.set(candidate.envelopeId, decision);
+      if (decision !== null) resolution.recorded.set(candidate.envelopeId, decision);
     } catch (error: unknown) {
       logMobileError("silence.resolution_failed", error, {
         code: "SILENCE_RESOLUTION_FAILED",
@@ -171,5 +200,5 @@ export async function resolvePendingSilences(
     }
   }
 
-  return { evaluated, recorded };
+  return resolution;
 }

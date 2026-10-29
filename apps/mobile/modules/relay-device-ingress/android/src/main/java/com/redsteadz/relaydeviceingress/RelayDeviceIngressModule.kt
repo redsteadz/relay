@@ -149,6 +149,10 @@ class RelayDeviceIngressModule : Module() {
         "notificationSilenceKillSwitch" to silence.killSwitchEngaged,
         "notificationSilenceRevision" to silenceSettings.revision().toDouble(),
         "notificationSilenceRuleCount" to silence.rules.size,
+        // Why a quiet pass may have asked nothing: an unbound listener cannot read the shade, and a
+        // count of candidates says whether there was anything to ask about in the first place.
+        "notificationListenerBound" to RelayNotificationListenerService.isBound(),
+        "notificationSilencePendingCount" to (capture?.let { queue.pendingSilenceCount(it.tenantId) } ?: 0),
         "smsAvailable" to smsAvailable,
         "smsPermissionGranted" to smsGranted,
         "smsCapturePaused" to (smsCapture?.paused ?: true),

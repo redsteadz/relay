@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useState } from "react";
 
 import { AppButton, AppText, ConfirmationDialog, EditorialSurface } from "@/components/ui";
@@ -42,6 +43,18 @@ export function DeviceModelPanel({ tenantId }: { tenantId: string | undefined })
         label={configured ? "Change model" : "Set up a model"}
         onPress={() => setEditing(true)}
         tone={configured ? "secondary" : "primary"}
+      />
+      {/*
+        The one control a reader whose rules say "waiting on your model" actually needs: it opens the
+        page that says whether the model was asked, and what happened when it was. Offered even
+        before a model is configured, because "nothing is configured" is one of the answers.
+      */}
+      <AppButton
+        accessibilityHint="Opens a page showing whether this phone's model is being asked, and what it answered"
+        disabled={tenantId === undefined}
+        label="Check it is answering"
+        onPress={() => router.push("/device-model")}
+        tone="secondary"
       />
       {configured ? (
         <AppButton

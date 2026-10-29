@@ -55,6 +55,16 @@ class RelayNotificationListenerService : NotificationListenerService() {
      * close a candidate that may still be sitting there.
      */
     fun postedEnvelopeIds(): Set<String>? = bound?.shadeIdentities()
+
+    /**
+     * Whether Android currently has a listener bound.
+     *
+     * Reported to the app so a pass that found nothing to ask can say *why*: with no listener bound
+     * the shade cannot be read, every candidate stays pending, and nothing is ever asked. A dev
+     * client reinstall leaves the permission granted and the service unbound until the toggle is
+     * flipped or the device restarts, which is invisible without this.
+     */
+    fun isBound(): Boolean = bound != null
   }
 
   override fun onListenerConnected() {

@@ -148,12 +148,13 @@ export default function NotificationSourceScreen() {
 
       <ReceiptStage label="Quiet" ordinal={5}>
         <AppText tone="muted" variant="caption">
-          Capture reads notifications. Quieting changes them — a rule can make a matching
-          notification arrive without a sound, after a watching period you review.
+          Capture reads notifications. Quieting changes them — a rule can put a matching
+          notification away or clear it after your phone has made its sound. What each rule does is
+          chosen on the rule, in Rules.
         </AppText>
         <AppButton
-          label="Open quiet controls"
-          onPress={() => router.push("/quiet")}
+          label="Open rules"
+          onPress={() => router.push("/automations")}
           tone="secondary"
         />
       </ReceiptStage>

@@ -144,7 +144,7 @@ function AuthenticatedStack() {
           <Stack.Screen name="demo" />
           <Stack.Screen name="disclosures" />
           <Stack.Screen name="your-data" />
-          <Stack.Screen name="quiet" />
+          <Stack.Screen name="device-model" />
         </Stack.Protected>
         <Stack.Protected guard={introduced && canEnterSignIn(session !== null)}>
           <Stack.Screen name="sign-in" />
@@ -196,7 +196,7 @@ function DeviceCaptureSync() {
       // a pass that only ran alongside a classification write would leave notifications waiting.
       if (client !== undefined) {
         runInBackground(
-          resolvePendingSilencesForTenant(client, tenantId),
+          resolvePendingSilencesForTenant(client, tenantId, { trigger: "foreground" }),
           "silence.resolution_pass_failed",
           {
             code: "SILENCE_RESOLUTION_PASS_FAILED",

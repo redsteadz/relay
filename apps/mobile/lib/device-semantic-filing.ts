@@ -21,6 +21,7 @@ import {
 } from "@/features/inbox/models/deviceClassification";
 
 import { evaluateDeviceSemanticClause, type DeviceSemanticResult } from "./device-semantic";
+import { attemptFromResult, type DeviceModelAttempt } from "./device-semantic-diagnostics";
 // Imported from the modules directly rather than through `./local-store`, whose barrel re-exports
 // `database` and therefore pulls in `expo-sqlite` and React Native. This module has to stay loadable
 // in a plain test runtime, so it takes the store as a parameter and never opens one.
@@ -38,10 +39,16 @@ import { logMobileError } from "./observability";
 export const DEVICE_SEMANTIC_PASS_LIMIT = 8;
 
 export type SemanticFilingResult = {
+  /** Each model request, as the diagnostics journal keeps it. */
+  attempts: DeviceModelAttempt[];
   /** Answers by capture, then by rule, in the shape `classificationPass` takes back. */
   decisions: Map<string, Map<string, FilterDecision>>;
   /** How many clauses were asked about, for a caller deciding whether anything changed. */
   evaluated: number;
+  /** Blocked captures whose rule has since been paused or superseded, so nothing could be asked. */
+  skippedRuleGone: number;
+  /** Requests that produced no decision: the capture stays blocked for a later pass. */
+  undecided: number;
 };
 
 /**
@@ -67,17 +74,26 @@ export async function resolveAwaitingModel(
   },
 ): Promise<SemanticFilingResult> {
   const decisions = new Map<string, Map<string, FilterDecision>>();
-  if (options.config === undefined) return { decisions, evaluated: 0 };
+  const filing: SemanticFilingResult = {
+    attempts: [],
+    decisions,
+    evaluated: 0,
+    skippedRuleGone: 0,
+    undecided: 0,
+  };
+  if (options.config === undefined) return filing;
 
   const byId = new Map(rules.map((rule) => [rule.id, rule]));
   const bounded = pending.slice(0, options.limit ?? DEVICE_SEMANTIC_PASS_LIMIT);
-  let evaluated = 0;
 
   for (const entry of bounded) {
     const clause = byId.get(entry.filterRuleId)?.plan.semantic;
     // A capture can be blocked by something other than a clause this phase can resolve, and a rule
     // can have gone away since the pass ran. Neither is an error; there is simply nothing to ask.
-    if (clause === undefined) continue;
+    if (clause === undefined) {
+      filing.skippedRuleGone += 1;
+      continue;
+    }
 
     let result: DeviceSemanticResult;
     try {
@@ -98,7 +114,9 @@ export async function resolveAwaitingModel(
       continue;
     }
 
-    evaluated += 1;
+    filing.evaluated += 1;
+    filing.attempts.push(attemptFromResult(result));
+    if (result.decision === "undecided") filing.undecided += 1;
     const forCapture =
       decisions.get(entry.capture.sourceItemId) ?? new Map<string, FilterDecision>();
     forCapture.set(entry.filterRuleId, result.decision);
@@ -123,5 +141,5 @@ export async function resolveAwaitingModel(
     }
   }
 
-  return { decisions, evaluated };
+  return filing;
 }
