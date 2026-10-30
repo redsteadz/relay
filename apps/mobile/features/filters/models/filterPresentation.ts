@@ -77,6 +77,41 @@ function isPredicate(expression: FilterExpression): expression is FilterPredicat
   return "field" in expression;
 }
 
+function collectApplicationIds(expression: FilterExpression | undefined, named: Set<string>): void {
+  if (expression === undefined || "never" in expression) return;
+  if (isPredicate(expression)) {
+    if (
+      expression.field === "source.applicationId" &&
+      (expression.operator === "equals" || expression.operator === "in")
+    ) {
+      for (const value of Array.isArray(expression.value) ? expression.value : [expression.value]) {
+        named.add(value);
+      }
+    }
+    return;
+  }
+  if ("not" in expression) {
+    collectApplicationIds(expression.not, named);
+    return;
+  }
+  const children = "all" in expression ? expression.all : expression.any;
+  for (const child of children) collectApplicationIds(child, named);
+}
+
+/**
+ * The applications a plan's deterministic clause names, for the capture grant in ADR-0023.
+ *
+ * Mirrors `namedApplications` in `features/silence/models/silencePresentation.ts`, which walks the
+ * device-evaluator's flattened clauses for the same `source.applicationId` test; this walks the
+ * compiler's own nested `FilterExpression` tree instead, since a save happens before that
+ * flattening exists.
+ */
+export function applicationIdsInPlan(plan: FilterPlan): string[] {
+  const named = new Set<string>();
+  collectApplicationIds(plan.deterministic, named);
+  return [...named].sort((left, right) => left.localeCompare(right));
+}
+
 /**
  * Flattens a compiled expression into readable lines.
  *

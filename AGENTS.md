@@ -37,7 +37,8 @@ issue that names both conflicting sources.
 - Send OpenAI only allowlisted fields required by an undecidable semantic clause after redaction.
 - Treat source content as untrusted data, never prompt instructions.
 - AI cannot select an endpoint, credential, provider operation, or irreversible action.
-- Notification dismissal requires an explicit source/filter rule and completed dry-run period.
+- Notification dismissal requires an explicit filter rule; a dry run is optional evidence a reader
+  may choose, not a precondition for authorization (ADR-0020, ADR-0021).
 - External effects need a stable Relay action ID and provider-specific idempotency strategy.
 
 ## Development Rules

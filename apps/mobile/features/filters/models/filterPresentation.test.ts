@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { RelayApiError } from "@/lib/relay-api";
 
 import {
+  applicationIdsInPlan,
   decisionLabel,
   decisionTone,
   describeFilterExpression,
@@ -92,6 +93,55 @@ describe("describeFilterExpression", () => {
 
   it("returns nothing when a plan has no deterministic half", () => {
     expect(describeFilterExpression(undefined)).toEqual([]);
+  });
+});
+
+describe("applicationIdsInPlan", () => {
+  function plan(deterministic?: FilterPlan["deterministic"]): FilterPlan {
+    return { compilerVersion: 1, deterministic, intent: "test", schemaVersion: 1 };
+  }
+
+  it("names an application from an equals predicate", () => {
+    expect(
+      applicationIdsInPlan(
+        plan({ field: "source.applicationId", operator: "equals", value: "com.example.bank" }),
+      ),
+    ).toEqual(["com.example.bank"]);
+  });
+
+  it("names every application from an in predicate, sorted", () => {
+    expect(
+      applicationIdsInPlan(
+        plan({
+          field: "source.applicationId",
+          operator: "in",
+          value: ["com.example.shop", "com.example.bank"],
+        }),
+      ),
+    ).toEqual(["com.example.bank", "com.example.shop"]);
+  });
+
+  it("finds an application predicate nested inside groups and a negation", () => {
+    expect(
+      applicationIdsInPlan(
+        plan({
+          all: [
+            {
+              not: { field: "source.applicationId", operator: "equals", value: "com.example.spam" },
+            },
+            { any: [{ field: "sender", operator: "contains", value: "bank" }] },
+          ],
+        }),
+      ),
+    ).toEqual(["com.example.spam"]);
+  });
+
+  it("names nothing for a plan with no application predicate", () => {
+    expect(
+      applicationIdsInPlan(plan({ field: "sender", operator: "contains", value: "bank" })),
+    ).toEqual([]);
+    expect(applicationIdsInPlan(plan(undefined))).toEqual([]);
+    expect(applicationIdsInPlan(plan({ never: true }))).toEqual([]);
   });
 });
 

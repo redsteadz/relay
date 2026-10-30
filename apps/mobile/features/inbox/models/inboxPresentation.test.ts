@@ -130,6 +130,13 @@ describe("inbox grouping", () => {
     expect(uncertain.reviewReasons).toEqual(["The value Relay read is not a valid one."]);
   });
 
+  it("states a repeated reason once when two facts share it", () => {
+    const repeated = item({ dateAmbiguity: "contradictory" }, context(), [
+      fact({ certainty: "uncertain", uncertaintyReason: "contradictory" }),
+    ]);
+    expect(repeated.reviewReasons).toEqual(["Relay read conflicting values for this."]);
+  });
+
   it("falls back to the due date when an event has no start", () => {
     expect(item({ dueAt: "2026-09-02T10:00:00.000Z" }).scheduledAt).toBe(
       "2026-09-02T10:00:00.000Z",

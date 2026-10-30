@@ -344,7 +344,9 @@ function reviewReasons(
   if (reasons.length === 0 && evidence.some((fact) => !fact.certain)) {
     reasons.push("Relay read some supporting values as uncertain.");
   }
-  return reasons;
+  // Two different facts can carry the same uncertainty reason (two contradictory values, say), which
+  // would otherwise read the same sentence onto the card twice and give React two identical keys.
+  return [...new Set(reasons)];
 }
 
 /**

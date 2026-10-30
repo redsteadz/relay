@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   filterNotificationAppChoices,
   isValidNotificationAllowlist,
+  nextNotificationAllowlist,
+  nextNotificationCapturePaused,
   normalizeNotificationAppChoices,
   parseNotificationAllowlist,
   toggleNotificationAppSelection,
@@ -50,5 +52,39 @@ describe("notification capture allowlist", () => {
         "com.example.bank.beta",
       ),
     ).toEqual(["com.example.bank"]);
+  });
+});
+
+describe("nextNotificationAllowlist", () => {
+  it("adds a named application that is not already allowed", () => {
+    expect(nextNotificationAllowlist(["com.example.bank"], ["com.example.shop"])).toEqual([
+      "com.example.bank",
+      "com.example.shop",
+    ]);
+  });
+
+  it("returns undefined when every named application is already allowed", () => {
+    expect(nextNotificationAllowlist(["com.example.bank"], ["com.example.bank"])).toBeUndefined();
+    expect(nextNotificationAllowlist(["com.example.bank"], [])).toBeUndefined();
+  });
+
+  it("deduplicates repeated named applications", () => {
+    expect(nextNotificationAllowlist([], ["com.example.bank", "com.example.bank"])).toEqual([
+      "com.example.bank",
+    ]);
+  });
+});
+
+describe("nextNotificationCapturePaused", () => {
+  it("starts capture when the device has never had an application allowed", () => {
+    expect(nextNotificationCapturePaused([], true)).toBe(false);
+  });
+
+  it("leaves an explicit pause alone once at least one application was already allowed", () => {
+    expect(nextNotificationCapturePaused(["com.example.bank"], true)).toBe(true);
+  });
+
+  it("leaves active capture active", () => {
+    expect(nextNotificationCapturePaused(["com.example.bank"], false)).toBe(false);
   });
 });

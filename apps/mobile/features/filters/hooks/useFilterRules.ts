@@ -2,8 +2,14 @@ import type { FilterCompileRequest } from "@relay/contracts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { authorizeNamedApplications } from "@/features/device-capture/hooks/authorizeNamedApplications";
+
 import { listFilterRevisions, saveFilterRule } from "../api/filters";
-import { filterRevisionHistory, latestFilterRevisions } from "../models/filterPresentation";
+import {
+  applicationIdsInPlan,
+  filterRevisionHistory,
+  latestFilterRevisions,
+} from "../models/filterPresentation";
 
 function queryKey(userId: string | undefined) {
   return ["filter-rules", userId] as const;
@@ -21,7 +27,13 @@ export function useFilterRules(
     queryKey: queryKey(userId),
   });
   const save = useMutation({
-    mutationFn: (request: FilterCompileRequest) => saveFilterRule(accessToken as string, request),
+    mutationFn: async (request: FilterCompileRequest) => {
+      const response = await saveFilterRule(accessToken as string, request);
+      // Naming an application in the saved plan authorizes its capture, as part of this same
+      // action (ADR-0023) -- no separate trip to Sources required first.
+      await authorizeNamedApplications(userId, applicationIdsInPlan(response.rule.plan));
+      return response;
+    },
     // The saved revision is refetched rather than merged in, because a save appends a version and
     // the list is derived from every revision the tenant owns.
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: queryKey(userId) }),

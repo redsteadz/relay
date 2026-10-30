@@ -15,7 +15,7 @@ export const sourceCatalog: Record<SourceId, SourceDefinition> = {
     name: "Gmail",
   },
   notifications: {
-    description: "Allowlisted Android app notifications only.",
+    description: "Notifications from apps your rules name.",
     icon: "bell-outline",
     id: "notifications",
     name: "Android notifications",
@@ -32,11 +32,11 @@ export const gmailDisclosure =
   "Gmail is designed around restricted scopes. Google Pub/Sub delivers mailbox cursors to Relay, not message bodies. The connection flow is not available in this build.";
 
 export function notificationDisclosure(developmentLocal: boolean): string {
-  return `Relay reads the title and visible text of notifications from only the apps you select. It ${
+  return `Relay reads the title and visible text of notifications only from apps you name in a rule or choose in Sources. It ${
     developmentLocal
       ? "encrypts matching fields in a separate on-device diagnostic queue and does not upload them"
       : "encrypts matching fields on this device and uploads them to your Relay account"
-  }. Raw server payloads are deleted after seven days. Relay never uploads the full extras bundle and cannot dismiss notifications.`;
+  }. Raw server payloads are deleted after seven days. Relay never uploads the full extras bundle, and it clears a notification only when a quiet rule you allowed says to.`;
 }
 
 export function smsDisclosure(developmentLocal: boolean): string {

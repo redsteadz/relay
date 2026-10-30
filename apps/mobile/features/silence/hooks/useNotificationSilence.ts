@@ -15,8 +15,10 @@ import type { NotificationSilenceAction } from "@relay/contracts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { authorizeNamedApplications } from "@/features/device-capture/hooks/authorizeNamedApplications";
 import RelayDeviceIngress, { SILENCE_OUTCOME_LIMIT } from "@/modules/relay-device-ingress";
 import { compileSilencePlan, reviewableRules, type SilencePlan } from "@/lib/notification-silence";
+import { namedApplications } from "../models/silencePresentation";
 import {
   completeDryRun,
   listSilenceAuthorizations,
@@ -152,7 +154,7 @@ export function useNotificationSilence(
    * cancellation.
    */
   const authorize = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       action,
       enabled: on,
       filterRuleId,
@@ -160,7 +162,19 @@ export function useNotificationSilence(
       action?: NotificationSilenceAction;
       enabled: boolean;
       filterRuleId: string;
-    }) => setRuleDismissal(client as SupabaseClient, filterRuleId, on, action),
+    }) => {
+      await setRuleDismissal(client as SupabaseClient, filterRuleId, on, action);
+      // Authorizing (not withdrawing) a rule that names an application grants that application's
+      // capture as part of this same action, for a rule saved before ADR-0023 (a save already
+      // grants it going forward). The device write follows the database write, per this file's own
+      // ordering rule above.
+      if (on) {
+        const named = namedApplications(
+          statuses.filter((status) => status.rule.id === filterRuleId),
+        );
+        await authorizeNamedApplications(tenantId, named);
+      }
+    },
     onSuccess: refreshAll,
   });
 
