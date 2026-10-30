@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-10-09
+last_verified: 2026-10-30
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -186,9 +186,14 @@ and a model that does not answer leaves the candidate for a later pass. The dete
 required: it is what bounds both the rule's scope and how often a model is asked anything. See
 [ADR-0019](../decisions/0019-device-semantic-evaluation.md).
 
-Scope is the capture allowlist intersected with the applications a rule names. A notification no rule
-names is never evaluated and never recorded, so the ledger cannot become a log of every app a person
-uses.
+Scope is the capture allowlist intersected with the applications a rule names, or the whole
+allowlist for an unscoped rule ([ADR-0020](../decisions/0020-unscoped-quiet-rules.md)). The allowlist
+itself has two writers, not one: the manual picker on the Sources screen, and naming an application
+in a rule that is saved or authorized, which grants its capture as part of that same action rather
+than requiring the picker first
+([ADR-0023](../decisions/0023-naming-an-application-authorizes-capture.md)). A notification from an
+application outside that scope is never evaluated and never recorded, so the ledger can only ever
+hold applications the person allowed Relay to capture.
 
 The dry-run ledger is device-local, plaintext and content-free: application id, rule id, capture
 identity, verdict, time. No title, no text, no sender, and it is never uploaded. It is bounded to

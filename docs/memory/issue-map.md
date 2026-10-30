@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-10-05
+last_verified: 2026-10-30
 ---
 
 # Issue Dependency Map
@@ -55,7 +55,7 @@ entry points and cross-milestone flow without copying issue prose.
 ## M4 Product Experience
 
 - [#37 Curated inbox](https://github.com/redsteadz/relay/issues/37)
-- [#38 Notification dismissal dry run](https://github.com/redsteadz/relay/issues/38)
+- [#38 Authorized quiet rules](https://github.com/redsteadz/relay/issues/38)
 - [#39 Privacy and deletion settings](https://github.com/redsteadz/relay/issues/39)
 - [#41 Approval and activity UI](https://github.com/redsteadz/relay/issues/41)
 - [#42 Category and filter editor](https://github.com/redsteadz/relay/issues/42)
@@ -87,12 +87,13 @@ authority on the mechanism -- including why Relay clears a notification rather t
 [ADR-0019](../decisions/0019-device-semantic-evaluation.md) on a rule that asks a model, which acts
 on a later pass rather than as the notification arrives.
 
-- [#38 Notification-dismissal dry run](https://github.com/redsteadz/relay/issues/38) owns the gates.
-  Two of its acceptance criteria were **dropped**: the explicit application predicate by
+- [#38 Authorized quiet rules](https://github.com/redsteadz/relay/issues/38) owns the gates.
+  Two of its original acceptance criteria were **dropped**: the explicit application predicate by
   [ADR-0020](../decisions/0020-unscoped-quiet-rules.md), and the mandatory completed dry run by
   [ADR-0021](../decisions/0021-direct-quiet-authorization.md). The capture allowlist, the kill
   switch, the per-application pause, the verdict ledger and the audit record all stand. The issue
-  text and the code disagree until both criteria are struck.
+  body now states the criteria as built, including
+  [ADR-0023](../decisions/0023-naming-an-application-authorizes-capture.md)'s capture grant.
 - [#158 Dismissal across the reworked surfaces](https://github.com/redsteadz/relay/issues/158) owns
   delivering them in the M6 interface and proving no surface routes around them.
 - [#182 Captures wait for the app to be opened](https://github.com/redsteadz/relay/issues/182) owns
