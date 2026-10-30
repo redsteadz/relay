@@ -83,5 +83,9 @@ describe("nextcloudBudgetTransactionRequest", () => {
     expect(() =>
       nextcloudBudgetTransactionRequest("http://127.0.0.1", "user", "secret", intent),
     ).toThrow("public HTTPS");
+    // The copy this check replaced missed `.home.arpa`; the shared rule refuses it.
+    expect(() =>
+      nextcloudBudgetTransactionRequest("https://nas.home.arpa", "user", "secret", intent),
+    ).toThrow("public HTTPS");
   });
 });

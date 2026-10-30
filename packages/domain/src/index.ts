@@ -11,6 +11,7 @@ export * from "./field-access.js";
 export * from "./filter-compiler.js";
 export * from "./filter-evaluator.js";
 export * from "./notification-silence.js";
+export * from "./public-destination.js";
 export * from "./semantic-disclosure.js";
 export * from "./semantic-endpoint.js";
 export * from "./semantic-request.js";

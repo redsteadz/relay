@@ -1,4 +1,5 @@
 import type { ActionIntent } from "@relay/contracts";
+import { parsePublicHttpsUrl } from "@relay/domain";
 
 export type ProviderResult = {
   providerReference?: string;
@@ -10,36 +11,8 @@ function scalar(value: unknown, fallback = ""): string {
 }
 
 function assertPublicHttpsUrl(value: string): URL {
-  const url = new URL(value);
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
-  const ipv4 = hostname.split(".").map(Number);
-  const privateIpv4 =
-    ipv4.length === 4 &&
-    ipv4.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) &&
-    (ipv4[0] === 0 ||
-      ipv4[0] === 10 ||
-      ipv4[0] === 127 ||
-      ((ipv4[0] ?? 0) >= 224 && (ipv4[0] ?? 0) <= 255) ||
-      (ipv4[0] === 100 && (ipv4[1] ?? 0) >= 64 && (ipv4[1] ?? 0) <= 127) ||
-      (ipv4[0] === 169 && ipv4[1] === 254) ||
-      (ipv4[0] === 172 && (ipv4[1] ?? 0) >= 16 && (ipv4[1] ?? 0) <= 31) ||
-      (ipv4[0] === 192 && (ipv4[1] === 0 || ipv4[1] === 168)) ||
-      (ipv4[0] === 198 && ((ipv4[1] ?? 0) === 18 || (ipv4[1] ?? 0) === 19 || ipv4[1] === 51)) ||
-      (ipv4[0] === 203 && ipv4[1] === 0));
-  const localName =
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname.endsWith(".local") ||
-    hostname.endsWith(".internal") ||
-    hostname.includes(":");
-
-  if (
-    url.protocol !== "https:" ||
-    url.username !== "" ||
-    url.password !== "" ||
-    privateIpv4 ||
-    localName
-  ) {
+  const url = parsePublicHttpsUrl(value);
+  if (url === undefined) {
     throw new Error("Nextcloud URL must be a public HTTPS origin without embedded credentials");
   }
   return url;
