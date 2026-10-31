@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-10-30
+last_verified: 2026-10-31
 ---
 
 # Issue Dependency Map
@@ -77,6 +77,7 @@ entry points and cross-milestone flow without copying issue prose.
 - [#155 Remove fabricated screen data](https://github.com/redsteadz/relay/issues/155)
 - [#156 Navigation drawer](https://github.com/redsteadz/relay/issues/156)
 - [#158 Notification dismissal in the reworked surfaces](https://github.com/redsteadz/relay/issues/158)
+- [#240 Shared credential context and bytea helpers](https://github.com/redsteadz/relay/issues/240)
 
 ## Quiet And Delivery
 
