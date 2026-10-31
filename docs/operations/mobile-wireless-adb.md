@@ -189,6 +189,15 @@ EXPO_PUBLIC_API_URL=http://127.0.0.1:3001 \
 corepack pnpm --filter @relay/mobile android:sideload:local -- <adb-serial>
 ```
 
+Expo opens the installed build at the workstation's LAN address. When the phone cannot reach that
+address, the development client shows an error and Metro never receives a bundle request. Open it
+through the reversed port instead:
+
+```bash
+adb shell am start -a android.intent.action.VIEW \
+  -d "'exp+relay://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8088'" com.redsteadz.relay
+```
+
 Metro must keep running while the build is in use. JavaScript changes reload without another
 native build.
 
