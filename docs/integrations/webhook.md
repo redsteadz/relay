@@ -40,9 +40,10 @@ so it is stable before the row exists and across every retry. `attempt` counts f
 
 ### Fields
 
-An action rule chooses which event fields to send from a fixed allowlist: `kind`, `title`,
-`summary`, `startsAt`, `endsAt`, `dueAt`, `confidence` and `requiresReview`. A field that is not on
-the list cannot be selected, and an empty selection is refused. A template cannot set the URL, the
+An action rule chooses which event fields to send from a fixed allowlist: `title`, `summary`,
+`startsAt`, `endsAt`, `dueAt`, `confidence` and `requiresReview`. The event's kind always travels as
+`eventType`. A field that is not on the list cannot be selected, and an empty selection is refused.
+A selected field the event does not have is left out of `fields` rather than sent as `null`. A template cannot set the URL, the
 method or any header. Data leaving Relay is chosen from a list Relay owns, not filtered out of one
 the rule supplies.
 
