@@ -95,7 +95,7 @@ export default function SettingsScreen() {
       <CardGroup>
         <CardRow
           accessibilityHint="Opens the quiet controls, including the stop that halts every rule"
-          detail="A rule can make a matching notification arrive without a sound, after a watching period you review. It needs an app named exactly and no model, and it is reversible until the moment it acts."
+          detail="Snooze or clear the notifications a rule matches."
           icon="bell-off-outline"
           label={signedIn ? "Quiet notifications" : "Sign in to set up quiet rules"}
           onPress={() => openIfSignedIn("/quiet")}
