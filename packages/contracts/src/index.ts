@@ -1652,6 +1652,7 @@ export type WebhookConnectionSecretResponse = z.infer<typeof webhookConnectionSe
 export const webhookDeliveryErrorCodeSchema = z.enum([
   "webhook-credential-unavailable",
   "webhook-destination-refused",
+  "webhook-invalid-input",
   "webhook-redirect-refused",
   "webhook-rejected",
   "webhook-retryable-status",

@@ -56,8 +56,9 @@ receiver.
 
 ## Verifying A Request
 
-`v1` is HMAC-SHA256 over `<relay-timestamp>.<raw body bytes>` with the connection's secret,
-lowercase hex. A receiver should:
+`v1` is HMAC-SHA256 over `<relay-timestamp>.<raw body bytes>`, keyed with the connection's secret
+exactly as it was shown (its 64 hex characters as UTF-8, not the bytes they encode), lowercase hex.
+A receiver should:
 
 1. Recompute `v1` with each secret it currently holds and accept if any entry in `relay-signature`
    matches, comparing in constant time.
@@ -88,9 +89,9 @@ old one. Only two secrets exist at once: rotating again inside the window drops 
 
 The URL must pass `parsePublicHttpsUrl` (`packages/domain`) when it is saved and again before every
 attempt: HTTPS, no embedded credentials, no private, loopback, link-local or local-network host.
-Redirects are refused (`redirect: "manual"`), each attempt times out after ten seconds, and at most
-64 KiB of the response is read and then discarded. Relay records the status code and never the
-response body.
+Redirects are refused (`redirect: "manual"`) and each attempt times out after ten seconds. The
+response body is cancelled unread, so its size never matters and nothing a receiver says can reach a
+log or the ledger: Relay keeps only the status code.
 
 | Outcome                                      | Retried | Error code                       |
 | -------------------------------------------- | ------- | -------------------------------- |
@@ -101,10 +102,11 @@ response body.
 | Any other `4xx`                              | No      | `webhook-rejected`               |
 | URL fails the destination check at send time | No      | `webhook-destination-refused`    |
 | Credential missing or cannot be decrypted    | No      | `webhook-credential-unavailable` |
+| Run input outside the allowlist              | No      | `webhook-invalid-input`          |
 
 A destination that passed when it was saved and fails later is permanent rather than retried: the
 rule should stop and say so, not keep knocking on an address it may now resolve somewhere it
-shouldn't. Every retry carries the same `relay-action-id`, so a receiver that saw an earlier attempt
+shouldn't. Every retry carries the same `actionId`, so a receiver that saw an earlier attempt
 succeed deduplicates. This page classifies outcomes; scheduling retries belongs to action dispatch.
 
 ## What This Does Not Stop
