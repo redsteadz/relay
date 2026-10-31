@@ -1637,6 +1637,11 @@ export const webhookConnectionCreateRequestSchema = z
   .strict();
 export type WebhookConnectionCreateRequest = z.infer<typeof webhookConnectionCreateRequestSchema>;
 
+export const webhookConnectionRotateRequestSchema = z
+  .object({ connectionId: canonicalUuidSchema })
+  .strict();
+export type WebhookConnectionRotateRequest = z.infer<typeof webhookConnectionRotateRequestSchema>;
+
 /** Returned once, by create and by rotate. The secret is never readable again. */
 export const webhookConnectionSecretResponseSchema = z
   .object({

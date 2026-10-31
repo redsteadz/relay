@@ -81,9 +81,15 @@ host, for display, and the signature version.
 
 Rotating generates a new secret and signs with it immediately. For 24 hours afterwards Relay also
 signs with the previous secret, so `relay-signature` carries both and a receiver can switch at any
-point in that window. The expiry is kept in plain metadata so the maintenance pass can find expired
-secrets without decrypting every webhook credential, and it then rewrites the credential without the
-old one. Only two secrets exist at once: rotating again inside the window drops the oldest.
+point in that window. The expiry is kept in plain metadata and checked before every delivery; a
+previous secret whose expiry has passed, or has none recorded, never signs. It stays encrypted in the
+credential, unused, until the next rotation replaces it. Only two secrets exist at once: rotating
+again drops the oldest. A rotation writes only if the credential is still the one it read, so two
+rotations racing cannot both report a secret that one of them then overwrote; the loser gets `409`.
+
+Create and rotate are `POST /api/connectors/webhook` with `{ "url": ... }` and
+`POST /api/connectors/webhook/rotate` with `{ "connectionId": ... }`. Both return the new secret
+once, with `cache-control: no-store`, and write `audit_log`.
 
 ## Sending
 
