@@ -20,11 +20,9 @@ class NotificationSilenceSnapshotParseTest {
   private fun snapshotJson(
     mode: String = "enforcing",
     killSwitchEngaged: Boolean = false,
-    rules: String = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"unscoped":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}]""",
-    disabledPackages: String = "[]"
+    rules: String = """[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"unscoped":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}]"""
   ) = """
-    {"mode":"$mode","killSwitchEngaged":$killSwitchEngaged,"revision":7,
-     "rules":$rules,"disabledPackages":$disabledPackages}
+    {"mode":"$mode","killSwitchEngaged":$killSwitchEngaged,"revision":7,"rules":$rules}
   """.trimIndent()
 
   @Test
@@ -66,10 +64,20 @@ class NotificationSilenceSnapshotParseTest {
     assertTrue(snapshot.rules[0].awaitsModel)
   }
 
+  // A phone updated from an older build still holds a snapshot with the per-application pause field
+  // nothing ever set. Refusing it would turn quieting off until the app next rewrote the snapshot.
   @Test
-  fun `a disabled application list parses`() {
-    val snapshot = NotificationSilencePolicy.parse(snapshotJson(disabledPackages = """["$courier"]"""))
-    assertEquals(setOf(courier), snapshot.disabledPackages)
+  fun `a stored snapshot from before the per-application pause was removed still parses`() {
+    val stored = """
+      {"mode":"enforcing","killSwitchEngaged":false,"revision":7,
+       "rules":[{"action":"snooze","filterRuleId":"$ruleId","observing":false,"awaitsModel":false,"unscoped":false,"clauses":[{"tests":[{"field":"source.applicationId","operator":"equals","values":["$courier"]}]}]}],
+       "disabledPackages":[]}
+    """.trimIndent()
+    val snapshot = NotificationSilencePolicy.parse(stored)
+    assertEquals("enforcing", snapshot.mode)
+    assertEquals(false, snapshot.killSwitchEngaged)
+    assertEquals(1, snapshot.rules.size)
+    assertEquals(NotificationSilencePolicy.parse(snapshotJson()), snapshot)
   }
 
   @Test
@@ -93,7 +101,7 @@ class NotificationSilenceSnapshotParseTest {
   @Test
   fun `an absent kill switch reads as engaged`() {
     val snapshot = NotificationSilencePolicy.parse(
-      """{"mode":"enforcing","revision":1,"rules":[],"disabledPackages":[]}"""
+      """{"mode":"enforcing","revision":1,"rules":[]}"""
     )
     assertTrue(snapshot.killSwitchEngaged)
   }

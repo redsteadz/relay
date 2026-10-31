@@ -46,11 +46,16 @@ notification satisfies. The model then decides each one through the deferred pat
 
 Everything that made the capability safe except the predicate itself:
 
-- the capture allowlist, which still decides which applications are seen at all;
+- the capture allowlist, which still decides which applications are seen at all, and is the
+  per-application control: an application taken off it is neither captured nor quieted;
 - a server-clocked 72-hour dry run that must observe something before it can complete;
 - a reviewed match/miss history, and an explicit enable transition with an audit record;
-- the tenant-wide kill switch, the per-application pause, and revoking listener access;
+- the tenant-wide kill switch, and revoking listener access;
 - `snooze` as the default action, which Android reverses on its own.
+
+> **Corrected 2026-10-31 ([#252](https://github.com/redsteadz/relay/issues/252)).** This list
+> named a separate per-application pause. Nothing ever set it, and the capture allowlist already
+> does that job, including for an answer a model gives after the application left the list.
 
 None of these depended on an application being named, which is what makes dropping it a narrowing of
 the rule's description rather than of its safety.

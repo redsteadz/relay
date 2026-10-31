@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: mobile
-last_verified: 2026-10-09
+last_verified: 2026-10-31
 sources:
   - https://docs.expo.dev/modules/overview/
   - https://developer.android.com/training/package-visibility/declaring
@@ -199,11 +199,18 @@ only remaining evidence, so a crash between the two leaves a record of an act th
 rather than an act with no record.
 
 Three stops, all immediate. A tenant-wide kill switch stored apart from the snapshot so engaging it
-is one preference write that waits on nothing; a per-application pause; and revoking listener access,
-which unbinds the service. A matched rule that is not acted on is recorded as `declined`, so a stop
-is distinguishable from the rule having stopped matching. Editing a rule writes a new revision with
-authorization withdrawn, because the evidence a person reviewed was evidence about the rule as it was
-written then.
+is one preference write that waits on nothing; taking an application off the capture list, which is
+the per-application control because Relay never quiets a notification it does not capture; and
+revoking listener access, which unbinds the service. A model's answer is checked against the kill
+switch and the capture list as they are when it arrives, so an application taken off the list while
+a model was thinking is not acted on. A matched rule that is not acted on is recorded as `declined`,
+so a stop is distinguishable from the rule having stopped matching. Editing a rule writes a new
+revision with authorization withdrawn, because the evidence a person reviewed was evidence about the
+rule as it was written then.
+
+Relay quiets only notifications that arrive while it is listening, and never goes back to clear older
+ones in bulk. The sweep on connect captures what is already in the shade but does not quiet it, so
+granting access again does not clear a backlog.
 
 Hiding an inbox row (`hidden_inbox_events`) is none of this. It removes a row from Relay's own inbox
 and never touches the device. `features/inbox/models/dismissalBoundary.test.ts` asserts structurally

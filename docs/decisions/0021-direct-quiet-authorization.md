@@ -46,10 +46,14 @@ place without losing the authorization or the evidence.
 
 ### What still stands
 
-The capture allowlist, the kill switch, the per-application pause, revoking listener access, the
-device-local verdict ledger, and the record in `audit_log` on every transition. The reversible
-action remains the default and the irreversible one remains a separate, differently-worded,
-destructive-toned control.
+The capture allowlist, which is also the per-application control, the kill switch, revoking
+listener access, the device-local verdict ledger, and the record in `audit_log` on every transition.
+The reversible action remains the default and the irreversible one remains a separate,
+differently-worded, destructive-toned control.
+
+> **Corrected 2026-10-31 ([#252](https://github.com/redsteadz/relay/issues/252)).** This list
+> named a separate per-application pause. Nothing ever set it, and the capture allowlist already
+> does that job: an application taken off it is neither captured nor quieted.
 
 ### One limit added, not a gate
 

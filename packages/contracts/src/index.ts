@@ -1851,7 +1851,6 @@ export type NotificationSilenceMode = z.infer<typeof notificationSilenceModeSche
  */
 export const notificationSilenceSnapshotSchema = z
   .object({
-    disabledPackages: z.array(z.string().min(1).max(256)).max(256),
     killSwitchEngaged: z.boolean(),
     mode: notificationSilenceModeSchema,
     revision: z.int().min(0),
@@ -1864,8 +1863,8 @@ export type NotificationSilenceSnapshot = z.infer<typeof notificationSilenceSnap
  * What the device decided about one notification.
  *
  * `would-*` are dry-run observations and mean nothing happened. `declined` records that a rule
- * matched and the device deliberately did not act -- kill switch engaged, the app disabled
- * individually, or the capability withdrawn between the match and the act -- which is the outcome
+ * matched and the device deliberately did not act -- kill switch engaged, the app taken off the
+ * capture list, or the capability withdrawn between the match and the act -- which is the outcome
  * that would otherwise be indistinguishable from the rule never matching.
  *
  * `awaiting-model` means the literal tests matched and a model has not answered yet. It is the one
