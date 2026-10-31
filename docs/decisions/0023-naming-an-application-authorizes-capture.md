@@ -77,9 +77,6 @@ first.
   now has two sources, and the comment should be read that way. No contract or schema shape changes;
   `notificationAllowedPackages` already accepts entries from `configureNotificationCapture`
   regardless of caller.
-- `docs/architecture/filter-model.md` and `docs/integrations/android.md` describe the allowlist as a
-  prior, separately-curated step and need a pass to reflect this ADR; tracked as follow-up, not done
-  in this change.
 
 ## Supersedes
 
