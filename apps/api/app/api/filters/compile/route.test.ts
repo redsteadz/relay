@@ -94,4 +94,22 @@ describe("POST /api/filters/compile", () => {
       error: { code: "filter_revision_conflict" },
     });
   });
+
+  it("reports a pipeline timeout as its own retryable outcome, not as unchanged", async () => {
+    vi.mocked(publishFilterCompilation).mockResolvedValue(
+      Response.json({ accepted: false, reason: "pipeline-timeout" }, { status: 504 }),
+    );
+
+    const response = await POST(
+      new Request("https://relay.test/api/filters/compile", {
+        method: "POST",
+        body: JSON.stringify({ name: "Receipts", intent: "from gmail" }),
+      }),
+    );
+
+    expect(response.status).toBe(504);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "filter_compilation_timeout" },
+    });
+  });
 });

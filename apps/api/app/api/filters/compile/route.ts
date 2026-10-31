@@ -23,6 +23,10 @@ export async function POST(request: Request) {
   if (pipelineResponse.status === 409) {
     return Response.json({ error: { code: "filter_revision_conflict" } }, { status: 409 });
   }
+  if (pipelineResponse.status === 504) {
+    // The revision may or may not have been stored, so this is not reported as "unchanged".
+    return Response.json({ error: { code: "filter_compilation_timeout" } }, { status: 504 });
+  }
   if (!pipelineResponse.ok) {
     return Response.json({ error: { code: "filter_compilation_unavailable" } }, { status: 503 });
   }
