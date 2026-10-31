@@ -273,6 +273,42 @@ class RelayDeviceIngressModule : Module() {
      * Nothing is returned while quieting is off or stopped: an answer obtained under a stop would
      * be an answer Relay was not authorized to seek.
      */
+    /**
+     * Why quieting is or is not doing anything, as a set of facts rather than an inference.
+     *
+     * `getPendingNotificationSilences` returns an empty list for three unrelated reasons -- the
+     * snapshot is off, the stop is engaged, or no listener is bound to read the shade -- and the
+     * caller cannot tell them apart. Neither can a reader, who sees a rule that never decides and
+     * has nowhere to look. This reports each one separately, plus the counts either side of the
+     * shade check, so the stage that is actually stuck is visible.
+     *
+     * Content-free by construction: modes, booleans and counts. Nothing here names a notification,
+     * an application or a rule.
+     */
+    AsyncFunction("getNotificationSilenceDiagnostics") {
+      tenantId: String, generation: Double ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      synchronized(NotificationCaptureStateLock) {
+        requirePreparedCaptureTenant(tenantId, generation)
+        val snapshot = NotificationSilenceSettings(context).read(tenantId)
+        val posted = RelayNotificationListenerService.postedEnvelopeIds()
+        val pending = queue.pendingSilenceOutcomes(tenantId, SILENCE_OUTCOME_MAX_PENDING)
+        mapOf(
+          "listenerBound" to (posted != null),
+          "killSwitchEngaged" to snapshot.killSwitchEngaged,
+          "mode" to snapshot.mode,
+          "ruleCount" to snapshot.rules.size,
+          "postedCount" to (posted?.size ?: -1),
+          "awaitingModelCount" to pending.size,
+          // The number the resolution pass would actually be handed. The gap between this and
+          // `awaitingModelCount` is candidates whose notification has left the shade.
+          "actionableCount" to
+            (posted?.let { live -> pending.count { live.contains(it["envelopeId"] as String) } }
+              ?: -1)
+        )
+      }
+    }
+
     AsyncFunction("getPendingNotificationSilences") {
       tenantId: String, limit: Int, generation: Double ->
       val context = requireNotNull(appContext.reactContext).applicationContext

@@ -6,6 +6,7 @@ export {
 } from "./captures";
 export {
   deviceDisclosures,
+  latestDisclosureRefusals,
   recordDeviceDisclosure,
   type DeviceDisclosureRecord,
   type StoredDeviceDisclosure,

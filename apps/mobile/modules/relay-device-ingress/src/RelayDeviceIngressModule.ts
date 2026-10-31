@@ -70,6 +70,25 @@ export type NativePendingSilence = {
   filterRuleId: string;
 };
 
+/**
+ * Why quieting is or is not working, as facts rather than an inference.
+ *
+ * `getPendingNotificationSilences` returns nothing for three unrelated reasons and the caller
+ * cannot tell which. Each is reported separately here. `postedCount` and `actionableCount` are
+ * `-1` when no listener is bound, because an unreadable shade is not an empty one.
+ */
+export type NativeSilenceDiagnostics = {
+  /** Candidates recorded as awaiting a model, whether or not they can still be acted on. */
+  awaitingModelCount: number;
+  /** Of those, how many are still in the shade. This is what a pass is actually handed. */
+  actionableCount: number;
+  killSwitchEngaged: boolean;
+  listenerBound: boolean;
+  mode: string;
+  postedCount: number;
+  ruleCount: number;
+};
+
 /** What the listener reports the moment a capture lands in the queue. Never capture content. */
 export type CaptureEnqueuedEvent = { sourceKind: string };
 
@@ -161,6 +180,10 @@ type RelayDeviceIngressNativeModule = {
     since: number,
     generation: number,
   ): Promise<{ matched: number; observed: number }>;
+  getNotificationSilenceDiagnostics(
+    tenantId: string,
+    generation: number,
+  ): Promise<NativeSilenceDiagnostics>;
   getPendingNotificationSilences(
     tenantId: string,
     limit: number,

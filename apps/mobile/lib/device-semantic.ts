@@ -204,3 +204,180 @@ export function deviceSemanticRefusalExplanation(refusal: DeviceSemanticRefusal)
       return "Your model did not answer in time, so nothing was changed.";
   }
 }
+
+/**
+ * Every refusal this build knows, so a stored one can be narrowed before it is explained.
+ *
+ * A disclosure row outlives the build that wrote it, and a refusal this build has no name for is
+ * not an error -- it is a row from a newer or older version. Narrowing here rather than casting is
+ * what keeps `deviceSemanticRefusalExplanation` exhaustive and its switch a compile error when a
+ * refusal is added.
+ */
+const DEVICE_SEMANTIC_REFUSALS: ReadonlySet<string> = new Set<DeviceSemanticRefusal>([
+  "endpoint-invalid",
+  "endpoint-unreachable",
+  "invalid-response",
+  "not-configured",
+  "rejected",
+  "response-too-large",
+  "timed-out",
+]);
+
+/** The explanation for a refusal as it was stored, or nothing when there is none to give. */
+export function storedRefusalExplanation(value: string | null | undefined): string | undefined {
+  if (value === null || value === undefined || !DEVICE_SEMANTIC_REFUSALS.has(value))
+    return undefined;
+  return deviceSemanticRefusalExplanation(value as DeviceSemanticRefusal);
+}
+
+/**
+ * What one test request against a configured endpoint did.
+ *
+ * `httpStatus` is the whole point. Every ordinary misconfiguration collapses to the same
+ * `rejected` outcome on the evaluation path -- a wrong path, a wrong key and a wrong request shape
+ * are indistinguishable once the reader only sees "your model refused the request" -- and the
+ * status code separates them without carrying anything from the response body.
+ */
+export type DeviceSemanticProbe = {
+  decided: boolean;
+  httpStatus?: number;
+  refusal?: DeviceSemanticRefusal;
+};
+
+/**
+ * The clause a test request asks about.
+ *
+ * Synthetic and fixed. A probe exists to find out whether the endpoint answers at all, and asking
+ * it about a real capture would disclose one to an address that has not been shown to work yet --
+ * which is the one thing a reader testing an address has not yet agreed to.
+ */
+const PROBE_CLAUSE: SemanticClause = {
+  allowedFields: ["subject"],
+  minimumConfidence: 0.8,
+  question: "Is this message about a parcel delivery?",
+};
+
+const PROBE_ITEM: Record<string, unknown> = {
+  "source.kind": "notification",
+  subject: "Your parcel is out for delivery",
+};
+
+/**
+ * Sends one request to the configured endpoint and reports what came back.
+ *
+ * Deliberately a separate path from `evaluateDeviceSemanticClause` rather than a flag on it. That
+ * function's contract is that every failure is `undecided` and nothing but the refusal escapes,
+ * which is right when a notification is at stake and wrong when a person is asking "why does this
+ * not work". Here the status code is the answer.
+ *
+ * Never throws, for the same reason the evaluator does not.
+ */
+export async function probeDeviceSemanticEndpoint(
+  config: unknown,
+  options: {
+    fetcher?: (input: string, init?: RequestInit) => Promise<Response>;
+    timeoutMs?: number;
+  } = {},
+): Promise<DeviceSemanticProbe> {
+  const parsedConfig = deviceSemanticConfigSchema.safeParse(config);
+  if (!parsedConfig.success) return { decided: false, refusal: "not-configured" };
+  const settings = parsedConfig.data;
+
+  const endpoint = parseSemanticBaseUrl(settings.baseUrl, { allowLocalNetwork: true });
+  if (endpoint === undefined) return { decided: false, refusal: "endpoint-invalid" };
+
+  const systemOne = settings.protocol === "system-one";
+  const disclosure = minimizeSemanticDisclosure(PROBE_CLAUSE, PROBE_ITEM);
+  const body = systemOne
+    ? systemOneRequestBody(PROBE_CLAUSE, disclosure, { model: settings.model })
+    : semanticEvaluationRequestBody(PROBE_CLAUSE, disclosure, {
+        model: settings.model,
+        responseFormat: settings.responseFormat,
+      });
+
+  const fetcher = options.fetcher ?? fetch;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? DEVICE_SEMANTIC_TIMEOUT_MS,
+  );
+
+  let response: Response;
+  try {
+    response = await fetcher(
+      `${endpoint.baseUrl}${systemOne ? "/systemone" : "/chat/completions"}`,
+      {
+        body: JSON.stringify(body),
+        headers: {
+          "content-type": "application/json",
+          ...(settings.apiKey === undefined ? {} : { authorization: `Bearer ${settings.apiKey}` }),
+        },
+        method: "POST",
+        signal: controller.signal,
+      },
+    );
+  } catch {
+    return {
+      decided: false,
+      refusal: controller.signal.aborted ? "timed-out" : "endpoint-unreachable",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) return { decided: false, httpStatus: response.status, refusal: "rejected" };
+
+  const text = await response.text();
+  if (text.length > MAX_SEMANTIC_RESPONSE_BYTES) {
+    return { decided: false, httpStatus: response.status, refusal: "response-too-large" };
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text) as unknown;
+  } catch {
+    return { decided: false, httpStatus: response.status, refusal: "invalid-response" };
+  }
+
+  const understood = systemOne
+    ? parseSystemOneEvaluation(payload).status === "ok"
+    : parseSemanticEvaluation(payload).status === "ok";
+  return understood
+    ? { decided: true, httpStatus: response.status }
+    : { decided: false, httpStatus: response.status, refusal: "invalid-response" };
+}
+
+/**
+ * The probe in the words a reader can act on.
+ *
+ * A status code names the problem precisely enough to fix it, which the generic refusal text
+ * cannot: 404 means the path is wrong and not that the model refused anything, and a gateway whose
+ * base is `/api/v1` rather than `/v1` is the common way to arrive at one.
+ */
+export function deviceSemanticProbeExplanation(probe: DeviceSemanticProbe): string {
+  if (probe.decided) return "That model answered correctly. Rules that ask a model can use it.";
+
+  switch (probe.httpStatus) {
+    case undefined:
+      break;
+    case 401:
+    case 403:
+      return `Your model rejected the key (HTTP ${probe.httpStatus}). The address is right; the credential is not.`;
+    case 404:
+      return "Nothing answers at that address (HTTP 404). The host is reachable but the path is wrong -- some gateways answer under /api/v1 rather than /v1.";
+    case 400:
+    case 422:
+      return `Your model refused the request shape (HTTP ${probe.httpStatus}). The address and key are right, so this is usually the wrong model name for this endpoint, or the wrong kind of model selected above.`;
+    case 429:
+      return "Your model is rate limiting this device (HTTP 429). Nothing is wrong with the settings.";
+    default:
+      if (probe.httpStatus >= 500) {
+        return `Your model's server failed (HTTP ${probe.httpStatus}). The settings look right; the endpoint did not.`;
+      }
+      return `Your model refused the request (HTTP ${probe.httpStatus}).`;
+  }
+
+  return probe.refusal === undefined
+    ? "That model did not answer."
+    : deviceSemanticRefusalExplanation(probe.refusal);
+}

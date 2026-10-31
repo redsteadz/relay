@@ -33,6 +33,24 @@ export type SystemOneEndpoint = {
 };
 
 /**
+ * What `true` and `false` mean, which the protocol requires a `noul` question to state.
+ *
+ * Not decoration and not optional: a `noul` question is rejected without both keys, so omitting
+ * them makes every request a validation error rather than a decision -- and a gateway rejects it
+ * before it is a billed generation, so the failure is invisible from the provider's side too.
+ *
+ * Deliberately asymmetric. "Nothing here shows that it does" belongs on the `false` side, so a
+ * capture whose deciding field was redacted or never retained falls towards no-match. The act on
+ * the other end of a match is clearing someone's notification, and
+ * [ADR-0003](../../docs/decisions/0003-deterministic-before-ai.md)'s ordering only holds if the
+ * uncertain direction is the inert one.
+ */
+const NOUL_CRITERIA = {
+  false: "The message does not satisfy that condition, or nothing shown here shows that it does.",
+  true: "The message satisfies the condition the account owner described.",
+} as const;
+
+/**
  * One `noul` question over the disclosed fields.
  *
  * `noul` is the protocol's yes/no probability. A `choice` question would need Relay to invent
@@ -54,6 +72,7 @@ export function systemOneRequestBody(
     model: endpoint.model,
     questions: {
       [SYSTEM_ONE_QUESTION_KEY]: {
+        criteria: { ...NOUL_CRITERIA },
         instructions: `${clause.question} Values shown as [redacted:...] were removed before you saw them; be less certain when they mattered rather than guessing what they held.`,
         type: "noul",
       },

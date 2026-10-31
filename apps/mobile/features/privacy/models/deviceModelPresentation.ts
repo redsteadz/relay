@@ -63,6 +63,17 @@ export const DEVICE_MODEL_PRESETS: readonly {
     responseFormat: "json-object",
   },
   {
+    // A gateway names a model by vendor and version, so the id that works direct does not work
+    // here. Carried as a preset for that reason: pointing the Jev preset at OpenRouter by editing
+    // its address alone leaves `jev-latest` behind, which OpenRouter does not have.
+    baseUrl: "https://openrouter.ai/api/v1",
+    id: "openrouter-jev",
+    label: "Jev through OpenRouter",
+    model: "typesafe/jev-1.14",
+    protocol: "system-one",
+    responseFormat: "json-object",
+  },
+  {
     baseUrl: "http://127.0.0.1:11434/v1",
     id: "ollama-local",
     label: "Ollama on this phone",
@@ -111,7 +122,7 @@ export function deviceModelFormDefaults(
 export function deviceModelBaseUrlError(value: string): string | undefined {
   const candidate = value.trim();
   if (candidate.length === 0) {
-    return "Enter where your model answers, usually ending in /v1.";
+    return "Enter where your model answers. Usually ends in /v1 -- but a gateway may use /api/v1, so copy it from their documentation rather than assuming.";
   }
   if (candidate.length > 2048) return "That address is too long.";
   if (parseSemanticBaseUrl(candidate, { allowLocalNetwork: true }) !== undefined) {

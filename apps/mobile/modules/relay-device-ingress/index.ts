@@ -19,6 +19,7 @@ import NativeRelayDeviceIngress, {
   type CaptureEnqueuedEvent,
   type NativeDeviceCapabilities,
   type NativePendingSilence,
+  type NativeSilenceDiagnostics,
   type NativeSilenceOutcome,
   type NotificationCapturePreview,
   type SelectableNotificationApp,
@@ -31,6 +32,7 @@ export type DeviceCapabilities = NativeDeviceCapabilities & { buildVariant: Rela
 export type {
   CaptureEnqueuedEvent,
   NativePendingSilence,
+  NativeSilenceDiagnostics,
   NotificationCapturePreview,
   SelectableNotificationApp,
   SmsCapturePreview,
@@ -317,6 +319,22 @@ const RelayDeviceIngress = {
    * the device decides that, not this, so a candidate is never offered under a stop. Demo mode has
    * no shade to act on, so it has nothing pending either.
    */
+  /**
+   * Why quieting is or is not doing anything on this device.
+   *
+   * Off-device and in demo mode there is no shade and no listener, so the honest answer is a
+   * stopped one rather than an invented set of counts.
+   */
+  async getNotificationSilenceDiagnostics(
+    tenantId: string,
+  ): Promise<NativeSilenceDiagnostics | undefined> {
+    if (demoModeEnabled()) return undefined;
+    if (Platform.OS !== "android" || NativeRelayDeviceIngress === null) return undefined;
+    return NativeRelayDeviceIngress.getNotificationSilenceDiagnostics(
+      tenantId,
+      currentCaptureGeneration(),
+    );
+  },
   async getPendingNotificationSilences(
     tenantId: string,
     limit = PENDING_SILENCE_LIMIT,

@@ -152,6 +152,20 @@ describe("choosing the kind of model", () => {
     expect(DEVICE_MODEL_PRESETS.some((preset) => preset.protocol === "system-one")).toBe(true);
   });
 
+  /*
+    A gateway names a model by vendor and version; the direct endpoint names it bare. So the two
+    Jev presets cannot share a model id, and a reader who reaches OpenRouter by editing the hosted
+    preset's address alone carries `jev-latest` with them, which OpenRouter does not have. Each
+    address keeping its own id is what makes the preset a whole answer rather than most of one.
+  */
+  it("gives a gateway preset the id that gateway uses", () => {
+    const gateway = DEVICE_MODEL_PRESETS.find((preset) => preset.baseUrl.includes("openrouter.ai"));
+    expect(gateway?.protocol).toBe("system-one");
+    expect(gateway?.model).toContain("/");
+    const direct = DEVICE_MODEL_PRESETS.find((preset) => preset.id === "jev");
+    expect(gateway?.model).not.toBe(direct?.model);
+  });
+
   it("carries the chosen protocol into what is stored", () => {
     expect(deviceModelConfigFrom(values({ protocol: "system-one" })).protocol).toBe("system-one");
   });
