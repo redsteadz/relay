@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-10-08
+last_verified: 2026-10-31
 ---
 
 # Filter Model
@@ -209,7 +209,8 @@ tenant's active category names and slugs, then recognizes these bounded forms:
 | `FIELD in A, B`, `FIELD is one of A, B`                     | bounded `in` predicate   |
 
 Supported fields are source kind/application, sender, subject, body, category, currency, merchant,
-and exact-decimal amount. Quoted values may contain `and`; otherwise `and` joins deterministic
+and exact-decimal amount. `title` names the subject too, because a notification's title is captured
+as its subject. Quoted values may contain `and`; otherwise `and` joins deterministic
 predicates. Category values resolve only through the active category descriptors loaded by Pipeline.
 Currency is canonical uppercase ISO-style text, and amount stays an exact decimal string.
 
