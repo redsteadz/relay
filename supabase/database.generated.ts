@@ -557,6 +557,7 @@ export type Database = {
           category_id: string | null;
           compiler_version: number;
           created_at: string;
+          creation_key: string | null;
           enabled: boolean;
           id: string;
           intent: string;
@@ -574,6 +575,7 @@ export type Database = {
           category_id?: string | null;
           compiler_version?: number;
           created_at?: string;
+          creation_key?: string | null;
           enabled?: boolean;
           id?: string;
           intent: string;
@@ -591,6 +593,7 @@ export type Database = {
           category_id?: string | null;
           compiler_version?: number;
           created_at?: string;
+          creation_key?: string | null;
           enabled?: boolean;
           id?: string;
           intent?: string;
@@ -1278,6 +1281,7 @@ export type Database = {
       create_filter_rule_revision: {
         Args: {
           p_category_id?: string;
+          p_creation_key?: string;
           p_enabled?: boolean;
           p_expected_version?: number;
           p_intent: string;
@@ -1293,6 +1297,7 @@ export type Database = {
           category_id: string | null;
           compiler_version: number;
           created_at: string;
+          creation_key: string | null;
           enabled: boolean;
           id: string;
           intent: string;
@@ -1375,6 +1380,7 @@ export type Database = {
           category_id: string | null;
           compiler_version: number;
           created_at: string;
+          creation_key: string | null;
           enabled: boolean;
           id: string;
           intent: string;

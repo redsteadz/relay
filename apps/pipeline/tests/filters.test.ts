@@ -74,6 +74,7 @@ describe("compileAndPersistFilter", () => {
       p_user_id: userId,
       p_series_id: null,
       p_expected_version: null,
+      p_creation_key: null,
       p_plan: {
         schemaVersion: 1,
         compilerVersion: 1,
@@ -81,6 +82,29 @@ describe("compileAndPersistFilter", () => {
       },
     });
     expect(response.rule).toMatchObject({ seriesId, version: 1, name: "Travel" });
+  });
+
+  // The database returns the stored revision for a key it has seen, so a retry must carry the key.
+  it("passes a new rule's creation key to the database", async () => {
+    const creationKey = "0b9c6a51-4f0e-4c8e-9d43-7a2f1e6b5c30";
+    const fetcher = vi
+      .fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json([]))
+      .mockImplementationOnce((_input, init) => {
+        const body = requestBody(init);
+        return Promise.resolve(Response.json(storedRevision(body)));
+      });
+
+    await compileAndPersistFilter(
+      configuration,
+      { userId, name: "Receipts", intent: "from gmail", creationKey },
+      fetcher,
+    );
+
+    expect(requestBody(fetcher.mock.calls[1]?.[1])).toMatchObject({
+      p_creation_key: creationKey,
+      p_series_id: null,
+    });
   });
 
   it("keeps action intent visible without persisting action controls", async () => {

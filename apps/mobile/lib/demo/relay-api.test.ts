@@ -28,6 +28,7 @@ import {
 } from "@relay/contracts";
 
 import { demoRelayApi } from "./relay-api";
+import { demoDatabase } from "./store";
 
 /**
  * Every response is parsed by the contract the app parses it with.
@@ -106,6 +107,23 @@ describe("demo Relay API", () => {
       method: "POST",
     });
     expect(stale.status).toBe(409);
+  });
+
+  it("stores a retried new rule once, and refuses its key for a different rule", async () => {
+    const save = (intent: string) =>
+      demoRelayApi("/api/filters/compile", {
+        body: { creationKey: "0b9c6a51-4f0e-4c8e-9d43-7a2f1e6b5c30", intent, name: "Retried" },
+        method: "POST",
+      });
+    const seriesOf = async (response: Promise<{ body: unknown }>) =>
+      filterCompileResponseSchema.parse((await response).body).rule.seriesId;
+
+    const first = await seriesOf(save("app is com.whatsapp"));
+    expect(await seriesOf(save("app is com.whatsapp"))).toBe(first);
+    expect((await save("app is com.signal")).status).toBe(409);
+    expect(demoDatabase.rows("filter_rules").filter((row) => row.name === "Retried")).toHaveLength(
+      1,
+    );
   });
 
   it("removes what the account held when it is deleted", async () => {
