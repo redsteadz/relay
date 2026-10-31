@@ -14,7 +14,11 @@ import { SourceConsentDialog } from "@/features/device-capture/components/source
 import { SourceDisclosureDialog } from "@/features/device-capture/components/source/SourceDisclosureDialog";
 import { SourceStatusLabel } from "@/features/device-capture/components/source/SourceStatusLabel";
 import { useSmsCaptureController } from "@/features/device-capture/hooks/useSmsCaptureController";
-import { smsStatus } from "@/features/device-capture/models/capturePresentation";
+import {
+  captureSwitchCopy,
+  smsControlIntent,
+  smsStatus,
+} from "@/features/device-capture/models/capturePresentation";
 import { smsDisclosure } from "@/features/device-capture/models/sourceCatalog";
 import {
   sourceQueueRoutes,
@@ -39,6 +43,14 @@ export default function SmsSourceScreen() {
   const available = capabilities?.smsAvailable === true;
   const selectedCount = capabilities?.smsAllowedSenders.length ?? 0;
   const capturing = capabilities?.smsPermissionGranted === true && !capabilities.smsCapturePaused;
+  const switchCopy = captureSwitchCopy(
+    "sms",
+    capabilities === undefined
+      ? undefined
+      : available
+        ? smsControlIntent(capabilities)
+        : "unavailable",
+  );
 
   return (
     <ReceiptScreen
@@ -78,18 +90,10 @@ export default function SmsSourceScreen() {
 
       <ReceiptStage label="Capture" ordinal={1}>
         <AppSwitch
-          accessibilityHint={
-            capturing
-              ? "Stops capturing new messages immediately"
-              : "Opens the consent notice before capture resumes"
-          }
-          detail={
-            capturing
-              ? "Capturing. Changes apply before any new SMS enters the encrypted queue."
-              : "Paused. Nothing new is captured, and what was already queued is untouched."
-          }
+          accessibilityHint={switchCopy.hint}
+          detail={switchCopy.detail}
           disabled={!available || controller.busy || selectedCount === 0}
-          label={capturing ? "Capturing" : "Paused"}
+          label={switchCopy.label}
           onValueChange={(next) => {
             if (next) controller.openConsent();
             else void controller.pause();

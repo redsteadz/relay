@@ -15,7 +15,11 @@ import { SourceConsentDialog } from "@/features/device-capture/components/source
 import { SourceDisclosureDialog } from "@/features/device-capture/components/source/SourceDisclosureDialog";
 import { SourceStatusLabel } from "@/features/device-capture/components/source/SourceStatusLabel";
 import { useNotificationCaptureController } from "@/features/device-capture/hooks/useNotificationCaptureController";
-import { notificationStatus } from "@/features/device-capture/models/capturePresentation";
+import {
+  captureSwitchCopy,
+  notificationControlIntent,
+  notificationStatus,
+} from "@/features/device-capture/models/capturePresentation";
 import { notificationDisclosure } from "@/features/device-capture/models/sourceCatalog";
 import {
   sourceQueueRoutes,
@@ -43,6 +47,14 @@ export default function NotificationSourceScreen() {
   const unsupported = capabilities !== undefined && capabilities.platform !== "android";
   const capturing =
     capabilities?.notificationListener === true && !capabilities.notificationCapturePaused;
+  const switchCopy = captureSwitchCopy(
+    "notifications",
+    capabilities === undefined
+      ? undefined
+      : unsupported
+        ? "unavailable"
+        : notificationControlIntent(capabilities),
+  );
 
   return (
     <ReceiptScreen
@@ -85,18 +97,10 @@ export default function NotificationSourceScreen() {
 
       <ReceiptStage label="Capture" ordinal={1}>
         <AppSwitch
-          accessibilityHint={
-            capturing
-              ? "Stops capturing new notifications immediately"
-              : "Opens the consent notice before capture resumes"
-          }
-          detail={
-            capturing
-              ? "Capturing. Changes apply before the next item enters the encrypted queue."
-              : "Paused. Nothing new is captured, and what was already queued is untouched."
-          }
+          accessibilityHint={switchCopy.hint}
+          detail={switchCopy.detail}
           disabled={capabilities === undefined || unsupported || controller.busy}
-          label={capturing ? "Capturing" : "Paused"}
+          label={switchCopy.label}
           onValueChange={(next) => {
             if (next) controller.openConsent();
             else void controller.pause();
@@ -105,7 +109,7 @@ export default function NotificationSourceScreen() {
         />
         {allowedCount === 0 && !unsupported ? (
           <AppText tone="muted" variant="caption">
-            Nothing is allowlisted yet, so capture has nothing to read. Choose apps below first.
+            No apps yet. Name an app in a rule, or choose apps below.
           </AppText>
         ) : null}
         <AppButton
@@ -148,8 +152,7 @@ export default function NotificationSourceScreen() {
 
       <ReceiptStage label="Quiet" ordinal={5}>
         <AppText tone="muted" variant="caption">
-          Capture reads notifications. Quieting changes them — a rule can make a matching
-          notification arrive without a sound, after a watching period you review.
+          Snooze or clear the notifications a rule matches. Relay keeps its own copy.
         </AppText>
         <AppButton
           label="Open quiet controls"
