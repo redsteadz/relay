@@ -21,6 +21,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { FeedbackState, LoadingState } from "@/components/ui";
 import { resolvePendingSilencesForTenant } from "@/features/silence/api/silenceResolution";
+import { publishSilenceOnForeground } from "@/features/silence/api/silenceSnapshot";
 import { SubscriptionProvider } from "@/features/subscription/context/subscription-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { restoreBackgroundSyncRegistration } from "@/lib/background-capture-sync";
@@ -240,9 +241,15 @@ function DeviceCaptureSync() {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") sync();
     });
+    // The listener acts on its own copy of the quiet rules. Refreshing it here, rather than only
+    // from Quiet, is what stops a rule paused on another device without anyone opening that screen.
+    // Not on each capture: a burst of notifications says nothing about whether the rules changed.
+    const stopQuietSync =
+      client === undefined ? undefined : publishSilenceOnForeground(client, tenantId);
     return () => {
       subscription.remove();
       unsubscribe();
+      stopQuietSync?.();
       if (pending !== undefined) clearTimeout(pending);
     };
   }, [client, session]);
