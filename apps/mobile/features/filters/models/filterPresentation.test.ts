@@ -419,7 +419,7 @@ describe("filterSaveErrorMessage", () => {
     ["filter_revision_conflict", "changed somewhere else"],
     ["invalid_filter_intent", "could not read"],
     ["filter_compilation_unavailable", "draft is unchanged"],
-    ["filter_compilation_timeout", "may have saved"],
+    ["filter_compilation_timeout", "may already be saved"],
   ])("explains %s", (apiCode, fragment) => {
     expect(filterSaveErrorMessage(new RelayApiError("validation", { apiCode }))).toContain(
       fragment,
