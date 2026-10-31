@@ -1001,6 +1001,14 @@ const filterCompileRevisionShape = {
   seriesId: canonicalUuidSchema.optional(),
   expectedVersion: postgresIntegerSchema.optional(),
   /**
+   * A new rule's key, generated once by the app and sent on every retry of that save.
+   *
+   * A save can commit after its caller stopped waiting. A retry with the same key returns the rule
+   * already stored instead of starting a second one. Edits do not take one: their `expectedVersion`
+   * already refuses a repeat.
+   */
+  creationKey: canonicalUuidSchema.optional(),
+  /**
    * Category a matching capture is filed into.
    *
    * Optional because a rule may decide without naming a destination, and `null` is how a rule that
@@ -1010,8 +1018,12 @@ const filterCompileRevisionShape = {
   categoryId: canonicalUuidSchema.nullish(),
 };
 
-function validateFilterRevisionPair(
-  value: { expectedVersion?: number | undefined; seriesId?: string | undefined },
+function validateFilterRevisionTarget(
+  value: {
+    creationKey?: string | undefined;
+    expectedVersion?: number | undefined;
+    seriesId?: string | undefined;
+  },
   context: z.RefinementCtx,
 ) {
   if ((value.seriesId === undefined) !== (value.expectedVersion === undefined)) {
@@ -1020,18 +1032,24 @@ function validateFilterRevisionPair(
       message: "Filter edits require both seriesId and expectedVersion",
     });
   }
+  if (value.creationKey !== undefined && value.seriesId !== undefined) {
+    context.addIssue({
+      code: "custom",
+      message: "Only a new filter takes a creationKey",
+    });
+  }
 }
 
 export const filterCompileRequestSchema = z
   .object(filterCompileRevisionShape)
   .strict()
-  .superRefine(validateFilterRevisionPair);
+  .superRefine(validateFilterRevisionTarget);
 export type FilterCompileRequest = z.infer<typeof filterCompileRequestSchema>;
 
 export const filterCompileInternalRequestSchema = z
   .object({ userId: canonicalUuidSchema, ...filterCompileRevisionShape })
   .strict()
-  .superRefine(validateFilterRevisionPair);
+  .superRefine(validateFilterRevisionTarget);
 export type FilterCompileInternalRequest = z.infer<typeof filterCompileInternalRequestSchema>;
 
 export const filterCompilerCategorySchema = z

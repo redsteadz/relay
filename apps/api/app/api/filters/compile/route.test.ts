@@ -56,6 +56,21 @@ describe("POST /api/filters/compile", () => {
     await expect(response.json()).resolves.toEqual(responseBody);
   });
 
+  it("forwards a new rule's creation key so the pipeline can recognise a retry", async () => {
+    const creationKey = "0b9c6a51-4f0e-4c8e-9d43-7a2f1e6b5c30";
+    await POST(
+      new Request("https://relay.test/api/filters/compile", {
+        method: "POST",
+        body: JSON.stringify({ name: "Receipts", intent: "from gmail", creationKey }),
+      }),
+    );
+
+    expect(publishFilterCompilation).toHaveBeenCalledWith(
+      expect.objectContaining({ creationKey, userId }),
+      expect.any(String),
+    );
+  });
+
   it("rejects source content and provider controls before Pipeline", async () => {
     const response = await POST(
       new Request("https://relay.test/api/filters/compile", {
