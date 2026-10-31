@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-10-30
+last_verified: 2026-10-31
 ---
 
 # Threat Model

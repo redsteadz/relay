@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: integrations
-last_verified: 2026-10-30
+last_verified: 2026-10-31
 sources:
   - https://developers.cloudflare.com/workers/runtime-apis/fetch/
   - https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/
@@ -30,7 +30,7 @@ The body is UTF-8 JSON, and these exact bytes are what is signed:
 
 | Header            | Value                                                                       |
 | ----------------- | --------------------------------------------------------------------------- |
-| `relay-action-id` | The action run's ID. Identical on every attempt of the same action          |
+| `relay-action-id` | Copy of the body's `actionId`, for routing. Not signed                      |
 | `relay-timestamp` | Unix seconds when this attempt was signed                                   |
 | `relay-signature` | `v1=<hex>`, or `v1=<hex>,v1=<hex>` while a rotated secret is still accepted |
 | `content-type`    | `application/json`                                                          |
@@ -42,10 +42,16 @@ so it is stable before the row exists and across every retry. `attempt` counts f
 
 An action rule chooses which event fields to send from a fixed allowlist: `kind`, `title`,
 `summary`, `startsAt`, `endsAt`, `dueAt`, `confidence` and `requiresReview`. A field that is not on
-the list cannot be selected, and an empty selection is refused. Nothing from the source item
-(sender, subject, body, application, attributes) is on the list, and a template cannot set the URL,
-the method or any header. Data leaving Relay is chosen from a list Relay owns, not filtered out of
-one the rule supplies.
+the list cannot be selected, and an empty selection is refused. A template cannot set the URL, the
+method or any header. Data leaving Relay is chosen from a list Relay owns, not filtered out of one
+the rule supplies.
+
+The list keeps raw source fields (sender, subject, body, application, attributes) out, not the
+source's content. Every listed field is derived from the source item. Today's extractor builds
+`title` and `summary` from templates filled with derived values, such as an amount and its currency,
+and an event stored before versioned extraction can carry free text in either that quotes the
+original message. Selecting `title` or `summary` can therefore send words from the source to the
+receiver.
 
 ## Verifying A Request
 
@@ -55,8 +61,11 @@ lowercase hex. A receiver should:
 1. Recompute `v1` with each secret it currently holds and accept if any entry in `relay-signature`
    matches, comparing in constant time.
 2. Reject a `relay-timestamp` more than five minutes from its own clock.
-3. Treat `relay-action-id` as an idempotency key: a second delivery of an ID it already processed is
-   a retry, answered with success and not acted on twice.
+3. Deduplicate on `actionId` from the signed body, never on the `relay-action-id` header, and reject
+   a request whose header differs from the body. The header is not covered by the signature, so
+   anyone who captured a request could resend it inside the five-minute window with a new header
+   value and pass both verification and a header-keyed dedupe. A second delivery of an `actionId`
+   already processed is a retry, answered with success and not acted on twice.
 4. Answer with a `2xx` once the request is accepted, before any slow work.
 
 ## Secrets And Rotation
