@@ -11,11 +11,13 @@ export * from "./field-access.js";
 export * from "./filter-compiler.js";
 export * from "./filter-evaluator.js";
 export * from "./notification-silence.js";
+export * from "./public-destination.js";
 export * from "./semantic-disclosure.js";
 export * from "./semantic-endpoint.js";
 export * from "./semantic-request.js";
 export * from "./system-one-request.js";
 export * from "./text-facts.js";
+export * from "./webhook.js";
 
 // Shared by contentFingerprint and normalizeCategoryName. The filter evaluator keeps its own copy
 // so the two can be versioned independently: this one feeds persisted fingerprints and category
