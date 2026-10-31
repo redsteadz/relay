@@ -13,6 +13,7 @@ import smsFixture from "./fixtures/sms.json" with { type: "json" };
 import {
   contentFingerprint,
   compileFilterPlan,
+  compileNotificationSilenceRule,
   evaluateFilter,
   extractSourceEvents,
   normalizeCategoryName,
@@ -157,6 +158,41 @@ describe("compileFilterPlan", () => {
     const oversizedSender = compileFilterPlan(`sent by ${"a".repeat(1_025)}`);
     expect(oversizedSender.plan.deterministic).toEqual({ never: true });
     expect(oversizedSender.unsupportedClauses[0]?.reason).toBe("invalid-value");
+  });
+
+  // The Quiet screen calls a notification's subject its title; the #38 device pass wrote exactly this.
+  it("reads title as the subject, so a quiet rule needs no model", () => {
+    const result = compileFilterPlan("app is com.android.shell and title contains relay-qa");
+
+    expect(result.plan.deterministic).toEqual({
+      all: [
+        { field: "source.applicationId", operator: "equals", value: "com.android.shell" },
+        { field: "subject", operator: "contains", value: "relay-qa" },
+      ],
+    });
+    expect(result.plan.semantic).toBeUndefined();
+    expect(result.unsupportedClauses).toEqual([]);
+
+    const quiet = compileNotificationSilenceRule(result.plan, {
+      action: "snooze",
+      filterRuleId: "7f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f607",
+      observing: false,
+    });
+    expect(quiet.status).toBe("compiled");
+    if (quiet.status === "compiled") expect(quiet.rule.awaitsModel).toBe(false);
+  });
+
+  it.each([
+    ["title is Delivered", { field: "subject", operator: "equals", value: "Delivered" }],
+    ["Title starts with Out for", { field: "subject", operator: "starts-with", value: "Out for" }],
+    ["title is one of Paid, Due", { field: "subject", operator: "in", value: ["Paid", "Due"] }],
+    ["title exists", { field: "subject", operator: "exists" }],
+    ["source  kind is sms", { field: "source.kind", operator: "equals", value: "sms" }],
+  ])("compiles %s in every clause form", (intent, deterministic) => {
+    const result = compileFilterPlan(intent);
+
+    expect(result.plan.deterministic).toEqual(deterministic);
+    expect(result.unsupportedClauses).toEqual([]);
   });
 
   it("does not treat apostrophes as quoted clause delimiters", () => {
