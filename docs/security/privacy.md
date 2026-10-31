@@ -165,7 +165,10 @@ line `source_items` already draws, where sender, subject, and application are or
 the raw payload is encrypted. The restriction is asserted against the schema rather than left to
 review, so a migration that adds a place to keep source text fails a test. Both stores are cleared when
 a reader signs out and when an account is deleted, and the session is cleared last so a store that
-could not be cleared leaves the deletion retryable.
+could not be cleared leaves the deletion retryable. Android backup is off (`allowBackup` is false),
+so the plain preferences holding allowed SMS contacts, captured applications and compiled quiet rules
+never reach a Google Drive backup; on some manufacturers' phones Android still copies them in a
+[device-to-device transfer](https://developer.android.com/identity/data/autobackup).
 
 Account deletion revokes provider credentials, cancels pending action runs, invalidates every
 device, deletes stored credentials, purges raw payloads, and then removes the identity, which
