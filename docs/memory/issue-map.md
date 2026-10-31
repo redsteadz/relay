@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: maintainers
-last_verified: 2026-10-05
+last_verified: 2026-10-31
 ---
 
 # Issue Dependency Map
@@ -90,8 +90,8 @@ on a later pass rather than as the notification arrives.
 - [#38 Notification-dismissal dry run](https://github.com/redsteadz/relay/issues/38) owns the gates.
   Two of its acceptance criteria were **dropped**: the explicit application predicate by
   [ADR-0020](../decisions/0020-unscoped-quiet-rules.md), and the mandatory completed dry run by
-  [ADR-0021](../decisions/0021-direct-quiet-authorization.md). The capture allowlist, the kill
-  switch, the per-application pause, the verdict ledger and the audit record all stand. The issue
+  [ADR-0021](../decisions/0021-direct-quiet-authorization.md). The capture allowlist (also the
+  per-application control), the kill switch, the verdict ledger and the audit record all stand. The issue
   text and the code disagree until both criteria are struck.
 - [#158 Dismissal across the reworked surfaces](https://github.com/redsteadz/relay/issues/158) owns
   delivering them in the M6 interface and proving no surface routes around them.

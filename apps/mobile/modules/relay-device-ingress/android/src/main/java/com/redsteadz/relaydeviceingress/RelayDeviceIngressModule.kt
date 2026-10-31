@@ -315,8 +315,9 @@ class RelayDeviceIngressModule : Module() {
      *
      * JavaScript supplies `matched` and this decides what it permits. Everything that authorizes an
      * act -- whether the rule still exists, whether the application is still in scope, the stop, the
-     * rule's own observation window -- is re-read here from the current snapshot, so a reader who
-     * withdrew the capability while a model was thinking is obeyed. That is ADR-0003's ordering kept
+     * rule's own observation window -- is re-read here from the current snapshot, and whether the
+     * application is still on the capture list from the capture settings, so a reader who withdrew
+     * the capability while a model was thinking is obeyed. That is ADR-0003's ordering kept
      * intact across a boundary the deferral introduced: a model narrows what was already authorized
      * and can never widen it, and it never names the notification or the action.
      *
@@ -336,8 +337,16 @@ class RelayDeviceIngressModule : Module() {
           val applicationId = pending["applicationId"] as String
           val filterRuleId = pending["filterRuleId"] as String
           val snapshot = NotificationSilenceSettings(context).read(tenantId)
+          val stillCaptured =
+            NotificationCaptureSettings(context).read()?.captures(tenantId, applicationId) == true
           val outcome =
-            NotificationSilencePolicy.resolve(snapshot, applicationId, filterRuleId, matched)
+            NotificationSilencePolicy.resolve(
+              snapshot,
+              applicationId,
+              filterRuleId,
+              matched,
+              stillCaptured
+            )
           val acting =
             outcome.decision == SilenceDecision.SNOOZE || outcome.decision == SilenceDecision.DISMISS
           // The key is looked up before the verdict is written, because a notification that is gone

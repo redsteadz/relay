@@ -8,7 +8,17 @@ internal data class NotificationCaptureConfiguration(
   val tenantId: String,
   val allowedPackages: Set<String>,
   val paused: Boolean
-)
+) {
+  /**
+   * Whether Relay is still capturing [packageName] for [tenantId].
+   *
+   * The capture list is also the per-application control for quieting: a notification Relay does
+   * not capture is never quieted. Compared exactly as `NotificationCapturePolicy` compares a posted
+   * notification, so the two paths cannot disagree about one application.
+   */
+  fun captures(tenantId: String, packageName: String): Boolean =
+    this.tenantId == tenantId && !paused && packageName in allowedPackages
+}
 
 internal object NotificationCaptureStateLock {
   var latestPreparationGeneration = 0L

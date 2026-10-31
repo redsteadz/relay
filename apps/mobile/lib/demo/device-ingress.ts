@@ -452,10 +452,9 @@ function recordSilenceDecision(
   });
 
   const observing = matched?.observing ?? true;
+  // The capture list is the per-app control, and it already let this notification through.
   const stopped =
-    snapshot.killSwitchEngaged ||
-    settings().notification_silence_kill_switch === true ||
-    snapshot.disabledPackages.includes(packageName);
+    snapshot.killSwitchEngaged || settings().notification_silence_kill_switch === true;
   const decision =
     matched === undefined
       ? "no-match"

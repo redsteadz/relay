@@ -36,9 +36,8 @@ class NotificationSilencePolicyTest {
   private fun snapshot(
     mode: String = "enforcing",
     killSwitchEngaged: Boolean = false,
-    disabledPackages: Set<String> = emptySet(),
     vararg rules: SilenceRule
-  ) = SilenceSnapshot(mode, killSwitchEngaged, 1, rules.toList(), disabledPackages)
+  ) = SilenceSnapshot(mode, killSwitchEngaged, 1, rules.toList())
 
   private val courierClause =
     SilenceClause(listOf(test("source.applicationId", "equals", courier)))
@@ -277,26 +276,6 @@ class NotificationSilencePolicyTest {
   }
 
   @Test
-  fun `a disabled application declines a match`() {
-    val paused = snapshot(
-      disabledPackages = setOf(courier),
-      rules = arrayOf(rule(clauses = arrayOf(courierClause)))
-    )
-    assertEquals(SilenceDecision.DECLINED, decide(paused).decision)
-  }
-
-  // A stop that failed to apply over a difference in case would fail in the direction that acts on
-  // a notification, so the pause is compared the way a rule's application test is.
-  @Test
-  fun `a disabled application is matched the way a rule matches one`() {
-    val paused = snapshot(
-      disabledPackages = setOf("COM.Courier.App"),
-      rules = arrayOf(rule(clauses = arrayOf(courierClause)))
-    )
-    assertEquals(SilenceDecision.DECLINED, decide(paused).decision)
-  }
-
-  @Test
   fun `the first matching rule decides`() {
     val both = snapshot(
       rules = arrayOf(
@@ -391,8 +370,12 @@ class NotificationSilencePolicyTest {
 
   // Resolving a candidate ---------------------------------------------------------------------------
 
-  private fun resolve(snapshot: SilenceSnapshot, matched: Boolean, packageName: String = courier) =
-    NotificationSilencePolicy.resolve(snapshot, packageName, ruleId, matched)
+  private fun resolve(
+    snapshot: SilenceSnapshot,
+    matched: Boolean,
+    packageName: String = courier,
+    stillCaptured: Boolean = true
+  ) = NotificationSilencePolicy.resolve(snapshot, packageName, ruleId, matched, stillCaptured)
 
   @Test
   fun `a model answering yes authorizes the rules own action`() {
@@ -419,13 +402,22 @@ class NotificationSilencePolicyTest {
     assertEquals(SilenceDecision.DECLINED, resolve(stopped, matched = true).decision)
   }
 
+  // The capture list is the per-application control. Unticking an application stops a live
+  // notification before it is evaluated, so an answer for one unticked during the wait must not act.
   @Test
-  fun `an application paused while a model was thinking declines the answer`() {
-    val paused = snapshot(
-      disabledPackages = setOf(courier),
-      rules = arrayOf(rule(awaitsModel = true, clauses = arrayOf(courierClause)))
+  fun `an application taken off the capture list while a model was thinking declines the answer`() {
+    val outcome = resolve(awaiting, matched = true, stillCaptured = false)
+    assertEquals(SilenceDecision.DECLINED, outcome.decision)
+    assertEquals(ruleId, outcome.filterRuleId)
+  }
+
+  // A no is still a miss, as it is with the kill switch: a rule that did not match was not refused.
+  @Test
+  fun `a model answering no for an application off the capture list is still a miss`() {
+    assertEquals(
+      SilenceDecision.NO_MATCH,
+      resolve(awaiting, matched = false, stillCaptured = false).decision
     )
-    assertEquals(SilenceDecision.DECLINED, resolve(paused, matched = true).decision)
   }
 
   // A rule the reader deleted, or one replaced by a new revision under a new id, cannot act on an
