@@ -347,6 +347,23 @@ describe("drafts and save requests", () => {
     expect(request.expectedVersion).toBeUndefined();
   });
 
+  it("sends a new rule's creation key, so a retry is not stored twice", () => {
+    const creationKey = "0b9c6a51-4f0e-4c8e-9d43-7a2f1e6b5c30";
+    const draft = { ...filterDraftFor(undefined), intent: "from gmail", name: "Receipts" };
+    const request = filterSaveRequest(draft, creationKey);
+    expect(request.creationKey).toBe(creationKey);
+    expect(filterCompileRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("never sends a creation key with an edit", () => {
+    const request = filterSaveRequest(
+      { ...filterDraftFor(revision({ version: 2 })), intent: "from gmail", name: "Receipts" },
+      "0b9c6a51-4f0e-4c8e-9d43-7a2f1e6b5c30",
+    );
+    expect(request.creationKey).toBeUndefined();
+    expect(filterCompileRequestSchema.safeParse(request).success).toBe(true);
+  });
+
   it("sends seriesId and expectedVersion together when editing", () => {
     // The contract refuses one without the other, so a request missing either is a 400 that would
     // only appear on a device.

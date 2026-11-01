@@ -285,6 +285,33 @@ describe("filterCompileRequestSchema", () => {
     ).toBe(false);
   });
 
+  it("takes a creation key for a new rule only", () => {
+    const creationKey = "0b9c6a51-4f0e-4c8e-9d43-7a2f1e6b5c30";
+    expect(
+      filterCompileRequestSchema.safeParse({
+        name: "Receipts",
+        intent: "subject contains receipt",
+        creationKey,
+      }).success,
+    ).toBe(true);
+    expect(
+      filterCompileRequestSchema.safeParse({
+        name: "Receipts",
+        intent: "subject contains receipt",
+        creationKey,
+        seriesId: "5e106d7a-85aa-4a08-9a1f-cb13b42df1f8",
+        expectedVersion: 1,
+      }).success,
+    ).toBe(false);
+    expect(
+      filterCompileRequestSchema.safeParse({
+        name: "Receipts",
+        intent: "subject contains receipt",
+        creationKey: "not-a-uuid",
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects source content and action controls at the compiler boundary", () => {
     for (const field of ["source", "body", "provider", "endpoint", "credential", "operation"]) {
       expect(
