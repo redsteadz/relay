@@ -13,6 +13,26 @@ type PipelineMessage = {
   envelope: unknown;
 };
 
+/**
+ * How long saving a rule waits for the pipeline, covering the request and reading the reply.
+ *
+ * A warm compile answers in well under a second. Without a deadline a hung pipeline held the request
+ * until the platform gave up, about 90 seconds, with the person watching a spinner.
+ */
+export const FILTER_COMPILATION_TIMEOUT_MS = 10_000;
+
+/** The abort reason for a deadline this module set, as opposed to a caller cancelling. */
+class PipelineDeadlineError extends Error {
+  constructor() {
+    super("Pipeline request deadline exceeded");
+    this.name = "PipelineDeadlineError";
+  }
+}
+
+function deadlineExceeded(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true && signal.reason instanceof PipelineDeadlineError;
+}
+
 async function publishPrivate(
   path:
     | "/internal/filters/compile"
@@ -77,6 +97,8 @@ async function publishPrivate(
     }
     return response;
   } catch (error: unknown) {
+    // The caller that set the deadline reports it, once, knowing whether the reply had started.
+    if (deadlineExceeded(signal)) throw error;
     logApiIntegrationError(error, {
       code: "PIPELINE_REQUEST_FAILED",
       event: "integration.pipeline_request_failed",
@@ -103,11 +125,67 @@ export async function publishIngress(
   return publishPrivate("/internal/ingest", message, true, undefined, requestId);
 }
 
+/**
+ * Asks the pipeline to compile and store a rule revision, within `FILTER_COMPILATION_TIMEOUT_MS`.
+ *
+ * The reply is read before returning, under the same deadline, so a pipeline that sends headers and
+ * then stalls cannot hold the request open either. Running out of time is a `504` with reason
+ * `pipeline-timeout`. Whether the pipeline committed is then unknown.
+ */
 export async function publishFilterCompilation(
   request: FilterCompileInternalRequest,
   requestId?: string,
 ): Promise<Response> {
-  return publishPrivate("/internal/filters/compile", request, false, undefined, requestId);
+  const operationRequestId = requestId ?? crypto.randomUUID();
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const expired = new PipelineDeadlineError();
+  // Raced as well as passed as the signal, so a transport that ignores the signal is still cut off.
+  const deadline = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        reject(expired);
+      },
+      { once: true },
+    );
+  });
+  const timer = setTimeout(() => {
+    controller.abort(expired);
+  }, FILTER_COMPILATION_TIMEOUT_MS);
+
+  const exchange = (async () => {
+    const response = await publishPrivate(
+      "/internal/filters/compile",
+      request,
+      false,
+      controller.signal,
+      operationRequestId,
+    );
+    return { body: await response.text(), response };
+  })();
+
+  try {
+    const { body, response } = await Promise.race([exchange, deadline]);
+    return new Response(body, { headers: response.headers, status: response.status });
+  } catch (error: unknown) {
+    const timedOut = deadlineExceeded(controller.signal);
+    logApiIntegrationError(error, {
+      category: timedOut ? "timeout" : "network",
+      code: timedOut ? "PIPELINE_REQUEST_TIMEOUT" : "PIPELINE_RESPONSE_READ_FAILED",
+      event: "integration.pipeline_request_failed",
+      integration: "relay-pipeline",
+      operation: "/internal/filters/compile",
+      requestId: operationRequestId,
+      retryable: true,
+      startedAt,
+    });
+    return timedOut
+      ? Response.json({ accepted: false, reason: "pipeline-timeout" }, { status: 504 })
+      : Response.json({ accepted: false, reason: "pipeline-unavailable" }, { status: 503 });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function publishGmailCursor(

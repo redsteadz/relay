@@ -391,6 +391,9 @@ export function filterDraftError(draft: FilterDraft): string | undefined {
 const SAVE_MESSAGES: Readonly<Record<string, string>> = {
   filter_compilation_unavailable:
     "Relay could not compile the rule just now. Your draft is unchanged — try again shortly.",
+  // The save may have landed after Relay stopped waiting, so retrying blind could add a second rule.
+  filter_compilation_timeout:
+    "The rule may already be saved. Check your rules before trying again.",
   filter_revision_conflict:
     "This rule changed somewhere else while you were editing. Reopen it to see the current version, then reapply your change.",
   invalid_filter_intent:

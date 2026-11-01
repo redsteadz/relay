@@ -419,6 +419,7 @@ describe("filterSaveErrorMessage", () => {
     ["filter_revision_conflict", "changed somewhere else"],
     ["invalid_filter_intent", "could not read"],
     ["filter_compilation_unavailable", "draft is unchanged"],
+    ["filter_compilation_timeout", "may already be saved"],
   ])("explains %s", (apiCode, fragment) => {
     expect(filterSaveErrorMessage(new RelayApiError("validation", { apiCode }))).toContain(
       fragment,
@@ -430,6 +431,15 @@ describe("filterSaveErrorMessage", () => {
       new RelayApiError("validation", { apiCode: "filter_revision_conflict" }),
     );
     expect(message).toContain("Reopen");
+  });
+
+  // A 504 maps to the timeout reason, whose generic copy says to try again; the code must win.
+  it("does not invite a blind retry when the save timed out", () => {
+    const message = filterSaveErrorMessage(
+      new RelayApiError("timeout", { apiCode: "filter_compilation_timeout" }),
+    );
+    expect(message).toContain("Check your rules");
+    expect(message).not.toContain("unreachable");
   });
 
   it("falls back to the transport reason with no code", () => {
