@@ -43,6 +43,8 @@ const fieldAliases: Record<string, FilterField> = {
   app: "source.applicationId",
   sender: "sender",
   subject: "subject",
+  // A notification's title is captured as its subject, and the Quiet screen calls it the title.
+  title: "subject",
   body: "body",
   message: "body",
   text: "body",
@@ -51,6 +53,22 @@ const fieldAliases: Record<string, FilterField> = {
   merchant: "attributes.merchant",
   amount: "attributes.amount",
 };
+
+// Every clause form reads its field word from this one pattern, so an alias added above is
+// understood by all of them. Longest first, so "source kind" is tried before "source".
+const fieldPattern = Object.keys(fieldAliases)
+  .sort((left, right) => right.length - left.length)
+  .map((alias) => alias.replace(/ /gu, "\\s+"))
+  .join("|");
+const existsClausePattern = new RegExp(`^(${fieldPattern})\\s+(?:exists|is\\s+present)$`, "iu");
+const inClausePattern = new RegExp(
+  `^(${fieldPattern})\\s+(?:is\\s+)?(?:one\\s+of|in)\\s+(.+)$`,
+  "iu",
+);
+const valueClausePattern = new RegExp(
+  `^(${fieldPattern})\\s+(is|equals?|contains?|starts(?:-|\\s+)with)\\s+(.+)$`,
+  "iu",
+);
 
 const sourceAliases: Record<string, string> = {
   gmail: "gmail",
@@ -195,10 +213,7 @@ function parseClause(
     return unsupported(clause, "invalid-value", "sender");
   }
 
-  const existsMatch =
-    /^(source(?:\s+kind)?|application|app|sender|subject|body|message|text|category|currency|merchant|amount)\s+(?:exists|is\s+present)$/iu.exec(
-      clause,
-    );
+  const existsMatch = existsClausePattern.exec(clause);
   if (existsMatch?.[1] !== undefined) {
     const field = fieldAliases[normalizeText(existsMatch[1])];
     if (field !== undefined && supports(field, "exists")) {
@@ -208,10 +223,7 @@ function parseClause(
     return unsupported(clause, "invalid-value", field);
   }
 
-  const inMatch =
-    /^(source(?:\s+kind)?|application|app|sender|subject|body|message|text|category|currency|merchant|amount)\s+(?:is\s+)?(?:one\s+of|in)\s+(.+)$/iu.exec(
-      clause,
-    );
+  const inMatch = inClausePattern.exec(clause);
   if (inMatch?.[1] !== undefined && inMatch[2] !== undefined) {
     const field = fieldAliases[normalizeText(inMatch[1])];
     if (field === undefined || !supports(field, "in")) {
@@ -228,10 +240,7 @@ function parseClause(
     return { predicate: { field, operator: "in", value: values as string[] } };
   }
 
-  const valueMatch =
-    /^(source(?:\s+kind)?|application|app|sender|subject|body|message|text|category|currency|merchant|amount)\s+(is|equals?|contains?|starts(?:-|\s+)with)\s+(.+)$/iu.exec(
-      clause,
-    );
+  const valueMatch = valueClausePattern.exec(clause);
   if (valueMatch?.[1] !== undefined && valueMatch[2] !== undefined && valueMatch[3] !== undefined) {
     const field = fieldAliases[normalizeText(valueMatch[1])];
     const operatorText = normalizeText(valueMatch[2]);
