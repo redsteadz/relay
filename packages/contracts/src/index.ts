@@ -1529,6 +1529,143 @@ export const googleTaskInputSchema = z
 export type GoogleTaskInput = z.infer<typeof googleTaskInputSchema>;
 
 /**
+ * Signed webhooks. See `docs/integrations/webhook.md`.
+ *
+ * The event fields an action rule may send to its receiver: an allowlist Relay owns rather than a
+ * blocklist a rule supplies, because this is data leaving Relay. Raw source fields (sender, subject,
+ * body, application, attributes) are not on it, but every field here is still derived from the
+ * source item, and `title` and `summary` can carry its words. The event's kind always travels as the
+ * envelope's `eventType`, so it is not selectable.
+ */
+export const WEBHOOK_EVENT_FIELDS = [
+  "title",
+  "summary",
+  "startsAt",
+  "endsAt",
+  "dueAt",
+  "confidence",
+  "requiresReview",
+] as const;
+export const webhookEventFieldSchema = z.enum(WEBHOOK_EVENT_FIELDS);
+export type WebhookEventField = z.infer<typeof webhookEventFieldSchema>;
+
+export const WEBHOOK_SIGNATURE_VERSION = "v1";
+/** How long a rotated-out secret keeps signing beside its replacement. */
+export const WEBHOOK_ROTATION_OVERLAP_MS = 24 * 60 * 60 * 1000;
+
+/** What `action_rules.input_template` holds for a webhook rule. */
+export const webhookInputTemplateSchema = z
+  .object({
+    fields: z
+      .array(webhookEventFieldSchema)
+      .min(1)
+      .max(WEBHOOK_EVENT_FIELDS.length)
+      .refine((fields) => new Set(fields).size === fields.length, {
+        message: "A field can be selected once",
+      }),
+  })
+  .strict();
+export type WebhookInputTemplate = z.infer<typeof webhookInputTemplateSchema>;
+
+/**
+ * Field values as they leave Relay. Bounds admit events stored before versioned extraction, whose
+ * title and summary were not held to the current limits.
+ */
+export const webhookEventFieldsSchema = z
+  .object({
+    confidence: z.number().min(0).max(1).optional(),
+    dueAt: z.iso.datetime({ offset: true }).optional(),
+    endsAt: z.iso.datetime({ offset: true }).optional(),
+    requiresReview: z.boolean().optional(),
+    startsAt: z.iso.datetime({ offset: true }).optional(),
+    summary: z.string().max(4096).optional(),
+    title: z.string().min(1).max(512).optional(),
+  })
+  .strict();
+export type WebhookEventFields = z.infer<typeof webhookEventFieldsSchema>;
+
+/** A webhook run's rendered input: everything delivery needs besides the run's own identity. */
+export const webhookActionInputSchema = z
+  .object({ eventType: eventKindSchema, fields: webhookEventFieldsSchema })
+  .strict();
+export type WebhookActionInput = z.infer<typeof webhookActionInputSchema>;
+
+/**
+ * The signed request body. `actionId` is the run's derived ID and is the receiver's idempotency
+ * key; the `relay-action-id` header only copies it and is not signed.
+ */
+export const webhookEnvelopeSchema = z
+  .object({
+    version: z.literal(1),
+    actionId: canonicalUuidSchema,
+    eventType: eventKindSchema,
+    attempt: z.int().min(1).max(1000),
+    fields: webhookEventFieldsSchema,
+  })
+  .strict();
+export type WebhookEnvelope = z.infer<typeof webhookEnvelopeSchema>;
+
+const webhookSecretSchema = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/u, "A webhook secret is 32 bytes of hex");
+
+/**
+ * The plaintext inside a webhook connection's encrypted credential. The URL sits here rather than in
+ * metadata because receivers commonly put a bearer token in its path or query.
+ */
+export const webhookCredentialSchema = z
+  .object({
+    previousSecret: webhookSecretSchema.optional(),
+    secret: webhookSecretSchema,
+    url: z.string().min(1).max(2048),
+  })
+  .strict();
+export type WebhookCredential = z.infer<typeof webhookCredentialSchema>;
+
+/** A webhook connection's plaintext metadata. Nothing here is secret. */
+export const webhookConnectionMetadataSchema = z
+  .object({
+    host: z.string().min(1).max(253),
+    previousSecretExpiresAt: z.iso.datetime({ offset: true }).optional(),
+    signatureVersion: z.literal(WEBHOOK_SIGNATURE_VERSION),
+  })
+  .strict();
+export type WebhookConnectionMetadata = z.infer<typeof webhookConnectionMetadataSchema>;
+
+export const webhookConnectionCreateRequestSchema = z
+  .object({ url: z.string().min(1).max(2048) })
+  .strict();
+export type WebhookConnectionCreateRequest = z.infer<typeof webhookConnectionCreateRequestSchema>;
+
+export const webhookConnectionRotateRequestSchema = z
+  .object({ connectionId: canonicalUuidSchema })
+  .strict();
+export type WebhookConnectionRotateRequest = z.infer<typeof webhookConnectionRotateRequestSchema>;
+
+/** Returned once, by create and by rotate. The secret is never readable again. */
+export const webhookConnectionSecretResponseSchema = z
+  .object({
+    connectionId: canonicalUuidSchema,
+    host: z.string().min(1).max(253),
+    previousSecretExpiresAt: z.iso.datetime({ offset: true }).nullable(),
+    secret: webhookSecretSchema,
+  })
+  .strict();
+export type WebhookConnectionSecretResponse = z.infer<typeof webhookConnectionSecretResponseSchema>;
+
+/** Why a delivery attempt failed. Each satisfies `actionRunFailureSchema`'s error-code format. */
+export const webhookDeliveryErrorCodeSchema = z.enum([
+  "webhook-credential-unavailable",
+  "webhook-destination-refused",
+  "webhook-invalid-input",
+  "webhook-redirect-refused",
+  "webhook-rejected",
+  "webhook-retryable-status",
+  "webhook-unreachable",
+]);
+export type WebhookDeliveryErrorCode = z.infer<typeof webhookDeliveryErrorCodeSchema>;
+
+/**
  * A bearer key for the configured semantic endpoint.
  *
  * Length is provider-defined now that the endpoint is configurable -- an OpenAI key is long, a

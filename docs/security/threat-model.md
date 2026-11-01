@@ -31,12 +31,14 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Credential leakage in observability | Structured metadata-only logs, header/body redaction                     |
 | Unwanted notification deletion      | Authorized rules, snooze default, audit, kill switch, category refused   |
 | Compromised device                  | SecureStore ID, active-device gate, revocable record                     |
-| SSRF through Nextcloud/webhook URL  | HTTPS requirement, address validation, redirect policy, re-resolution    |
+| SSRF through Nextcloud/webhook URL  | HTTPS, literal address check, redirects refused; rebinding is open risk  |
 
 ## Open Risks
 
 Gmail restricted-scope verification, Google API Limited Use review, SMS distribution approval,
-provider reconciliation details, abuse/rate limits, and account-deletion fresh-auth, external receipt,
+DNS rebinding against outbound destination URLs
+([signed webhooks](../integrations/webhook.md#what-this-does-not-stop)), provider reconciliation
+details, abuse/rate limits, and account-deletion fresh-auth, external receipt,
 post-delete verification, and provider-failure tradeoff need tracked release issues.
 
 One hosted runtime creates shared quota, deployment, backup, and operator blast radius. ADR-0007
