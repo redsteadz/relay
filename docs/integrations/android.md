@@ -153,8 +153,11 @@ that the plan has something to decide with -- a deterministic part, a semantic o
 explicit application predicate #38 required was dropped by
 [ADR-0020](../decisions/0020-unscoped-quiet-rules.md). They measure the dry-run window on the server clock between two
 calls; and each writes `audit_log` in the same statement. The app writes the resulting snapshot
-natively with a monotonic revision, so a sync that loses a race cannot reinstate withdrawn
-authorization.
+natively with a monotonic revision, one write at a time, so a sync that loses a race cannot
+reinstate withdrawn authorization. It writes it on launch, each time the app comes to the
+foreground, and whenever Quiet is open. A change that withdraws a rule -- pausing or editing it in
+Rules, or switching its quiet action off -- reaches the device before the database; granting reaches
+the device only after the database records it (`features/silence/api/silenceSnapshot.ts`).
 
 **What the device may evaluate is narrower than what a rule may say.** The decision runs in a
 system-bound process with the app dead, holding a `StatusBarNotification` and nothing else, so
