@@ -214,6 +214,11 @@ as its subject. Quoted values may contain `and`; otherwise `and` joins determini
 predicates. Category values resolve only through the active category descriptors loaded by Pipeline.
 Currency is canonical uppercase ISO-style text, and amount stays an exact decimal string.
 
+Naming an application through this field is not only a filter. Saving or authorizing a rule whose
+compiled plan carries a `source.applicationId` predicate also grants that application's notification
+capture, as part of the same save or authorize action — writing the rule is the authorization, with
+no separate trip to Sources required first ([ADR-0023](../decisions/0023-naming-an-application-authorizes-capture.md)).
+
 Every response presents the full supported predicate/operator matrix and unsupported clauses.
 Unsupported descriptive clauses become an explicit semantic question with minimum confidence and a
 field allowlist inferred from only that clause. Action language receives

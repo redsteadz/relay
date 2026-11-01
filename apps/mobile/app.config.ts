@@ -82,6 +82,10 @@ const config: ExpoConfig = {
   },
   android: {
     package: app.androidApplicationId,
+    // Plain preferences hold the allowed SMS contacts, the captured applications and compiled quiet
+    // rules. A backup would carry them off the phone, and the Keystore keys the rest needs never
+    // leave it, so nothing a backup restores would be usable.
+    allowBackup: false,
     ...(isSideload ? { permissions: sms.permissions } : { blockedPermissions: sms.permissions }),
     adaptiveIcon: {
       backgroundColor: palette.dark.background,
