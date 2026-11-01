@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-10-05
+last_verified: 2026-10-31
 ---
 
 # Action And Approval Model
@@ -97,9 +97,13 @@ A repeated claim from the same workflow instance returns the running row without
 attempt, so a lost response converges. A different instance claiming a running row is a conflict.
 Dispatch itself is still unimplemented; this is the gate it will have to pass through.
 
-Notification dismissal is separate from provider action approval. It requires explicit source and
-filter scope, deterministic match, confidence policy, completed dry run, and audit record. AI-only
-matches cannot dismiss automatically.
+Notification dismissal is separate from provider action approval. It requires a rule the reader
+explicitly authorized and an audit record of every transition. A dry run is optional evidence, not a
+precondition ([ADR-0021](../decisions/0021-direct-quiet-authorization.md)). A rule that names
+nothing literal is decided by a model alone
+([ADR-0020](../decisions/0020-unscoped-quiet-rules.md)): the model's answer narrows a rule the
+reader authorized and never authorizes one, and an answer below the clause's minimum confidence
+decides nothing.
 
 That separation is now enforced rather than only stated. The initial schema's `filter_rules_check`
 required `approval_mode = 'automatic'` before `dismiss_source_notification` could be true, which
@@ -113,9 +117,9 @@ Acting on a notification has its own table, its own routines and its own ledger,
 `action_runs`. `notification_dismissal_authorizations` holds the action, the dry-run window, the
 evidence and `authorized_at` beside the immutable revision, and
 `start_notification_dismissal_dry_run_v1`, `complete_notification_dismissal_dry_run_v1` and
-`set_notification_dismissal_v1` are its only writers; they validate the plan shape and an explicit
-application predicate, measure the window on the server clock, and write `audit_log` in the same
-statement. The device's own content-free verdict is recorded before the notification is acted on,
+`set_notification_dismissal_v1` are its only writers; they validate that the plan has a
+deterministic part, a semantic one, or both, measure the window on the server clock, and write
+`audit_log` in the same statement. The device's own content-free verdict is recorded before the notification is acted on,
 because afterwards it is the only remaining evidence.
 
 Relay acts only after Android has posted and alerted, so it clears a notification rather than

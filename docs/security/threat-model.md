@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: security
-last_verified: 2026-08-30
+last_verified: 2026-10-31
 ---
 
 # Threat Model
@@ -29,7 +29,7 @@ filter intent, financial records, calendars/tasks, and action authority.
 | Ambiguous provider timeout          | Provider idempotency or reconciliation before retry                      |
 | Malicious callback                  | Google Pub/Sub JWT audience verification, signed webhook authentication  |
 | Credential leakage in observability | Structured metadata-only logs, header/body redaction                     |
-| Unwanted notification deletion      | Explicit deterministic rules, dry run, audit, no category-only dismissal |
+| Unwanted notification deletion      | Authorized rules, snooze default, audit, kill switch, category refused   |
 | Compromised device                  | SecureStore ID, active-device gate, revocable record                     |
 | SSRF through Nextcloud/webhook URL  | HTTPS requirement, address validation, redirect policy, re-resolution    |
 
