@@ -1092,7 +1092,6 @@ describe("notification silencing", () => {
 
   function snapshot(overrides: Record<string, unknown> = {}) {
     return {
-      disabledPackages: [],
       killSwitchEngaged: false,
       mode: "enforcing",
       revision: 1,

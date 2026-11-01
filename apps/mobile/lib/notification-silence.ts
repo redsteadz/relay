@@ -92,7 +92,6 @@ function newestRevisions(rules: readonly SilenceAuthorization[]): SilenceAuthori
 export function compileSilencePlan(
   rules: readonly SilenceAuthorization[],
   options: {
-    disabledPackages?: readonly string[];
     killSwitchEngaged: boolean;
     revision: number;
   },
@@ -141,7 +140,6 @@ export function compileSilencePlan(
 
   return {
     snapshot: notificationSilenceSnapshotSchema.parse({
-      disabledPackages: [...(options.disabledPackages ?? [])],
       killSwitchEngaged: options.killSwitchEngaged,
       mode: snapshotMode(compiled),
       revision: options.revision,

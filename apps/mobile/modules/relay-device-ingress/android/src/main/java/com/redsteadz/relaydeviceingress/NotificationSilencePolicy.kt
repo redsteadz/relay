@@ -87,12 +87,11 @@ internal data class SilenceSnapshot(
   val mode: String,
   val killSwitchEngaged: Boolean,
   val revision: Long,
-  val rules: List<SilenceRule>,
-  val disabledPackages: Set<String>
+  val rules: List<SilenceRule>
 ) {
   companion object {
     /** No authorization at all, and maximally stopped: what every unreadable snapshot becomes. */
-    val OFF = SilenceSnapshot("off", true, 0, emptyList(), emptySet())
+    val OFF = SilenceSnapshot("off", true, 0, emptyList())
   }
 }
 
@@ -149,6 +148,10 @@ internal object NotificationSilencePolicy {
    * anything this version does not understand, yields no authorization at all. The app rewrites the
    * snapshot whenever it changes, so refusing a malformed one costs a quiet notification rather than
    * an incorrect cancellation.
+   *
+   * Keys this version does not read are ignored rather than refused. A snapshot stored by an older
+   * build still carries `disabledPackages`, a per-application pause nothing ever set. The capture
+   * list is that control, and a phone keeps its quiet rules across the update.
    */
   fun parse(json: String?): SilenceSnapshot {
     if (json.isNullOrBlank()) return SilenceSnapshot.OFF
@@ -160,8 +163,7 @@ internal object NotificationSilencePolicy {
         mode = mode,
         killSwitchEngaged = root.optBoolean("killSwitchEngaged", true),
         revision = root.optLong("revision", 0),
-        rules = parseRules(root.optJSONArray("rules")),
-        disabledPackages = parseStrings(root.optJSONArray("disabledPackages")).toSet()
+        rules = parseRules(root.optJSONArray("rules"))
       )
     } catch (_: JSONException) {
       SilenceSnapshot.OFF
@@ -315,9 +317,9 @@ internal object NotificationSilencePolicy {
         }
     } ?: return SilenceOutcome(SilenceDecision.NO_MATCH)
 
-    // A matched rule the device will not act on is still recorded. Without it, the kill switch and a
-    // per-application pause are indistinguishable from the rule having stopped matching.
-    if (stopped(snapshot, packageName)) {
+    // A matched rule the device will not act on is still recorded. Without it, the kill switch is
+    // indistinguishable from the rule having stopped matching.
+    if (snapshot.killSwitchEngaged) {
       return SilenceOutcome(SilenceDecision.DECLINED, matched.filterRuleId)
     }
 
@@ -335,11 +337,15 @@ internal object NotificationSilencePolicy {
    * What to do about a notification a model has now answered about.
    *
    * The answer is an input to this decision and never the decision itself. Everything that decides
-   * whether Relay may act -- the kill switch, a per-application pause, the rule's own observation
-   * window, whether the rule still exists -- is re-read from the current snapshot rather than from
-   * whatever was true when the notification was posted, because asking a model takes time and a
-   * reader can withdraw the capability inside it. That ordering is what ADR-0019 preserves from
-   * ADR-0003: a model narrows what a reader already authorized, and cannot widen it.
+   * whether Relay may act -- the kill switch, the rule's own observation window, whether the rule
+   * still exists -- is re-read from the current snapshot rather than from whatever was true when the
+   * notification was posted, because asking a model takes time and a reader can withdraw the
+   * capability inside it. That ordering is what ADR-0019 preserves from ADR-0003: a model narrows
+   * what a reader already authorized, and cannot widen it.
+   *
+   * [stillCaptured] is the per-application control, re-read the same way: whether the application is
+   * still on the capture list with capture on. A live notification from an application off the list
+   * never reaches [decide], so an answer for one that left the list during the wait is declined.
    *
    * `DECLINED` rather than `IGNORED` covers a rule that has since been removed or an application
    * that has since left scope. `IGNORED` means nothing was ever evaluated and nothing recorded,
@@ -349,7 +355,8 @@ internal object NotificationSilencePolicy {
     snapshot: SilenceSnapshot,
     packageName: String,
     filterRuleId: String,
-    matched: Boolean
+    matched: Boolean,
+    stillCaptured: Boolean
   ): SilenceOutcome {
     val rule = snapshot.rules.firstOrNull { rule -> rule.filterRuleId == filterRuleId }
     if (rule == null || !inScope(snapshot, packageName)) {
@@ -359,21 +366,11 @@ internal object NotificationSilencePolicy {
     // tests failing is. Checked before the stop, exactly as `decide` reports a miss before it
     // reports a refusal: a rule that did not match was not refused.
     if (!matched) return SilenceOutcome(SilenceDecision.NO_MATCH, filterRuleId)
-    if (stopped(snapshot, packageName)) {
+    if (snapshot.killSwitchEngaged || !stillCaptured) {
       return SilenceOutcome(SilenceDecision.DECLINED, filterRuleId)
     }
     return SilenceOutcome(verdict(rule), filterRuleId)
   }
-
-  /**
-   * Whether the tenant has stopped Relay acting on this application.
-   *
-   * The pause is compared the same way a rule's application test is, because a stop that failed to
-   * apply over a difference in case would fail in the direction that acts on a notification.
-   */
-  private fun stopped(snapshot: SilenceSnapshot, packageName: String): Boolean =
-    snapshot.killSwitchEngaged ||
-      snapshot.disabledPackages.any { value -> normalize(value) == normalize(packageName) }
 
   /**
    * The rule's action, as its own observation window qualifies it.

@@ -90,4 +90,17 @@ class NotificationCapturePolicyTest {
     assertEquals(first, again)
     assertEquals(NotificationCaptureDecision.CAPTURE, again)
   }
+
+  // The capture list is also the per-application control for quieting, re-read when a model's
+  // answer arrives. It must agree with the live decision about every application.
+  @Test
+  fun `a configuration captures only an allowlisted application while capture is on`() {
+    val tenant = "638ce145-a77d-4c32-b798-cb398e881fc9"
+    val capturing = NotificationCaptureConfiguration(tenant, allowed, paused = false)
+
+    assertEquals(true, capturing.captures(tenant, gmail))
+    assertEquals(false, capturing.captures(tenant, "com.linkedin.android"))
+    assertEquals(false, capturing.copy(paused = true).captures(tenant, gmail))
+    assertEquals(false, capturing.captures("5e106d7a-85aa-4a08-9a1f-cb13b42df1f8", gmail))
+  }
 }
