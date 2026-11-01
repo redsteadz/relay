@@ -3,12 +3,13 @@
  *
  * Every change here has to land in two places that cannot be updated atomically: the database, which
  * is the authority on what a rule may do, and the device snapshot, which is what the notification
- * assistant reads while the app is dead. The order is always database first, then device, so a failed
- * write leaves the device holding *less* authorization than the database granted rather than more.
+ * listener reads while the app is dead. `silenceSnapshot.ts` owns the device side and the order:
+ * granting goes database first, withdrawing goes device first, so a failed write always leaves the
+ * device holding *less* authorization than the database rather than more.
  *
- * The one exception is the kill switch, which goes to the device first. A person reaching for a stop
- * is stopping the behaviour now, and making that wait on the network would be the wrong trade in the
- * one case where it matters most.
+ * The kill switch is its own native flag and goes to the device first, in both directions. A person
+ * reaching for a stop is stopping the behaviour now, and making that wait on the network would be
+ * the wrong trade in the one case where it matters most.
  */
 
 import type { NotificationSilenceAction } from "@relay/contracts";
@@ -17,51 +18,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { authorizeNamedApplications } from "@/features/device-capture/hooks/authorizeNamedApplications";
 import RelayDeviceIngress, { SILENCE_OUTCOME_LIMIT } from "@/modules/relay-device-ingress";
-import { compileSilencePlan, reviewableRules, type SilencePlan } from "@/lib/notification-silence";
+import { reviewableRules } from "@/lib/notification-silence";
 import { namedApplications } from "../models/silencePresentation";
 import {
   completeDryRun,
-  listSilenceAuthorizations,
-  readDismissalSettings,
   setKillSwitch,
   setRuleDismissal,
   startDryRun,
   SILENCE_DRY_RUN_MINIMUM_HOURS,
 } from "../api/silence";
+import { publishSilenceSnapshot, withdrawThenSave } from "../api/silenceSnapshot";
 
 export const silenceQueryKeys = {
   outcomes: (userId: string | undefined) => ["notification-silence", userId, "outcomes"] as const,
   state: (userId: string | undefined) => ["notification-silence", userId, "state"] as const,
 };
-
-type SilenceState = {
-  killSwitchEngaged: boolean;
-  plan: SilencePlan;
-};
-
-/**
- * Reads the authorization and leaves a matching snapshot on the device.
- *
- * Publishing on read rather than only on write is deliberate. Authorization can change on another
- * device, and a rule the tenant withdrew there must stop acting here without waiting for someone to
- * open the screen that changed it.
- *
- * `revision` is the moment this snapshot was compiled. It has to be monotonic, and it cannot be
- * derived from the rules: withdrawing the last authorized rule would lower it, and the native store
- * would then refuse the very write that was meant to clear the authorization. The snapshot is
- * device-local, so the race being guarded is two publishes on this device -- a refetch landing after
- * a newer one -- and publish time orders those correctly.
- */
-async function loadSilenceState(client: SupabaseClient, tenantId: string): Promise<SilenceState> {
-  const [rules, killSwitchEngaged] = await Promise.all([
-    listSilenceAuthorizations(client),
-    readDismissalSettings(client),
-  ]);
-
-  const plan = compileSilencePlan(rules, { killSwitchEngaged, revision: Date.now() });
-  await RelayDeviceIngress.configureNotificationSilence(tenantId, plan.snapshot);
-  return { killSwitchEngaged, plan };
-}
 
 export function useNotificationSilence(
   client: SupabaseClient | undefined,
@@ -70,9 +41,10 @@ export function useNotificationSilence(
   const queryClient = useQueryClient();
   const enabled = client !== undefined && tenantId !== undefined;
 
+  // Reading the state publishes it, so opening this screen also brings the device up to date.
   const state = useQuery({
     enabled,
-    queryFn: () => loadSilenceState(client as SupabaseClient, tenantId as string),
+    queryFn: () => publishSilenceSnapshot(client as SupabaseClient, tenantId as string),
     queryKey: silenceQueryKeys.state(tenantId),
   });
 
@@ -152,6 +124,9 @@ export function useNotificationSilence(
    * No dry run is required and the action can change in place (ADR-0021). Omitting `action` keeps
    * whatever is stored, so turning a rule off and on again cannot quietly turn a snooze into a
    * cancellation.
+   *
+   * Withdrawing takes the rule off the device before the database write. Enabling reaches the
+   * device only through the refetch that follows a successful write.
    */
   const authorize = useMutation({
     mutationFn: async ({
@@ -163,17 +138,20 @@ export function useNotificationSilence(
       enabled: boolean;
       filterRuleId: string;
     }) => {
-      await setRuleDismissal(client as SupabaseClient, filterRuleId, on, action);
-      // Authorizing (not withdrawing) a rule that names an application grants that application's
-      // capture as part of this same action, for a rule saved before ADR-0023 (a save already
-      // grants it going forward). The device write follows the database write, per this file's own
-      // ordering rule above.
-      if (on) {
-        const named = namedApplications(
-          statuses.filter((status) => status.rule.id === filterRuleId),
+      if (!on) {
+        const seriesId = statuses.find((status) => status.rule.id === filterRuleId)?.rule.seriesId;
+        await withdrawThenSave(client as SupabaseClient, tenantId as string, seriesId, () =>
+          setRuleDismissal(client as SupabaseClient, filterRuleId, false, action),
         );
-        await authorizeNamedApplications(tenantId, named);
+        return;
       }
+      await setRuleDismissal(client as SupabaseClient, filterRuleId, true, action);
+      // Authorizing a rule that names an application grants that application's capture as part of
+      // this same action, for a rule saved before ADR-0023 (a save already grants it going
+      // forward). The device write follows the database write, per this file's own ordering rule
+      // above.
+      const named = namedApplications(statuses.filter((status) => status.rule.id === filterRuleId));
+      await authorizeNamedApplications(tenantId, named);
     },
     onSuccess: refreshAll,
   });

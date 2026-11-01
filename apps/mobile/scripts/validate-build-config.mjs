@@ -48,6 +48,7 @@ assert.deepEqual(development.android.blockedPermissions, sms.permissions);
 assert.equal(development.android.permissions, undefined);
 assert.equal(development.extra.relayBuildVariant, buildVariants.development);
 assert.equal(development.extra.eas.projectId, app.projectId);
+assert.equal(development.android.allowBackup, false);
 
 assert.equal(sideload.android.package, app.androidApplicationId);
 assert.equal(sideload.owner, app.owner);
@@ -55,6 +56,7 @@ assert.deepEqual(sideload.android.permissions, sms.permissions);
 assert.equal(sideload.android.blockedPermissions, undefined);
 assert.equal(sideload.extra.relayBuildVariant, buildVariants.sideload);
 assert.equal(sideload.extra.eas.projectId, app.projectId);
+assert.equal(sideload.android.allowBackup, false);
 
 function permissionNames(manifest) {
   return new Set((manifest["uses-permission"] ?? []).map((entry) => entry.$["android:name"]));
@@ -95,6 +97,11 @@ assert.equal(smsSyncService.$["android:permission"], sms.jobServicePermission);
 const developmentApplication = mainApplication(developmentManifest);
 assert.equal(component(developmentApplication, "receiver", sms.receiverClass), undefined);
 assert.equal(component(developmentApplication, "service", sms.syncServiceClass), undefined);
+
+// The generated manifest is what Android reads, so check the attribute there as well as in config.
+for (const application of [sideloadApplication, developmentApplication]) {
+  assert.equal(application.$["android:allowBackup"], "false");
+}
 
 assert.deepEqual(eas, {
   cli: {

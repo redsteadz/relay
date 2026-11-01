@@ -107,7 +107,9 @@ build that cannot capture.
   the same capture. Nothing depends on that yet, but `hidden_inbox_events` is keyed by event id, so
   reconciliation has to resolve it rather than assume the two agree.
 - It does **not** supersede [ADR-0002](0002-cloudflare-processing-boundary.md): no provider call and
-  no credential moves to the device.
+  no credential moves to the device. [ADR-0019](0019-device-semantic-evaluation.md) later let the
+  device call a model endpoint the reader configures, with a key only the device holds; no Relay
+  service credential or provider action moved.
 - It does **not** supersede [ADR-0014](0014-device-local-classification.md). A device-authored
   classification still must never gate a provider effect, and
   `supabase/migrations/202609070001_server_classification_gates_actions.sql` remains the enforcement.

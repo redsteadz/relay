@@ -234,6 +234,31 @@ function compileFilter(body: unknown): DemoApiResponse {
   }
 
   const rows = demoDatabase.rows("filter_rules");
+  // A retried creation is answered with the rule it already stored, as the hosted routine does. A
+  // key reused for a different rule is refused rather than answered with the wrong one.
+  const created =
+    request.creationKey === undefined
+      ? undefined
+      : rows.find((row) => row.creation_key === request.creationKey);
+  if (created !== undefined) {
+    const sameRule =
+      created.name === request.name &&
+      created.intent === request.intent &&
+      created.category_id === (request.categoryId ?? null) &&
+      created.enabled === (request.enabled ?? true);
+    if (!sameRule) {
+      return failure(409, "filter_rule_version_conflict", "Filter creation key was already used");
+    }
+    return {
+      body: {
+        rule: ruleResponse(created),
+        supportedPredicates: compilation.supportedPredicates,
+        unsupportedClauses: compilation.unsupportedClauses,
+      },
+      status: 200,
+    };
+  }
+
   const seriesId = request.seriesId ?? demoRandomUuid();
   const existing = rows.filter((row) => row.series_id === seriesId);
   const current = existing.reduce<DemoRow | undefined>(
@@ -258,6 +283,7 @@ function compileFilter(body: unknown): DemoApiResponse {
   const row: DemoRow = {
     category_id: categoryId,
     created_at: nowIso(),
+    creation_key: request.creationKey ?? null,
     enabled: request.enabled ?? true,
     id: demoRandomUuid(),
     intent: request.intent,

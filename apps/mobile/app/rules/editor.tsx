@@ -1,3 +1,4 @@
+import { randomUUID } from "expo-crypto";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
@@ -54,6 +55,9 @@ export default function RuleEditorScreen() {
     seriesId === undefined ? undefined : filters.rules.find((rule) => rule.seriesId === seriesId);
   const [draft, setDraft] = useState<FilterDraft | undefined>();
   const [attempted, setAttempted] = useState(false);
+  // One key for the rule this screen creates, sent on every save from it. A save that was stored
+  // after Relay stopped waiting then returns that rule on retry instead of adding a second one.
+  const [creationKey] = useState(randomUUID);
 
   // The stored revision arrives after the first paint, so the draft is seeded from it once rather
   // than held in sync: re-seeding on every render would discard what a person had typed.
@@ -87,7 +91,7 @@ export default function RuleEditorScreen() {
       return;
     }
     try {
-      await filters.save(filterSaveRequest(current));
+      await filters.save(filterSaveRequest(current, creationKey));
       router.back();
     } catch (error: unknown) {
       // The fixed save message stays visible below; this only keeps the rejection observable.

@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: architecture
-last_verified: 2026-10-08
+last_verified: 2026-10-31
 ---
 
 # Filter Model
@@ -191,8 +191,9 @@ repeat evaluation belongs to the processing path that calls the evaluator, not t
 
 ## Compilation
 
-`POST /api/filters/compile` accepts only a name, user intent, optional enabled state, and optional
-`seriesId` plus `expectedVersion` edit coordinates. The API authenticates the user, validates the
+`POST /api/filters/compile` accepts only a name, user intent, optional enabled state, optional
+category, and either `seriesId` plus `expectedVersion` edit coordinates or a new rule's
+`creationKey`. The API authenticates the user, validates the
 strict request, and forwards verified identity to Pipeline. Source content, provider, endpoint,
 credential, and operation fields are rejected at both HTTP boundaries. Compilation never receives a
 source item, so adversarial SMS, email, or notification text cannot alter saved user intent.
@@ -209,9 +210,15 @@ tenant's active category names and slugs, then recognizes these bounded forms:
 | `FIELD in A, B`, `FIELD is one of A, B`                     | bounded `in` predicate   |
 
 Supported fields are source kind/application, sender, subject, body, category, currency, merchant,
-and exact-decimal amount. Quoted values may contain `and`; otherwise `and` joins deterministic
+and exact-decimal amount. `title` names the subject too, because a notification's title is captured
+as its subject. Quoted values may contain `and`; otherwise `and` joins deterministic
 predicates. Category values resolve only through the active category descriptors loaded by Pipeline.
 Currency is canonical uppercase ISO-style text, and amount stays an exact decimal string.
+
+Naming an application through this field is not only a filter. Saving or authorizing a rule whose
+compiled plan carries a `source.applicationId` predicate also grants that application's notification
+capture, as part of the same save or authorize action — writing the rule is the authorization, with
+no separate trip to Sources required first ([ADR-0023](../decisions/0023-naming-an-application-authorizes-capture.md)).
 
 Every response presents the full supported predicate/operator matrix and unsupported clauses.
 Unsupported descriptive clauses become an explicit semantic question with minimum confidence and a
@@ -225,7 +232,15 @@ separate decision and disclosure policy; it is not part of compiler version 1.
 
 Filter revisions are immutable once persisted. A new filter receives a stable random `series_id`
 and version 1. Editing supplies both `seriesId` and `expectedVersion`; a database advisory lock and
-optimistic version check atomically append the next revision or return a conflict. Authenticated
+optimistic version check atomically append the next revision or return a conflict.
+
+A save can commit after the app stopped waiting for it, so a new rule carries a `creationKey` the app
+generates once per new rule and sends on every retry. The key is stored on version 1, unique per
+tenant. A retry with the same key returns that stored revision and appends nothing; the same key
+with a different name, intent, category, or enabled state is a conflict. An edit needs no key,
+because a repeated edit's `expectedVersion` is already stale.
+
+Authenticated
 clients have read-only RLS access to their own revision history. Only Pipeline's service-role RPC can
 append a revision. Each append records compiler version, supported predicates, unsupported clauses,
 and an audit event so historical decisions remain explainable.

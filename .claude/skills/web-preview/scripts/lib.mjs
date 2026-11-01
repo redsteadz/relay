@@ -88,7 +88,7 @@ export async function preparedPage(browser, { scheme = "dark" } = {}) {
   await page.goto(baseUrl + "/", { timeout: 120_000, waitUntil: "networkidle" });
   await page.waitForTimeout(2000);
   for (let slide = 0; slide < 4; slide += 1) {
-    const next = page.getByText(/^(Continue|Open inbox)$/).first();
+    const next = page.getByText(/^(Get started|Continue|Skip for now)$/).first();
     if ((await next.count()) === 0) break;
     await next.click();
     await page.waitForTimeout(800);

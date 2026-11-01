@@ -347,6 +347,23 @@ describe("drafts and save requests", () => {
     expect(request.expectedVersion).toBeUndefined();
   });
 
+  it("sends a new rule's creation key, so a retry is not stored twice", () => {
+    const creationKey = "0b9c6a51-4f0e-4c8e-9d43-7a2f1e6b5c30";
+    const draft = { ...filterDraftFor(undefined), intent: "from gmail", name: "Receipts" };
+    const request = filterSaveRequest(draft, creationKey);
+    expect(request.creationKey).toBe(creationKey);
+    expect(filterCompileRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("never sends a creation key with an edit", () => {
+    const request = filterSaveRequest(
+      { ...filterDraftFor(revision({ version: 2 })), intent: "from gmail", name: "Receipts" },
+      "0b9c6a51-4f0e-4c8e-9d43-7a2f1e6b5c30",
+    );
+    expect(request.creationKey).toBeUndefined();
+    expect(filterCompileRequestSchema.safeParse(request).success).toBe(true);
+  });
+
   it("sends seriesId and expectedVersion together when editing", () => {
     // The contract refuses one without the other, so a request missing either is a 400 that would
     // only appear on a device.
@@ -419,6 +436,7 @@ describe("filterSaveErrorMessage", () => {
     ["filter_revision_conflict", "changed somewhere else"],
     ["invalid_filter_intent", "could not read"],
     ["filter_compilation_unavailable", "draft is unchanged"],
+    ["filter_compilation_timeout", "may already be saved"],
   ])("explains %s", (apiCode, fragment) => {
     expect(filterSaveErrorMessage(new RelayApiError("validation", { apiCode }))).toContain(
       fragment,
@@ -430,6 +448,15 @@ describe("filterSaveErrorMessage", () => {
       new RelayApiError("validation", { apiCode: "filter_revision_conflict" }),
     );
     expect(message).toContain("Reopen");
+  });
+
+  // A 504 maps to the timeout reason, whose generic copy says to try again; the code must win.
+  it("does not invite a blind retry when the save timed out", () => {
+    const message = filterSaveErrorMessage(
+      new RelayApiError("timeout", { apiCode: "filter_compilation_timeout" }),
+    );
+    expect(message).toContain("Check your rules");
+    expect(message).not.toContain("unreachable");
   });
 
   it("falls back to the transport reason with no code", () => {

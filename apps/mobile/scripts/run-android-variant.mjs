@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
+import { copyFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -38,4 +39,14 @@ function runExpo(arguments_) {
 // Expo CNG is authoritative. Cleaning prevents permissions from a previous variant from leaking
 // into the generated Android manifest when developers switch between local builds.
 runExpo(["prebuild", "--platform", "android", "--clean"]);
+
+// The template's debug keystore is the same public key in every React Native project, so any APK
+// signed with it could install over Relay and inherit its notification access. A workstation-owned
+// keystore (alias androiddebugkey, store and key password android, as the template's signing config
+// expects) keeps one private signature that every later local build updates in place.
+const keystore = process.env.RELAY_ANDROID_KEYSTORE;
+if (keystore !== undefined && keystore !== "") {
+  copyFileSync(keystore, resolve(appRoot, "android/app/debug.keystore"));
+}
+
 runExpo(["run:android", ...(deviceSerial === undefined ? ["--device"] : [])]);

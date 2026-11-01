@@ -77,8 +77,12 @@ The route list is in `scripts/lib.mjs`. Update it when screens are added or move
 
 ## Gotchas found on the way
 
-- **Onboarding.** A fresh browser context lands on `/onboarding`. The scripts click through it; the
-  final button is **Open inbox**, not Continue. State is kept in localStorage per context.
+- **Onboarding.** A fresh browser context lands on `/onboarding`: **Get started**, then the setup
+  screen's **Continue** (demo mode reports notification access as granted, so it is enabled). The
+  scripts click through it. State is kept in localStorage per context.
+- **Port 8081 may already be taken** by an unrelated local service. Expo then refuses to start
+  non-interactively and the scripts screenshot that other service. Check the Expo log, start on a
+  free port with `--port 8082`, and set `RELAY_PREVIEW_URL=http://localhost:8082`.
 - **Git Bash on Windows** rewrites a leading `/` argument into a Windows path
   (`/inbox` -> `C:/Program Files/Git/inbox`). Prefix commands that pass routes with
   `MSYS_NO_PATHCONV=1`.

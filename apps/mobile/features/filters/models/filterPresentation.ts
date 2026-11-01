@@ -355,19 +355,27 @@ export function filterDraftFor(revision: FilterRuleVersion | undefined): FilterD
  * `seriesId` and `expectedVersion` travel together — the contract refuses one without the other —
  * and carry the optimistic concurrency that makes a lost update a `409` rather than a silent
  * overwrite of someone else's edit.
+ *
+ * A new rule carries `creationKey` instead: the caller makes one per new rule and passes the same
+ * one on every retry, so a save that committed after Relay stopped waiting is not stored twice.
  */
-export function filterSaveRequest(draft: FilterDraft): FilterCompileRequest {
-  return {
+export function filterSaveRequest(draft: FilterDraft, creationKey?: string): FilterCompileRequest {
+  const request: FilterCompileRequest = {
     // Sent explicitly as null when cleared, because an absent field reads as "unchanged" and would
     // leave a rule pointed at a category the editor no longer shows as selected.
     categoryId: draft.categoryId ?? null,
     enabled: draft.enabled,
     intent: draft.intent.trim(),
     name: draft.name.trim(),
-    ...(draft.series === undefined
-      ? {}
-      : { expectedVersion: draft.series.expectedVersion, seriesId: draft.series.seriesId }),
   };
+  if (draft.series !== undefined) {
+    return {
+      ...request,
+      expectedVersion: draft.series.expectedVersion,
+      seriesId: draft.series.seriesId,
+    };
+  }
+  return creationKey === undefined ? request : { ...request, creationKey };
 }
 
 export function filterNameError(value: string): string | undefined {
@@ -391,6 +399,9 @@ export function filterDraftError(draft: FilterDraft): string | undefined {
 const SAVE_MESSAGES: Readonly<Record<string, string>> = {
   filter_compilation_unavailable:
     "Relay could not compile the rule just now. Your draft is unchanged — try again shortly.",
+  // The save may have landed after Relay stopped waiting, so retrying blind could add a second rule.
+  filter_compilation_timeout:
+    "The rule may already be saved. Check your rules before trying again.",
   filter_revision_conflict:
     "This rule changed somewhere else while you were editing. Reopen it to see the current version, then reapply your change.",
   invalid_filter_intent:
