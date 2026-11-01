@@ -193,9 +193,9 @@ export function QuietScreen() {
       )}
 
       {/*
-        A refusal carries its own deterministic reason -- the rule names no app, the window is not
-        over -- and saying only "could not be saved" for one of those sends a reader to look for a
-        fault that is not there.
+        A refusal carries its own deterministic reason (`REFUSAL_MESSAGES` in ../api/silence.ts),
+        and saying only "could not be saved" for one of those sends a reader to look for a fault
+        that is not there.
       */}
       {silence.writeError !== null && (
         <StatusMessage tone="error">
@@ -209,13 +209,12 @@ export function QuietScreen() {
         title="What Relay decided"
       >
         <AppText tone="muted" variant="caption">
-          Only notifications from apps your rules name. Relay records the app, the rule and the
-          verdict — never the title or the text.
+          Relay logs the app, the rule and the decision. Titles shown here come from this phone's
+          own copy of each notification.
         </AppText>
         {silence.outcomes.length === 0 ? (
           <AppText tone="muted">
-            Nothing yet. Decisions appear here as notifications arrive from the apps your rules
-            name.
+            Nothing yet. Decisions appear here as notifications arrive.
           </AppText>
         ) : (
           <View style={[styles.list, { gap: spacing.xs }]}>
